@@ -37,7 +37,7 @@ import { voiceOf } from '../links/index.js';
 import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
 import { CauseSelectionSession, parseCommitLog } from '../log/index.js';
-import type { CommitInput, CommitRecord } from '../log/index.js';
+import type { AgentCallIdentity, CommitInput, CommitRecord } from '../log/index.js';
 // The record → re-landing input translation, one owner for both replays (the
 // L1 `replayLog` and this session's own `replay`). Not on the `/log` barrel:
 // no importer outside this package has asked for it — PACKAGING.md, Law 2.
@@ -356,13 +356,13 @@ export interface InteractionSession {
    * adapter) is reported as a skip with the thrown message and files a gap —
    * the run continues, and the caller always gets its report.
    */
-  adoptPath(name: string, opts?: { as?: Actor }): Promise<AdoptPathResult>;
+  adoptPath(name: string, opts?: { as?: Actor; agentCall?: AgentCallIdentity; correlationId?: string }): Promise<AdoptPathResult>;
 
   /** Register a view adapter under a declared view identity (R3). */
   mountView(viewId: string, adapter: ViewAdapter): { ok: true } | { ok: false; gap: GapRow };
 
   /** THE single semantic entry point (R4). */
-  dispatch(action: DispatchAction, opts?: { as?: Actor }): Promise<DispatchResult>;
+  dispatch(action: DispatchAction, opts?: { as?: Actor; agentCall?: AgentCallIdentity }): Promise<DispatchResult>;
 
   /** Run a declared analysis: stamp cause, land the AnalysisCommit, step L4, materialize columns (R11). */
   declareAnalysis(id: string, opts?: DeclareAnalysisOptions): Promise<AnalysisCommit>;
@@ -380,7 +380,7 @@ export interface InteractionSession {
    * back and repairs. A rejected proposal never registers a hypothesis and so
    * never advances the FDR wealth ("alpha spent only on real claims").
    */
-  proposeChart(input: ProposeChartInput, opts?: { as?: Actor }): Promise<ProposeChartResult>;
+  proposeChart(input: ProposeChartInput, opts?: { as?: Actor; agentCall?: AgentCallIdentity }): Promise<ProposeChartResult>;
 
   /** The agent-authored charts registered this session (with their gated specs) — the host's render source. */
   charts(): readonly ChartView[];
@@ -1547,7 +1547,7 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, path: target.name, at, kept: res.kept, keptTip: res.from, steps };
   }
 
-  async adoptPath(name: string, opts: { as?: Actor } = {}): Promise<AdoptPathResult> {
+  async adoptPath(name: string, opts: { as?: Actor; agentCall?: AgentCallIdentity; correlationId?: string } = {}): Promise<AdoptPathResult> {
     const sourceTip = this.refs.tipOf(name); // archived paths answer too — adopting from one is fair
     if (sourceTip === undefined) return this.lifecycleGap('adoptPath', `no path named "${name}"`, name);
     if (name === this.refs.currentBranch()) {
@@ -1592,7 +1592,7 @@ class InteractionSessionImpl implements InteractionSession {
       // step and an `effect-failed` gap — which is what actually happened.
       let landed: BringOverResult;
       try {
-        landed = await this.executePlan(plan, { replayedFrom: step.id }, 'adoptPath', opts.as);
+        landed = await this.executePlan(plan, { replayedFrom: step.id }, 'adoptPath', opts.as, opts);
       } catch (error) {
         const detail = `replaying this step threw: ${messageOf(error)}`; // ONE spelling of "what did it say" — see messageOf
         this.gapLedger.file('guard-failed', 'adoptPath', detail, step.id);
@@ -1738,6 +1738,7 @@ class InteractionSessionImpl implements InteractionSession {
     bookmark: { replayedFrom?: string; revertOf?: string },
     op: 'bringOver' | 'undo' | 'adoptPath',
     as: Actor | undefined,
+    attribution?: { readonly agentCall?: AgentCallIdentity; readonly correlationId?: string },
   ): Promise<BringOverResult> {
     const actor = as ?? this.defaultActor;
     const cause: Cause = {
@@ -1759,7 +1760,8 @@ class InteractionSessionImpl implements InteractionSession {
       }
       stamped = { ...action, asOf: this.offerStamp() };
     }
-    const result = await this.dispatch(stamped, { as: actor });
+    const correlated = attribution?.correlationId === undefined ? stamped : { ...stamped, correlationId: attribution.correlationId };
+    const result = await this.dispatch(correlated, { as: actor, ...(attribution?.agentCall !== undefined ? { agentCall: attribution.agentCall } : {}) });
     if (!result.ok) return { ok: false, gap: result.rejection };
     // An analyze recipe's record rides inside the AnalysisCommit (absent only
     // for a degenerate run, which honestly lands nothing); every other recipe
@@ -3364,7 +3366,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   // ── link (layer 4) — edit ONE edge of the graph, as a commit ───────────────────
-  private doLink(action: Extract<DispatchAction, { verb: 'link' }>, as: Actor | undefined, intent: DispatchResult['intent']): DispatchResult {
+  private doLink(action: Extract<DispatchAction, { verb: 'link' }>, as: Actor | undefined, intent: DispatchResult['intent'], agentCall?: AgentCallIdentity): DispatchResult {
     const { source, kind, target, response, mapping, channels, onClear, fold, cause, correlationId } = action;
     const id = edgeId(source, kind, target);
     // the same refusals a declared edge gets, in the same sentences (the response may be null = un-declare)
@@ -3382,6 +3384,7 @@ class InteractionSessionImpl implements InteractionSession {
     const value: LinkDecl | null = response === null ? null : probe;
     const stamped = stampCause(cause, 'link', as);
     const { record } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -3415,10 +3418,11 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   // ── dispatch (R4) ─────────────────────────────────────────────────────────────
-  async dispatch(action: DispatchAction, opts: { as?: Actor } = {}): Promise<DispatchResult> {
+  async dispatch(action: DispatchAction, opts: { as?: Actor; agentCall?: AgentCallIdentity } = {}): Promise<DispatchResult> {
     const verb = action.verb;
     const intent = this.runtime.intentOf(verb);
     const as = opts.as;
+    const agentCall = opts.agentCall;
     switch (action.verb) {
       case 'select': {
         const stale = this.offerGuard('select', action.viewId, kindOfAct(action), action.asOf, intent);
@@ -3433,10 +3437,10 @@ class InteractionSessionImpl implements InteractionSession {
           if (action.seed === undefined) {
             return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.seed is missing — a neighbourhood names the node it walks from, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)', action.field));
           }
-          return this.doNeighbourhoodProbe(action.viewId, action.field, action.seed, action.walk, action.cause, as, intent, action.correlationId);
+          return this.doNeighbourhoodProbe(action.viewId, action.field, action.seed, action.walk, action.cause, as, intent, action.correlationId, agentCall);
         }
         if ('fields' in action) {
-          return this.doCellProbe(action.viewId, action.fields, action.values, action.cause, as, intent, action.correlationId);
+          return this.doCellProbe(action.viewId, action.fields, action.values, action.cause, as, intent, action.correlationId, agentCall);
         }
         if ('values' in action) {
           // SET-1: the MATCH form — many values on one field, optional exclude; `values: null` clears.
@@ -3445,7 +3449,7 @@ class InteractionSessionImpl implements InteractionSession {
             return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.values must be an array of values, or null to clear the match', action.field));
           }
           const value: MatchValue = action.values === null ? null : { values: action.values, ...(action.exclude === true ? { exclude: true } : {}) };
-          return this.doProbe(action.viewId, action.field, value, 'match', action.cause, as, intent, action.correlationId);
+          return this.doProbe(action.viewId, action.field, value, 'match', action.cause, as, intent, action.correlationId, agentCall);
         }
         // The POINT form. Cleared is `null` — the one spelling every kind uses,
         // because it is the only one that survives JSON (README, law 6). Every
@@ -3456,7 +3460,7 @@ class InteractionSessionImpl implements InteractionSession {
         if (action.value === undefined) {
           return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.value is missing — a point names the value it selects, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)', action.field));
         }
-        return this.doProbe(action.viewId, action.field, action.value, 'point', action.cause, as, intent, action.correlationId);
+        return this.doProbe(action.viewId, action.field, action.value, 'point', action.cause, as, intent, action.correlationId, agentCall);
       }
       case 'filter': {
         const stale = this.offerGuard('filter', action.viewId, 'interval', action.asOf, intent);
@@ -3476,30 +3480,31 @@ class InteractionSessionImpl implements InteractionSession {
           as,
           intent,
           action.correlationId,
+          agentCall,
         );
       }
       case 'annotate':
-        return this.doAnnotate(action.target, action.note, action.cause, as, intent);
+        return this.doAnnotate(action.target, action.note, action.cause, as, intent, agentCall, action.correlationId);
       case 'link':
-        return this.doLink(action, as, intent);
+        return this.doLink(action, as, intent, agentCall);
       case 'describe':
         // three modes, told apart by the key each REQUIRES (`DispatchAction`): an accept with its key dropped is not a clear
-        if ('accept' in action) return this.doAccept(action.viewId, action.slot, action.accept, action.cause, as, intent, action.correlationId);
-        if ('decline' in action) return this.doDecline(action.viewId, action.slot, action.decline, action.cause, as, intent, action.correlationId);
-        if (action.proposal === true) return this.doPropose(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId);
-        return this.doDescribe(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId);
+        if ('accept' in action) return this.doAccept(action.viewId, action.slot, action.accept, action.cause, as, intent, action.correlationId, agentCall);
+        if ('decline' in action) return this.doDecline(action.viewId, action.slot, action.decline, action.cause, as, intent, action.correlationId, agentCall);
+        if (action.proposal === true) return this.doPropose(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId, agentCall);
+        return this.doDescribe(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId, agentCall);
       case 'navigate':
-        return this.doNavigate(action.viewId, action.field, action.value, action.cause, as, intent, action.correlationId);
+        return this.doNavigate(action.viewId, action.field, action.value, action.cause, as, intent, action.correlationId, agentCall);
       case 'analyze':
-        return this.doAnalyze(action, as, intent);
+        return this.doAnalyze(action, as, intent, agentCall);
       case 'fork':
         return this.doFork(action.fromCommitId, intent);
       case 'bookmark':
         return this.doBookmark(action.label, action.cause, as, intent);
       case 'reencode':
         return 'bindings' in action
-          ? this.doReencodeSet(action.viewId, action.bindings, action.cause, as, intent, action.correlationId)
-          : this.doReencode(action.viewId, action.channel, action.field, action.cause, as, intent, action.correlationId);
+          ? this.doReencodeSet(action.viewId, action.bindings, action.cause, as, intent, action.correlationId, agentCall)
+          : this.doReencode(action.viewId, action.channel, action.field, action.cause, as, intent, action.correlationId, agentCall);
     }
   }
 
@@ -3516,6 +3521,7 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
     const verb: DispatchVerb = kind === 'interval' ? 'filter' : 'select';
     // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
@@ -3570,6 +3576,7 @@ class InteractionSessionImpl implements InteractionSession {
     //    Parent is the CURSOR: a probe from a past cursor branches (R8 branch-on-act).
     const stamped = stampCause(cause, verb, as);
     const { record, clause } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -3622,6 +3629,7 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
     const verb: DispatchVerb = 'select';
     // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
@@ -3662,6 +3670,7 @@ class InteractionSessionImpl implements InteractionSession {
     //    the CURSOR: a cell select from a past cursor branches (R8), like doProbe.
     const stamped = stampCause(cause, verb, as);
     const { record, clause } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -3721,6 +3730,7 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
     const verb: DispatchVerb = 'select';
     // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
@@ -3803,6 +3813,7 @@ class InteractionSessionImpl implements InteractionSession {
     //    (R8 branch-on-act) — the question and its answer in one value.
     const stamped = stampCause(cause, verb, as);
     const { record, clause } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -3899,9 +3910,10 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** Land one `encoding:` commit (single channel, or the `*`-marked binding set) and fold it live. */
-  private landEncoding(viewId: string, field: string, value: unknown, next: Bindings, cause: Cause, as: Actor | undefined, correlationId: string | undefined): CommitRecord {
+  private landEncoding(viewId: string, field: string, value: unknown, next: Bindings, cause: Cause, as: Actor | undefined, correlationId: string | undefined, agentCall?: AgentCallIdentity): CommitRecord {
     const stamped = stampCause(cause, 'reencode', as);
     const { record } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: a reencode from a past cursor branches, exactly like doProbe
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -3933,6 +3945,7 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
     const guarded = await this.reencodeGuards(viewId, [[channel, field]]);
     if ('gap' in guarded) return this.reject('reencode', intent, guarded.gap);
@@ -3946,7 +3959,7 @@ class InteractionSessionImpl implements InteractionSession {
     const judged = this.judgeBindings(viewId, { ...this.viewEncodings(viewId), [channel]: field }, [channel], guarded.cols);
     if (refuses(judged)) return this.reject('reencode', intent, this.refusalGap(judged, field));
     // 6. land ONE cause-tagged commit (commit-on-intent).
-    const record = this.landEncoding(viewId, channel, field, { [channel]: field }, cause, as, correlationId);
+    const record = this.landEncoding(viewId, channel, field, { [channel]: field }, cause, as, correlationId, agentCall);
     return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, channel, field }, ...(judged.length > 0 ? { coerced: judged } : {}) };
   }
 
@@ -3963,6 +3976,7 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
     const pairs = Object.entries(bindings).map(([channel, field]) => [channel, field] as const);
     if (pairs.some(([, field]) => typeof field !== 'string')) {
@@ -3972,7 +3986,7 @@ class InteractionSessionImpl implements InteractionSession {
     if ('gap' in guarded) return this.reject('reencode', intent, guarded.gap);
     const judged = this.judgeBindings(viewId, { ...this.viewEncodings(viewId), ...bindings }, Object.keys(bindings), guarded.cols);
     if (refuses(judged)) return this.reject('reencode', intent, this.refusalGap(judged, viewId));
-    const record = this.landEncoding(viewId, ENCODING_SET_FIELD, { ...bindings }, bindings, cause, as, correlationId);
+    const record = this.landEncoding(viewId, ENCODING_SET_FIELD, { ...bindings }, bindings, cause, as, correlationId, agentCall);
     return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, bindings }, ...(judged.length > 0 ? { coerced: judged } : {}) };
   }
 
@@ -4074,9 +4088,10 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** Land one prose-lane commit (a slot's words, or its proposal lane) and fold it live. */
-  private landProse(viewId: string, field: string, value: unknown, cause: Cause, as: Actor | undefined, correlationId: string | undefined): CommitRecord {
+  private landProse(viewId: string, field: string, value: unknown, cause: Cause, as: Actor | undefined, correlationId: string | undefined, agentCall?: AgentCallIdentity): CommitRecord {
     const stamped = stampCause(cause, 'describe', as);
     const { record: commit } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -4092,7 +4107,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** PROPOSE: the record lands in the slot's proposal lane (status open), judged by the same laws — never as the live words. */
-  private async doPropose(viewId: string, slot: ProseSlot, record: ProseRecord | null, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined): Promise<DispatchResult> {
+  private async doPropose(viewId: string, slot: ProseSlot, record: ProseRecord | null, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined, agentCall?: AgentCallIdentity): Promise<DispatchResult> {
     const gap = this.proseGuards(viewId, slot, 'describe');
     if (gap !== null) return this.reject('describe', intent, gap);
     if (record === null) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', `a proposal for "${viewId}".${slot} needs a record — null is not a proposal`, slot));
@@ -4102,7 +4117,7 @@ class InteractionSessionImpl implements InteractionSession {
     if (proseRefuses(problems)) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
     const by = stampCause(cause, 'describe', as).requestedBy;
     const value: ProseProposal = { record, status: 'open', by };
-    const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
+    const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId, agentCall);
     this.foldProposal(viewId, slot, value, commit.id);
     const proposed = this.proposalsOf(viewId).find((p) => p.slot === slot)!;
     this.log.publish([commit]);
@@ -4110,7 +4125,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** ACCEPT: the open proposal's record lands on the slot with `author.acceptedFrom` = the proposing commit — one commit, and the proposal reads accepted. */
-  private async doAccept(viewId: string, slot: ProseSlot, proposalId: string, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined): Promise<DispatchResult> {
+  private async doAccept(viewId: string, slot: ProseSlot, proposalId: string, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined, agentCall?: AgentCallIdentity): Promise<DispatchResult> {
     const gap = this.proseGuards(viewId, slot, 'describe');
     if (gap !== null) return this.reject('describe', intent, gap);
     const open = this.activeProposals.get(viewId)?.get(slot);
@@ -4124,7 +4139,7 @@ class InteractionSessionImpl implements InteractionSession {
     const cols = await this.effectiveColumnsOf(table);
     /* v8 ignore next 2 -- an open proposal exists only where the columns could be listed when it was proposed; a provider that answered then and refuses now is a mid-session engine failure this door cannot exercise */
     if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
-    const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
+    const commit = this.landProse(viewId, slot, record, cause, as, correlationId, agentCall);
     this.foldProse(viewId, slot, record);
     const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot)!; // the slot was just set
     const proposed = this.proposalsOf(viewId).find((p) => p.slot === slot)!;
@@ -4133,7 +4148,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** DECLINE: a `declined` value with its reason lands in the lane, answering the open proposal — the words never land. */
-  private async doDecline(viewId: string, slot: ProseSlot, decline: { readonly proposal: string; readonly reason: string }, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined): Promise<DispatchResult> {
+  private async doDecline(viewId: string, slot: ProseSlot, decline: { readonly proposal: string; readonly reason: string }, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined, agentCall?: AgentCallIdentity): Promise<DispatchResult> {
     const gap = this.proseGuards(viewId, slot, 'describe');
     if (gap !== null) return this.reject('describe', intent, gap);
     const open = this.activeProposals.get(viewId)?.get(slot);
@@ -4146,7 +4161,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     const by = stampCause(cause, 'describe', as).requestedBy;
     const value: ProseProposal = { record: open.record, status: 'declined', proposal: decline.proposal, by, reason: decline.reason };
-    const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
+    const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId, agentCall);
     this.foldProposal(viewId, slot, value, commit.id);
     const proposed = this.proposalsOf(viewId).find((p) => p.slot === slot)!;
     this.log.publish([commit]);
@@ -4217,6 +4232,7 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
     const gap = this.proseGuards(viewId, slot, 'describe');
     if (gap !== null) return this.reject('describe', intent, gap);
@@ -4245,7 +4261,7 @@ class InteractionSessionImpl implements InteractionSession {
         return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
       }
     }
-    const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
+    const commit = this.landProse(viewId, slot, record, cause, as, correlationId, agentCall);
     this.foldProse(viewId, slot, record);
     const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot) ?? null;
     this.log.publish([commit]);
@@ -4388,6 +4404,8 @@ class InteractionSessionImpl implements InteractionSession {
     cause: Cause,
     as: Actor | undefined,
     intent: DispatchResult['intent'],
+    agentCall?: AgentCallIdentity,
+    correlationId?: string,
   ): DispatchResult {
     // An annotation is an INERT note (R12): stored as commit data, never parsed.
     // Its `field` names WHAT it annotates (a commit id, a view, a column) — so a
@@ -4395,8 +4413,10 @@ class InteractionSessionImpl implements InteractionSession {
     const stamped = stampCause(cause, 'annotate', as);
     const viewId = `${ANNOTATION_VIEW_PREFIX}${stamped.requestedBy}`; // single-sourced wire prefix (BR-1)
     const { record } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: an annotation from a past cursor branches too
+      ...(correlationId !== undefined ? { correlationId } : {}),
       viewId,
       actorMeta: { actor: stamped.requestedBy },
       kind: 'point',
@@ -4417,11 +4437,12 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): DispatchResult {
     // LY-1: the `layout:${scope}` synthetic identity LANDS a fold-carried
     // commit (see LAYOUT_SOURCE_META); every other navigate stays commit-free.
     if (viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
-      return this.doLayoutNote(viewId, field, value, cause, as, intent, correlationId);
+      return this.doLayoutNote(viewId, field, value, cause, as, intent, correlationId, agentCall);
     }
     if (!this.holdsView(viewId)) {
       return this.reject('navigate', intent, this.gapLedger.file('needs-view', 'navigate', `no declared view "${viewId}"`, viewId));
@@ -4450,6 +4471,7 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): DispatchResult {
     const scope = viewId.slice(LAYOUT_VIEW_PREFIX.length);
     if (scope.length === 0) {
@@ -4466,6 +4488,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     const stamped = stampCause(cause, 'navigate', as);
     const { record } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: a layout set from a past cursor branches too
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -4488,6 +4511,7 @@ class InteractionSessionImpl implements InteractionSession {
     action: Extract<DispatchAction, { verb: 'analyze' }>,
     as: Actor | undefined,
     intent: DispatchResult['intent'],
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
     const { analysisId, input, def, table, cause, correlationId } = action;
     // An act may bring its own declaration — `declareAnalysis(id, def)` as a
@@ -4506,6 +4530,7 @@ class InteractionSessionImpl implements InteractionSession {
       return this.reject('analyze', intent, this.gapLedger.file('needs-analysis-kind', 'analyze', `no declared analysis "${analysisId}"`, analysisId));
     }
     const analysis = await this.declareAnalysis(analysisId, {
+      ...(agentCall !== undefined ? { agentCall } : {}),
       ...(input !== undefined ? { input } : {}),
       ...(def !== undefined ? { def } : {}),
       ...(table !== undefined ? { table } : {}),
@@ -4859,6 +4884,7 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   async declareAnalysis(id: string, opts: DeclareAnalysisOptions = {}): Promise<AnalysisCommit> {
+    const agentCall = opts.agentCall;
     if (opts.def) this.registerAnalysis(id, opts.def);
     const analysis = this.analysis(id);
     if (!analysis) throw new Error(`vizfootprint: unknown analysis "${id}" — declare it in the def or pass { def }`);
@@ -4987,6 +5013,7 @@ class InteractionSessionImpl implements InteractionSession {
       landValue = { id, table, ...declaration, pValue: hypothesis.pValue } satisfies TestAct;
     }
     const { record } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: declaring from a past cursor branches first, then lands
       ...(opts.correlationId !== undefined ? { correlationId: opts.correlationId } : {}),
@@ -5150,7 +5177,8 @@ class InteractionSessionImpl implements InteractionSession {
     return [...this._charts.values()];
   }
 
-  async proposeChart(input: ProposeChartInput, opts: { as?: Actor } = {}): Promise<ProposeChartResult> {
+  async proposeChart(input: ProposeChartInput, opts: { as?: Actor; agentCall?: AgentCallIdentity } = {}): Promise<ProposeChartResult> {
+    const agentCall = opts.agentCall;
     const { id, spec, correlationId } = input;
     const as = opts.as;
     const file = (code: GapCode, detail: string, target?: string): ProposeChartResult => ({
@@ -5231,6 +5259,7 @@ class InteractionSessionImpl implements InteractionSession {
     const fdrStep = this.fdrStepper.step(hRecord);
     this._ledger.push(deepFreeze(fdrStep)); // an audit row is finished when it lands (see the other push site)
     const { record: hypothesisCommit } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: proposing from a past cursor branches first
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -5252,6 +5281,7 @@ class InteractionSessionImpl implements InteractionSession {
     //     structuredClone + JSON with the rest of the log. Rendered above, in
     //     the judge phase — nothing between the two commits may throw.
     const { record: specCommit } = this.log.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),

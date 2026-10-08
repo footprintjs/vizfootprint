@@ -130,6 +130,12 @@ discard later effects (a bare log rethrows the first failure after the drain).
 
 ### ③ `parseCommitLog` — the door back in
 
+`agentCall` is optional inert provenance from the trusted runtime, with a
+non-empty `toolCallId` and optional non-empty `runId`. It is copied and frozen
+with the record, shape-checked on import and preserved by both replay doors.
+`correlationId` remains a turn/gesture grouping label, not exact call evidence.
+Old records with no `agentCall` remain valid; replay never fabricates one.
+
 `deserializeLog` used to check `Array.isArray` and hand the result back cast as
 history. It now runs `parseCommitLog`, which judges five things in order and
 stops at the **first bad record**, so the refusal is a sentence about one commit

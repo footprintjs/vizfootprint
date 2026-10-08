@@ -187,7 +187,7 @@ describe('why() — the anchor `key` falls back to the target\'s own name (no ke
 
 describe('why() — threaded stays honestly false when a correlationId is supplied but the agent tier still misses', () => {
   it('correlationId present, no matching agent frame → threaded:false, correlationId still echoed', () => {
-    const declaring = oneRecordLogWithCorrelation('declaring-corr', 'corr-unmatched')[0]!;
+    const declaring = { ...oneRecordLogWithCorrelation('declaring-corr', 'corr-unmatched')[0]!, agentCall: { toolCallId: 'not-t1', runId: 'r1' } };
     const r = why(
       { kind: 'column', column: 'x' },
       {

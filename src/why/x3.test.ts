@@ -46,7 +46,7 @@ beforeAll(async () => {
   head = decoyCat.record.id;
   // The TRACKED brush — carries the join key as its FIRST-CLASS field (id !== key).
   viz.commit({
-    id: `viz-${TRACKED}`, correlationId: TRACKED, parent: head, viewId: 'B',
+    id: `viz-${TRACKED}`, correlationId: TRACKED, agentCall: { toolCallId: `call-${TRACKED}`, runId: 'run-A' }, parent: head, viewId: 'B',
     actorMeta: { actor: 'agent', label: 'Amount brush' },
     kind: 'interval', field: 'amount', value: [10, 20],
     cause: { requestedBy: 'agent', computedBy: 'system', intent: 'agent brushes amount 10..20' },

@@ -1,6 +1,34 @@
 # `src/agent` — what the served answer owes its reader
 
 This folder is the LENS the agent looks through. `vizAsTools(session)` hands a
+fixed tool surface to its host. Native execution identity is a separate
+host-only third argument, never a model-visible schema field:
+
+```ts
+const port = vizAsTools(session, { agentEventLog: () => nativeFrames });
+// Inside the native runtime's execute(args, ctx):
+await port.call('viz.dispatch', args, {
+  toolCallId: ctx.toolCallId, runId: ctx.runId,
+});
+```
+
+Capture `nativeFrames` from actual tool-start events: payload `toolCallId`,
+metadata `runId` and `runtimeStageId`. The getter is read when `viz.why` runs,
+not when the port is created. A host that receives an already-created port
+can instead pass the current frames as `context.agentEventLog`. A host-owned
+`context.correlationId` may also group a turn, but never proves attribution.
+Model-supplied ids, `agentCall`, or correlation labels are ignored.
+The same identity reaches annotations, analyses, both proposal records and
+new commits made by `paths adopt`; `cause.replayedFrom` separately names the
+old source. Read-only calls do not create a new attribution.
+
+An MCP host can supply `mcpServer(session, { executionContext(request) { … } })`
+to resolve this real context. The resolver receives transport request/session
+ids only as lookup inputs; they are never automatically called agent ids.
+Without that bridge, records remain honestly unlinked. Tool descriptors stay
+fixed and contain no execution-identity properties.
+
+`vizAsTools(session)` hands a
 model nine tools whose bytes never change, and everything the model learns
 arrives as the RESULT of calling one — never as a change to the tool list, so a
 prompt cache downstream stays warm and the library stays a plain MCP server.

@@ -9,15 +9,15 @@
  * lands a `agent`-badged commit on the same session the human brushes, so the
  * two principals share one append-only, cause-tagged log.
  *
- * Each turn runs with a fresh `correlationId` (the 7.4.0 sanctioned path —
- * `AgentRunOptions.correlationId` → every event's `EventMeta.correlationId`),
- * so a later `session.why(target, { agentEventLog })` can join agent frames to
- * the viz/kernel tiers without threading ids through tool args.
+ * A turn's `correlationId` groups its events; it never identifies a tool call.
+ * The runtime's own `(runId, toolCallId)` is passed over the host-only port
+ * context, while the native tool-start stream supplies the recorded stage.
+ * Neither address is taken from model arguments or reconstructed after a run.
  */
 import { Agent, defineTool, isPaused } from 'agentfootprint';
 import { browserAnthropic, mock, type LLMProvider, type LLMRequest, type LLMResponse } from 'agentfootprint/providers';
 import { agentThinkingTrace, type AttTrace } from 'agentfootprint/observe';
-import type { VizToolResult, VizToolsPort } from 'vizfootprint/agent';
+import type { AgentEventFrame, VizToolResult, VizToolsPort } from 'vizfootprint/agent';
 
 const MODEL = process.env['ANTHROPIC_MODEL'] ?? 'claude-opus-4-8';
 const MAX_TOKENS = 2048;
@@ -90,6 +90,9 @@ const apiName = (portName: string): string => portName.replace(/^viz\./, '').rep
  * step for the activity strip, and returns the pretty result as the tool body.
  */
 export function createAssistant(port: VizToolsPort, options: AssistantOptions = {}): Assistant {
+  // Retain frames across turns: old dashboard commits still refer to the call
+  // that made them, even when a later run reuses the provider's call id.
+  const agentEventLog: AgentEventFrame[] = [];
   const nameByApi = new Map<string, string>();
   const tools = port.tools().map((tool) => {
     const name = apiName(tool.name);
@@ -98,8 +101,12 @@ export function createAssistant(port: VizToolsPort, options: AssistantOptions = 
       name,
       description: tool.description,
       inputSchema: tool.inputSchema,
-      execute: async (args: Record<string, unknown>) => {
-        const result = await port.call(nameByApi.get(name)!, args);
+      execute: async (args: Record<string, unknown>, ctx) => {
+        const result = await port.call(nameByApi.get(name)!, args, {
+          toolCallId: ctx.toolCallId,
+          runId: ctx.runId,
+          agentEventLog,
+        });
         options.onActivity?.({ tool: name, args, result });
         return JSON.stringify(result, null, 1);
       },
@@ -129,6 +136,16 @@ export function createAssistant(port: VizToolsPort, options: AssistantOptions = 
     .watch(think);
   for (const tool of tools) builder = builder.tool(tool);
   const agent = builder.build();
+  // The sanctioned, typed native stream is delivered BEFORE execute. Its
+  // EventMeta has the real run and stage; raw footprint emits have no run meta.
+  // Capture one frame per observed call, not an inferred summary of the trace.
+  agent.on('agentfootprint.stream.tool_start', (event) => {
+    agentEventLog.push({
+      toolCallId: event.payload.toolCallId,
+      runId: event.meta.runId,
+      runtimeStageId: event.meta.runtimeStageId,
+    });
+  });
 
   const transcript: string[] = [];
   let turn = 0;
@@ -146,7 +163,7 @@ export function createAssistant(port: VizToolsPort, options: AssistantOptions = 
       transcript.push(`User: ${userMessage}`);
       lastTask = userMessage;
       think.clear(); // fresh trace per user message (the /debug view shows this turn)
-      // 7.4.0 sanctioned cross-tier join key: rides onto every event's EventMeta.
+      // A turn label on EventMeta, independent of the exact native call identity.
       const result = await agent.run({ message }, { correlationId });
       if (isPaused(result)) {
         // The viz tools never askHuman, so a real run won't pause; stay honest.

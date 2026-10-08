@@ -120,9 +120,9 @@ describe("why({ kind: 'selection' }) — what a view holds", () => {
 
   it('a caller-harvested agent event log threads the agent tier for BOTH view-shaped targets', async () => {
     const s = fresh();
-    const pick = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick'), correlationId: 'call-4' });
+    const pick = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick'), correlationId: 'call-4' }, { agentCall: { toolCallId: 'tc-1', runId: 'run-1' } });
     const frame = { toolCallId: 'tc-1', runId: 'run-1', runtimeStageId: 'tool-calls#2', correlationId: 'call-4' };
-    // the batch's own join key is what threads the tool call — the same key a chart's anchor carries
+    // The anchor carries the exact native call; correlation remains a batch label.
     const held = s.why({ kind: 'selection', viewId: 'bar' }, { agentEventLog: [frame] });
     expect(held.ok && held.threaded).toBe(true);
     expect(rows(held)).toEqual([[id(pick), 'declaring'], ['tc-1', 'agent-frame']]);

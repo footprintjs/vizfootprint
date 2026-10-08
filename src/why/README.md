@@ -1,6 +1,14 @@
 # why — one join, five questions
 
-`why(target)` answers *"why is this what it is?"* as a **machine-shaped commit set** — flat `{tier, id, kind}` records plus typed per-tier misses, never prose. It is not an algorithm of its own: it is a **JOIN** over slicers that already exist — footprintjs `sliceForKey` (kernel), a caller-harvested `EventMeta`-shaped frame log (agent), and the cause-tagged commit log's own `correlationId` field (viz) — stitched by one key.
+`why(target)` answers *"why is this what it is?"* as a **machine-shaped commit set** — flat `{tier, id, kind}` records plus typed per-tier misses, never prose. It is not an algorithm of its own: it joins footprintjs `sliceForKey` (kernel), a caller-harvested native frame log (agent), and the cause-tagged commit log (viz). The agent join uses the anchor record's exact host-runtime `agentCall: { runId, toolCallId }`, never a shared turn label.
+
+Exactly one native frame must carry that pair. None means `no-agent-frame`;
+more than one means `ambiguous-join`, listing every candidate and crediting
+none. No log means `no-agent-tier`. A legacy correlation-only record, or a
+call whose runtime run id was unavailable, means `no-join-key` even if one
+frame happens to share its label or call id. `threaded: true` therefore proves
+a unique exact match. Existing recordings still read/replay; the deliberate
+behavior change is that their turn labels no longer claim exact call credit.
 
 Five target kinds ride that one join. What differs is not the algorithm but the **anchor law**: which commit the answer is rooted at, and therefore whose branch it is allowed to name.
 
@@ -38,7 +46,7 @@ session.why({ kind: 'selection', viewId: 'net~edges' });
 //            { viz, s1, 'input-selection' } ]   // the filter it was walked UNDER
 ```
 
-Undo a brush and the answer names what it took back (`{ viz, s2, 'origin' }`). Apply a saved picture of two conditions and each condition names the other (`'sibling'`) plus the clear that made room (`'replaced'`) — one `correlationId` for the gesture, which is also what threads the tool call that asked for it.
+Undo a brush and the answer names what it took back (`{ viz, s2, 'origin' }`). Apply a saved picture of two conditions and each condition names the other (`'sibling'`) plus the clear that made room (`'replaced'`) — one `correlationId` groups the gesture. It does not identify an agent call; exact credit additionally requires the persisted native `agentCall` pair.
 
 **A chart.** Colour the scatter by a computed column, sort its sheet, then pick a category on the bar:
 

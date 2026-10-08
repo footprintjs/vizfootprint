@@ -9,8 +9,8 @@
  *   - viz    : the cause-tagged commit(s), addressed by the FIRST-CLASS
  *              `CommitRecord.correlationId` field (D20 — the commit `id` is
  *              identity-only, never overloaded as the join key);
- *   - agent  : the tool-call frame, addressed by `correlationId` in the
- *              SANCTIONED `EventMeta.correlationId` position (C4). The resolver
+ *   - agent  : the tool-call frame, addressed by the anchor's persisted
+ *              native `(runId, toolCallId)` identity. The resolver
  *              consumes a typed RECORD SHAPE ({@link AgentEventFrame}), never
  *              the agentfootprint package — af stays a devDep;
  *   - kernel : footprintjs `sliceForKey` over the analysis flowchart's commit
@@ -124,22 +124,21 @@ export interface ClauseTravel {
 
 /**
  * The SANCTIONED agent-tier record shape (C4) — the subset of agentfootprint's
- * `EventMeta` a caller-supplied event log carries. The resolver reads
- * `correlationId` here (the EventMeta field), NEVER a tool-args echo. Its
- * unique address is `(runId, runtimeStageId)` OR `toolCallId` — `runtimeStageId`
- * alone COLLIDES across independent agent runs (each fresh executor over the
- * same chart reuses execution indices, e.g. `tool-calls#22`; verified in the
- * x3 acceptance + `sanctioned-path.test.ts`).
+ * `EventMeta` a caller-supplied event log carries, plus payload.toolCallId.
+ * Exact identity is `(runId, toolCallId)`: call ids can repeat across runs,
+ * and several calls in a batch can share runtimeStageId. Correlation is only
+ * a turn label, never proof of a particular call. No address is read from
+ * model arguments or invented by the resolver.
  */
 export interface AgentEventFrame {
-  /** Unambiguous per-call id (the join anchor on the agent side). */
+  /** Call id within the native run (the pair is the join anchor). */
   readonly toolCallId: string;
   /** The run this frame belongs to — disambiguates the colliding `runtimeStageId`. */
   readonly runId: string;
   /** footprintjs runtimeStageId of the tool-call stage. Collides across runs (see above). */
   readonly runtimeStageId: string;
   /**
-   * The cross-tier join key, from `EventMeta.correlationId` (agentfootprint
+   * The turn/batch label, from `EventMeta.correlationId` (agentfootprint
    * ≥ 9524460). ABSENT when the installed runtime doesn't populate it — the
    * caller's harvester passes it through verbatim, never fabricates it.
    */
@@ -147,9 +146,10 @@ export interface AgentEventFrame {
 }
 
 /**
- * The wire join record — one correlationId's cross-tier addresses (adjudication
+ * A turn envelope carrying cross-tier addresses (adjudication
  * C1: promoted from the spike's `JoinRecord`). Every field is OPTIONAL because a
- * real session may thread only some tiers; an unthreaded tier is an honest
+ * a real session may thread only some tiers; the label alone never proves a
+ * particular agent call. An unthreaded tier is an honest
  * {@link CrossTierMiss}, never a fabricated address.
  */
 export interface CorrelationEnvelope {
@@ -257,11 +257,14 @@ export interface CrossTierMiss {
   readonly tier: Tier;
   readonly missing:
     | 'no-viz-commit' // no commit carries the join key / declaring id
-    | 'no-join-key' // no correlationId supplied to thread the agent tier
+    | 'no-join-key' // no exact host-runtime call identity recorded
     | 'no-agent-tier' // no agent event log supplied
     | 'no-agent-frame' // event log supplied but no frame matches the key
+    | 'ambiguous-join' // several frames carry the exact identity; none is guessed
     | 'no-kernel-snapshot' // no footprintjs run recorded for the target
     | 'kernel-key-unresolved'; // the anchor key produced no slice
+  /** Every exact candidate, disclosed only for an ambiguous agent join. */
+  readonly candidates?: readonly AgentEventFrame[];
 }
 
 /**
@@ -273,11 +276,11 @@ export interface CrossTierSlice {
   readonly targetKind: WhyTarget['kind'];
   /** The anchor key the kernel slice roots at (column name / resolved scalar key). */
   readonly key: string;
-  /** The join key, when the target was threaded across tiers. */
+  /** Optional turn/batch label, whether or not exact call attribution succeeds. */
   readonly correlationId?: string;
-  /** Did the join key actually MATCH an agent frame (the cross-tier join landed)? */
+  /** Did the persisted native call identity uniquely match an agent frame? */
   readonly threaded: boolean;
-  /** The viz commit that declared the target (resolved by its correlationId FIELD when threaded). */
+  /** The viz anchor, under the existing viz id/correlation lookup policy. */
   readonly viz: { readonly commitId: string };
   /** The agent tool-call frame, or `null` when the agent tier is an honest miss. */
   readonly agent: { readonly toolCallId: string; readonly runtimeStageId: string; readonly runId: string } | null;
@@ -390,7 +393,7 @@ export interface WhySources {
   readonly kernelSnapshot?: RuntimeSnapshot;
   /** The kernel state key the target's value lives under. Absent → `kernel-key-unresolved`. */
   readonly kernelKey?: string;
-  /** The cross-tier join key. Absent → the agent tier can't be threaded. */
+  /** Turn/batch label for viz grouping; cannot prove an agent call. */
   readonly correlationId?: string;
   /** Caller-supplied agent event frames (sanctioned EventMeta shape). Absent → `no-agent-tier`. */
   readonly agentEventLog?: readonly AgentEventFrame[];

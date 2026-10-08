@@ -68,6 +68,12 @@ export class ClauseRejectedError extends Error {
   }
 }
 
+/** Exact host-runtime tool identity; a turn correlation is not a call identity. */
+export interface AgentCallIdentity {
+  readonly toolCallId: string;
+  readonly runId?: string;
+}
+
 /** The serializable commit — one interaction's worth of clause + provenance. */
 export interface CommitRecord {
   /**
@@ -95,6 +101,8 @@ export interface CommitRecord {
    * absent, or reused by a caller's own scheme.
    */
   readonly correlationId?: string;
+  /** Trusted execution identity, never taken from model-authored tool arguments. */
+  readonly agentCall?: AgentCallIdentity;
   /** Registry key that resolves to the clause `source` identity on replay. */
   readonly viewId: string;
   /** Serializable actor metadata so a fresh registry can rebuild the source. */
@@ -189,6 +197,7 @@ export interface CommitInput {
   parent: string | null;
   /** Optional cross-tier join key — see {@link CommitRecord.correlationId}. */
   correlationId?: string;
+  agentCall?: AgentCallIdentity;
   viewId: string;
   actorMeta: ActorMeta;
   /** The wire's kind vocabulary, owned by {@link CommitRecord.kind} — one union, never a copy of it. */
@@ -370,6 +379,7 @@ export class CauseSelectionSession {
       id: input.id,
       parent: input.parent,
       ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
+      ...(input.agentCall !== undefined && { agentCall: copyAgentCall(input.agentCall) }),
       viewId: input.viewId,
       actorMeta: source.meta,
       kind: input.kind,
@@ -491,7 +501,7 @@ export function serializeLog(records: readonly CommitRecord[]): string {
  * dropped on the way in.
  */
 const RECORD_KEYS = new Set([
-  'id', 'parent', 'correlationId', 'viewId', 'actorMeta', 'kind', 'field',
+  'id', 'parent', 'correlationId', 'agentCall', 'viewId', 'actorMeta', 'kind', 'field',
   'value', 'fields', 'clientViewIds', 'predicateSQL', 'cause', 'ts', 'data',
   'resources', 'extents',
 ]);
@@ -536,6 +546,19 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === 'string');
 }
 
+function agentCallProblem(raw: unknown): string | undefined {
+  if (!isPlainObject(raw) || typeof raw.toolCallId !== 'string' || raw.toolCallId.trim().length === 0) return 'agentCall must carry a non-empty toolCallId';
+  if ('runId' in raw && (typeof raw.runId !== 'string' || raw.runId.trim().length === 0)) return 'agentCall.runId, if present, must be a non-empty string';
+  if (Object.keys(raw).some((key) => key !== 'toolCallId' && key !== 'runId')) return 'agentCall carries an unknown key';
+  return undefined;
+}
+
+function copyAgentCall(raw: AgentCallIdentity): AgentCallIdentity {
+  const problem = agentCallProblem(raw);
+  if (problem !== undefined) throw new Error(`vizfootprint log: ${problem}`);
+  return { toolCallId: raw.toolCallId, ...(raw.runId !== undefined && { runId: raw.runId }) };
+}
+
 /** Everything wrong with ONE record's shape, in reading order. Empty = well-formed. */
 function recordProblems(raw: unknown): string[] {
   const problems: string[] = [];
@@ -551,6 +574,10 @@ function recordProblems(raw: unknown): string[] {
   }
   if ('correlationId' in raw && typeof raw.correlationId !== 'string') {
     problems.push('correlationId, if present, must be a string');
+  }
+  if ('agentCall' in raw) {
+    const problem = agentCallProblem(raw.agentCall);
+    if (problem !== undefined) problems.push(problem);
   }
   if (typeof raw.viewId !== 'string' || raw.viewId.length === 0) problems.push('viewId must be a non-empty string');
 
@@ -614,6 +641,7 @@ function rebuildRecord(raw: Record<string, unknown>): CommitRecord {
     id: raw.id as string,
     parent: raw.parent as string | null,
     ...(raw.correlationId !== undefined && { correlationId: raw.correlationId as string }),
+    ...(raw.agentCall !== undefined && { agentCall: copyAgentCall(raw.agentCall as unknown as AgentCallIdentity) }),
     viewId: raw.viewId as string,
     actorMeta: rebuildActorMeta(raw.actorMeta as Record<string, unknown>),
     kind: raw.kind as CommitRecord['kind'],
@@ -749,6 +777,7 @@ export function replayInput(rec: CommitRecord): CommitInput {
     // answers to the same correlationId (no markReplayed analog: the key
     // is an ADDRESS, not provenance).
     ...(rec.correlationId !== undefined && { correlationId: rec.correlationId }),
+    ...(rec.agentCall !== undefined && { agentCall: rec.agentCall }),
     viewId: rec.viewId,
     actorMeta: rec.actorMeta,
     kind: rec.kind,

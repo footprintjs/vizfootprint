@@ -26,6 +26,8 @@
 import { PROSE_SLOTS } from '../prose/index.js';
 import type { ProseSlot } from '../prose/index.js';
 import type { Actor, Cause } from '../cause/index.js';
+import type { AgentCallIdentity } from '../log/index.js';
+import type { AgentEventFrame } from '../why/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
 import { acceptsOf } from '../encoding/index.js';
 import type { InteractionSession } from '../session/index.js';
@@ -100,14 +102,23 @@ export type VizProposeChartResult =
     }
   | { readonly ok: false; readonly gap: Extract<ProposeChartResult, { ok: false }>['gap'] };
 
+/** Host execution context, NOT part of any model-visible input schema. */
+export interface VizToolCallContext extends AgentCallIdentity {
+  /** Optional host-owned turn/batch label; never used to prove the exact join. */
+  readonly correlationId?: string;
+  readonly agentEventLog?: readonly AgentEventFrame[];
+}
+
 export interface VizToolsPort {
   /** The STATIC tool array — identical bytes for the life of the session. */
   tools(): VizTool[];
   /** Route a tool call by name. Unknown names / verbs return a structured error result. */
-  call(name: string, args?: unknown): Promise<VizToolResult>;
+  call(name: string, args?: unknown, context?: VizToolCallContext): Promise<VizToolResult>;
 }
 
 export interface VizToolsOptions {
+  /** Read at why-call time; a live runtime may append frames between calls. */
+  agentEventLog?: () => readonly AgentEventFrame[] | undefined;
   /** Namespace prefix for tool names. Default `'viz'`. */
   namespace?: string;
   /** Acting principal stamped on dispatches made through this port. Default: the session's default actor. */
@@ -918,13 +929,14 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     };
   }
 
-  async function callDispatch(args: Record<string, unknown>): Promise<VizServedDispatchResult | VizPortRefusal> {
+  async function callDispatch(args: Record<string, unknown>, agentCall?: AgentCallIdentity, correlationId?: string): Promise<VizServedDispatchResult | VizPortRefusal> {
     const action = buildAction(args);
 
     if ('error' in action) return { ok: false, reason: 'PAYLOAD_INVALID', detail: action.error };
     // layer 4: the offer an act answers rides through untouched — the session judges it
     const offered: DispatchAction = (action.verb === 'select' || action.verb === 'filter') && typeof args['asOf'] === 'string' ? { ...action, asOf: args['asOf'] } : action;
-    const result = await session.dispatch(offered, { as: source });
+    const correlated = correlationId === undefined ? offered : { ...offered, correlationId };
+    const result = await session.dispatch(correlated, { as: source, ...(agentCall !== undefined ? { agentCall } : {}) });
     return projectDispatch(result);
   }
 
@@ -942,7 +954,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
    * cites or a person seeks to. Without it a proposal was the one act on this
    * surface that landed a commit and told nobody which.
    */
-  async function callProposeChart(args: Record<string, unknown>): Promise<VizProposeChartResult | VizPortRefusal> {
+  async function callProposeChart(args: Record<string, unknown>, agentCall?: AgentCallIdentity, correlationId?: string): Promise<VizProposeChartResult | VizPortRefusal> {
     if (typeof args['id'] !== 'string') {
       return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'propose_chart requires a string id' };
     }
@@ -951,8 +963,8 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     }
     const claim = typeof args['rationale'] === 'string' ? args['rationale'] : undefined;
     const result: ProposeChartResult = await session.proposeChart(
-      { id: args['id'], spec: args['spec'], ...(claim !== undefined ? { claim } : {}) },
-      { as: source },
+      { id: args['id'], spec: args['spec'], ...(claim !== undefined ? { claim } : {}), ...(correlationId !== undefined ? { correlationId } : {}) },
+      { as: source, ...(agentCall !== undefined ? { agentCall } : {}) },
     );
     if (!result.ok) return { ok: false, gap: result.gap };
     return {
@@ -975,7 +987,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
    * discard / adopt) hide and move refs; not one of them deletes a step, and
    * the results say so in plain words the model reads back.
    */
-  async function callPaths(args: Record<string, unknown>): Promise<VizToolResult> {
+  async function callPaths(args: Record<string, unknown>, agentCall?: AgentCallIdentity, correlationId?: string): Promise<VizToolResult> {
     switch (args['action']) {
       case 'list': {
         const list = session.paths({ includeArchived: args['includeArchived'] === true });
@@ -1034,7 +1046,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
         if (typeof args['name'] !== 'string') {
           return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'paths adopt requires a string name' };
         }
-        return { ...(await session.adoptPath(args['name'], { as: source })) };
+        return { ...(await session.adoptPath(args['name'], { as: source, ...(agentCall !== undefined ? { agentCall } : {}), ...(correlationId !== undefined ? { correlationId } : {}) })) };
       }
       default:
         return {
@@ -1159,30 +1171,34 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
 
   return {
     tools: () => structuredClone(staticTools),
-    async call(name: string, rawArgs?: unknown): Promise<VizToolResult> {
+    async call(name: string, rawArgs?: unknown, context?: VizToolCallContext): Promise<VizToolResult> {
+      // Project ONLY native execution identity; model args cannot stamp it and
+      // a richer runtime context cannot smuggle fields onto the saved record.
+      const agentCall = context === undefined ? undefined : { toolCallId: context.toolCallId, ...(context.runId !== undefined ? { runId: context.runId } : {}) };
       const args = (rawArgs ?? {}) as Record<string, unknown>;
       switch (name) {
         case NAMES.whatsHere:
           return callWhatsHere(args);
         case NAMES.dispatch:
-          return callDispatch(args);
+          return callDispatch(args, agentCall, context?.correlationId);
         case NAMES.declare: {
           if (typeof args['analysisId'] !== 'string') {
             return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'declare_analysis requires a string analysisId' };
           }
-          return callDispatch({ verb: 'analyze', analysisId: args['analysisId'], ...(args['intent'] !== undefined ? { intent: args['intent'] } : {}) });
+          return callDispatch({ verb: 'analyze', analysisId: args['analysisId'], ...(args['intent'] !== undefined ? { intent: args['intent'] } : {}) }, agentCall, context?.correlationId);
         }
         case NAMES.why: {
           const target = coerceWhyTarget(args['target']);
           if ('error' in target) return { ok: false, reason: 'PAYLOAD_INVALID', detail: target.error };
-          return { ...session.why(target) };
+          const agentEventLog = context?.agentEventLog ?? opts?.agentEventLog?.();
+          return { ...session.why(target, { ...(agentEventLog !== undefined ? { agentEventLog } : {}) }) };
         }
         case NAMES.fork:
-          return callDispatch({ verb: 'fork', ...args });
+          return callDispatch({ verb: 'fork', ...args }, agentCall, context?.correlationId);
         case NAMES.bookmark:
-          return callDispatch({ verb: 'bookmark', ...args });
+          return callDispatch({ verb: 'bookmark', ...args }, agentCall, context?.correlationId);
         case NAMES.paths:
-          return await callPaths(args);
+          return await callPaths(args, agentCall, context?.correlationId);
         case NAMES.compare: {
           if (typeof args['a'] !== 'string' || typeof args['b'] !== 'string') {
             return { ok: false, reason: 'PAYLOAD_INVALID', detail: 'compare requires string a and b (path names or commit ids)' };
@@ -1190,7 +1206,7 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
           return { ...(await session.compare(args['a'], args['b'])) };
         }
         case NAMES.proposeChart:
-          return callProposeChart(args);
+          return callProposeChart(args, agentCall, context?.correlationId);
         default:
           return { ok: false, reason: 'UNKNOWN_TOOL', tools: staticTools.map((t) => t.name) };
       }

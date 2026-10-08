@@ -46,7 +46,7 @@ function anchorKeyOf(target: WhyTarget): string {
 
 /**
  * "Why is this value what it is?" — traverse viz → agent → kernel via the
- * threaded `correlationId` and return the composed minimal commit set.
+ * recorded native execution identity and return the composed minimal commit set.
  *
  * The VIZ tier is the anchor: if the declaring commit cannot be located, the
  * target itself is unlocatable → `WhyTargetMiss`. The agent + kernel tiers each
@@ -110,7 +110,12 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
   for (const rel of sources.relatedCommits ?? []) addViz(rel.id, rel.kind, rel); // the whole row: a related commit already carries whichever qualifiers its role has
 
   // ── agent ─────────────────────────────────────────────────────────────────────
-  const agentRes = resolveAgentTier(sources.correlationId, sources.agentEventLog);
+  // The legacy viz correlation fallback can name a different record. That
+  // compatibility lookup is not proof of THIS target's native invocation.
+  const identity = viz.commitId === sources.declaringCommitId
+    ? sources.vizRecords.find((r) => r.id === viz.commitId)!.agentCall
+    : undefined;
+  const agentRes = resolveAgentTier(identity, sources.agentEventLog);
   let agent: CrossTierSlice['agent'] = null;
   if (isMiss(agentRes)) {
     misses.push(agentRes.miss);
@@ -137,7 +142,7 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
   }
 
   const key = sources.kernelKey ?? anchorKeyOf(target);
-  const threaded = sources.correlationId !== undefined && agent !== null;
+  const threaded = agent !== null;
 
   return {
     ok: true,

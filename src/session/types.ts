@@ -14,7 +14,7 @@ import type { ResourceInfo, SourceInfo } from '../source/types.js';
 import type { Actor, Cause } from '../cause/index.js';
 import type { EmissionKind, FieldMapping, LinkEdge, LinkGraph, LinkOnClear, LinkResponse, LinkKind, ChannelPair } from '../links/types.js';
 import type { ReachRelation } from '../links/reach.js';
-import type { CommitRecord } from '../log/index.js';
+import type { AgentCallIdentity, CommitRecord } from '../log/index.js';
 import type { CauseClause, SelectionPort } from '../selection/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
@@ -277,7 +277,7 @@ export type DispatchAction =
     }
   /** Layer 4: `asOf` names the offer (from whats_here.offers) an act answers; a stale one is refused by naming the current one. */
   | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
-  | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
+  | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause; readonly correlationId?: string }
   /**
    * Layer 4 `link`: edit ONE edge of the link graph — what `target` does with
    * `source`'s `kind` emission. Validated like a declared edge (a refusal in a
@@ -1619,6 +1619,8 @@ export interface Overview {
 
 /** Options for a direct `declareAnalysis` invocation. */
 export interface DeclareAnalysisOptions {
+  /** Host-runtime execution identity, separate from the batch correlation. */
+  readonly agentCall?: AgentCallIdentity;
   /** Register (and validate) a def/module under `id` before running it (SPEC §7 `declareAnalysis(id, def)`). */
   readonly def?: import('../def/types.js').AnalysisSlot;
   /** Explicit input rows. Absent = the current selection (or the FULL table for a columns-channel analysis). */

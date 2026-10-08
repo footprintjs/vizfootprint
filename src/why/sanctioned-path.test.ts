@@ -1,21 +1,10 @@
 /**
  * A3 — the SANCTIONED-PATH test (adjudication C4). A real agentfootprint run
- * (mock provider, devDep) drives the agent tier: the join key is threaded via
- * `run({ correlationId })` and the resolver finds the frame by the SANCTIONED
- * `EventMeta.correlationId` FIELD — NOT by a tool-args echo (the x3 workaround
- * is retired: the tool schema no longer carries `correlationId`).
- *
- * C4 CLOSED (pinned): the installed agentfootprint (9.82.0) DOES populate
- * `EventMeta.correlationId` from `run({ correlationId })` — `createExecutor`
- * folds it into the run context (`node_modules/agentfootprint/dist/esm/core/
- * Agent.js:639,645`) and `buildEventMeta` forwards it onto every emitted event
- * (`.../bridge/eventMeta.js:39`, typed at `.d.ts:35`; the run option itself is
- * `AgentRunOptions.correlationId` at `.../core/Agent.d.ts:51`). The sanctioned
- * wiring (af source 9524460 / SPEC §11 C4) is now live, so the resolver finds
- * the agent frame straight off the real run's harvested `EventMeta` — no
- * manual stamping workaround needed. A mismatched correlationId (no matching
- * frame) still degrades to the honest typed `no-agent-frame` miss (kept below)
- * — the fallback stays honest even on the now-wired path.
+ * (mock provider, devDep) drives the agent tier. The exact address is native
+ * `(runId, payload.toolCallId)`, never a model-argument echo. EventMeta still
+ * carries the run-option correlationId as a turn label, but it cannot select
+ * a particular call. The in-repo native-host regression additionally proves
+ * execute's context supplies this exact identity on ordinary tool calls.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -80,7 +69,7 @@ async function runAgentHarvestingFrames(): Promise<{
       ...(ev.meta.correlationId !== undefined ? { correlationId: ev.meta.correlationId } : {}),
     });
   });
-  // The SANCTIONED call: the join key rides in the run options
+  // The SANCTIONED turn label rides in the run options
   // (`AgentRunOptions.correlationId`, publicly typed — no cast needed).
   await agent.run({ message: 'filter amount 10..20' }, { correlationId: CORR });
   off();
@@ -105,29 +94,29 @@ describe('A3 — sanctioned agent-tier path (C4)', () => {
     expect(typeof frames[0]!.runtimeStageId).toBe('string');
     expect(frames[0]!.runtimeStageId.length).toBeGreaterThan(0);
     // CLOSED C4 gap: installed af 7.4.0 DOES populate EventMeta.correlationId
-    // from the run-option join key, verbatim.
+    // from the run-option turn label, verbatim.
     expect(frames[0]!.correlationId).toBe(CORR);
   });
 
-  it('the resolver finds the frame via the SANCTIONED EventMeta FIELD directly off the real run — no manual stamping', async () => {
+  it('the resolver finds the frame by its exact native run and call identity', async () => {
     const { frames } = await runAgentHarvestingFrames();
     // Unlike the retired x3 workaround, this is the RAW harvested frame log —
     // nothing stamped or fabricated. af ≥7.4.0 already copied the run-option
     // correlationId into ev.meta.correlationId (SANCTIONED field position).
-    const res = resolveAgentTier(CORR, frames);
+    const res = resolveAgentTier({ toolCallId: frames[0]!.toolCallId, runId: frames[0]!.runId }, frames);
     expect('miss' in res).toBe(false);
     if ('miss' in res) throw new Error('expected a frame');
     expect(res.toolCallId).toBe(`call-${CORR}`);
     expect(res.correlationId).toBe(CORR);
-    // proven: it resolved by the correlationId FIELD, not by any tool-args echo.
+    // Proven: exact run/call identity resolved, independently of the turn label.
   });
 
-  it('a mismatched correlationId still degrades to the typed no-agent-frame miss (fallback stays honest)', async () => {
+  it('a call that never ran degrades to no-agent-frame without correlation fallback', async () => {
     const { frames } = await runAgentHarvestingFrames();
-    // Same real, wired frame log — but asked about a join key that never ran.
+    // Same native frame log, but asked about a call identity that never ran.
     // The now-live sanctioned path must still fail HONESTLY, not silently
     // fall back to the wrong frame or a fake match.
-    const res = resolveAgentTier('corr-never-ran', frames);
+    const res = resolveAgentTier({ toolCallId: 'call-never-ran', runId: frames[0]!.runId }, frames);
     expect('miss' in res && res.miss).toEqual({ tier: 'agent', missing: 'no-agent-frame' });
   });
 
@@ -137,7 +126,7 @@ describe('A3 — sanctioned agent-tier path (C4)', () => {
     // viz + kernel tiers (a real footprintjs run) so the composed answer is full.
     const viz = new CauseSelectionSession();
     viz.commit({
-      id: `viz-${CORR}`, correlationId: CORR, parent: null, viewId: 'B',
+      id: `viz-${CORR}`, correlationId: CORR, agentCall: { toolCallId: frames[0]!.toolCallId, runId: frames[0]!.runId }, parent: null, viewId: 'B',
       actorMeta: { actor: 'agent' }, kind: 'interval', field: 'amount', value: [10, 20],
       cause: { requestedBy: 'agent', computedBy: 'system' },
     });

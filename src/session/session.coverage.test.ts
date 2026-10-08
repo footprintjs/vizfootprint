@@ -556,18 +556,20 @@ describe('why(target) — the real cross-tier assembly (session.test.ts only pin
     }
   });
 
-  it('a hypothesis target THREADED through a correlationId + agentEventLog resolves ALL three tiers', async () => {
+  it('a hypothesis target threaded through exact native identity + agentEventLog resolves ALL three tiers', async () => {
     const s = freshSession();
-    const declared = await s.declareAnalysis('correlation', { correlationId: 'corr-42' });
-    expect(declared.fdrStep).toBeDefined();
     const frame: AgentEventFrame = { toolCallId: 'tool-1', runId: 'run-1', runtimeStageId: 'analyze#1', correlationId: 'corr-42' };
+    const declared = await s.declareAnalysis('correlation', { correlationId: 'corr-42', agentCall: { toolCallId: frame.toolCallId, runId: frame.runId } });
+    expect(declared.fdrStep).toBeDefined();
 
     const w = s.why({ kind: 'hypothesis', analysisId: 'correlation' }, { agentEventLog: [frame] });
     expect(w.ok).toBe(true);
     if (w.ok) {
       expect(w.correlationId).toBe('corr-42');
       expect(w.threaded).toBe(true);
+      expect(w.viz.commitId).toBe(declared.commit!.id);
       expect(w.agent).toEqual({ toolCallId: 'tool-1', runtimeStageId: 'analyze#1', runId: 'run-1' });
+      expect(w.kernel).not.toBeNull();
       expect(w.fdr).toEqual({ step: declared.fdrStep!.step, reject: declared.fdrStep!.reject });
     }
   });

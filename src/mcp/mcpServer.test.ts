@@ -10,6 +10,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildDashboard, vizAsTools } from '../agent/index.js';
 import { mcpServer } from './index.js';
+import type { McpServerOptions } from './index.js';
 import { makeDashboardDef } from '../session/dashboard.fixture.js';
 import type { InteractionSession } from '../session/index.js';
 
@@ -17,9 +18,10 @@ function freshSession(): InteractionSession {
   return buildDashboard(makeDashboardDef()).createSession();
 }
 
-async function connectClient(session: InteractionSession) {
+async function connectClient(session: InteractionSession, opts?: McpServerOptions, sessionId?: string) {
   const [clientT, serverT] = InMemoryTransport.createLinkedPair();
-  const server = mcpServer(session);
+  if (sessionId !== undefined) serverT.sessionId = sessionId;
+  const server = mcpServer(session, opts);
   await server.connect(serverT);
   const client = new Client({ name: 'test-host', version: '0.0.0' });
   await client.connect(clientT);
@@ -31,6 +33,29 @@ const text = (res: unknown) =>
   JSON.parse(((res as { content: { type: string; text: string }[] }).content[0]!).text) as Record<string, unknown>;
 
 describe('mcpServer — a real MCP server backed by a live session', () => {
+  it('only a trusted host bridge, never transport or model ids, supplies exact agent identity', async () => {
+    const session = freshSession();
+    const frame = { toolCallId: 'native-call', runId: 'native-run', runtimeStageId: 'tool-calls#22' };
+    const requests: unknown[] = [];
+    const client = await connectClient(session, {
+      agentEventLog: () => [frame],
+      executionContext: (request) => { requests.push(request); return frame; },
+    }, 'transport-session');
+    const args = { verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', agentCall: { toolCallId: 'spoof', runId: 'spoof' } };
+    await client.callTool({ name: 'viz.dispatch', arguments: args });
+    expect(session.log.records[0]!.agentCall).toEqual({ toolCallId: 'native-call', runId: 'native-run' });
+    expect(text(await client.callTool({ name: 'viz.why', arguments: { target: { kind: 'selection', viewId: 'bar' } } }))).toMatchObject({ threaded: true, agent: frame });
+    expect(requests[0]).toMatchObject({ name: 'viz.dispatch', sessionId: 'transport-session' });
+    const unlinked = freshSession();
+    const ordinary = await connectClient(unlinked);
+    await ordinary.callTool({ name: 'viz.dispatch', arguments: args });
+    expect(unlinked.log.records[0]!.agentCall).toBeUndefined();
+    const absent = freshSession();
+    const noEvidence = await connectClient(absent, { executionContext: () => undefined });
+    await noEvidence.callTool({ name: 'viz.dispatch', arguments: args });
+    expect(absent.log.records[0]!.agentCall).toBeUndefined();
+  });
+
   it('tools/list returns the FIXED nine semantic tools', async () => {
     const client = await connectClient(freshSession());
     const { tools } = await client.listTools();
