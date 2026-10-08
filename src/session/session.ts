@@ -1099,8 +1099,13 @@ class InteractionSessionImpl implements InteractionSession {
     // today's version onto it would be the replay inventing provenance.
     const stamp = this.log.stampData;
     this.log.stampData = undefined;
+    const publications: CommitRecord[] = [];
     try {
-      for (const input of inputs) this.landed(this.log.commit(input).record);
+      for (const input of inputs) {
+        const { record } = this.log.commit(input, { deferPublication: true });
+        this.landed(record);
+        publications.push(record);
+      }
     } finally {
       this.log.stampData = stamp;
     }
@@ -1222,8 +1227,10 @@ class InteractionSessionImpl implements InteractionSession {
 
     // Counted BEFORE the fold is read: `filed` is what the REPLAY could not do,
     // and `overview()` is an ordinary read the caller could have made itself.
+    this.log.publish(publications);
     const filed = this.gapLedger.size - gapsBefore;
-    return { ok: true, landed: records.length, reran, filed, overview: await this.overview() };
+    const overview = await this.overview();
+    return { ok: true, landed: records.length, reran, filed, overview };
   }
 
   /** Every (view, emission kind) this dashboard can be acted on with — see `./offers.ts`. */
@@ -3384,7 +3391,7 @@ class InteractionSessionImpl implements InteractionSession {
       field: 'response',
       value,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(record);
     if (value === null) {
       this.activeLinks.delete(id);
@@ -3394,6 +3401,7 @@ class InteractionSessionImpl implements InteractionSession {
       this.activeLinkCommits.set(id, record.id);
     }
     const linked = applyLinkOverrides(this.runtime.links, this.activeLinks).edges.find((e) => e.id === id);
+    this.log.publish([record]);
     return { ok: true, verb: 'link', intent, commit: record, ...(linked !== undefined ? { linked } : {}) };
   }
 
@@ -3571,7 +3579,7 @@ class InteractionSessionImpl implements InteractionSession {
       field,
       value,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(record);
     if (landing === null) {
       if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture
@@ -3592,7 +3600,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
-    this.notifyAdapter(viewId, clause, verb, record.id);
+    this.log.publish([record], () => this.notifyAdapter(viewId, clause, verb, record.id));
     return { ok: true, verb, intent, commit: record };
   }
 
@@ -3664,7 +3672,7 @@ class InteractionSessionImpl implements InteractionSession {
       fields: [fields[0], fields[1]],
       value: values,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(record);
     if (landing === null) {
       if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture — the same rule as the point door
@@ -3679,7 +3687,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
-    this.notifyAdapter(viewId, clause, verb, record.id);
+    this.log.publish([record], () => this.notifyAdapter(viewId, clause, verb, record.id));
     return { ok: true, verb, intent, commit: record };
   }
 
@@ -3805,7 +3813,7 @@ class InteractionSessionImpl implements InteractionSession {
       fields: [fields[0], fields[1]],
       value,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(record);
     if (landing === null) {
       if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it — the same rule as the point door
@@ -3820,7 +3828,7 @@ class InteractionSessionImpl implements InteractionSession {
     }
     // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
     // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
-    this.notifyAdapter(viewId, clause, verb, record.id);
+    this.log.publish([record], () => this.notifyAdapter(viewId, clause, verb, record.id));
     return { ok: true, verb, intent, commit: record };
   }
 
@@ -3909,10 +3917,11 @@ class InteractionSessionImpl implements InteractionSession {
       field,
       value,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(record);
     this.activeEncodings.set(viewId, Object.freeze({ ...(this.activeEncodings.get(viewId) ?? {}), ...next }));
     this.noteFoldCommits(this.activeEncodingCommits, viewId, Object.keys(next), record.id); // R4: live, for the same reason activeFilterCommits is — a fold only right after a seek is not a fold
+    this.log.publish([record]);
     return record;
   }
 
@@ -4077,7 +4086,7 @@ class InteractionSessionImpl implements InteractionSession {
       field,
       value,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(commit);
     return commit;
   }
@@ -4095,7 +4104,9 @@ class InteractionSessionImpl implements InteractionSession {
     const value: ProseProposal = { record, status: 'open', by };
     const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
     this.foldProposal(viewId, slot, value, commit.id);
-    return { ok: true, verb: 'describe', intent, commit, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
+    const proposed = this.proposalsOf(viewId).find((p) => p.slot === slot)!;
+    this.log.publish([commit]);
+    return { ok: true, verb: 'describe', intent, commit, proposed };
   }
 
   /** ACCEPT: the open proposal's record lands on the slot with `author.acceptedFrom` = the proposing commit — one commit, and the proposal reads accepted. */
@@ -4116,7 +4127,9 @@ class InteractionSessionImpl implements InteractionSession {
     const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
     this.foldProse(viewId, slot, record);
     const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot)!; // the slot was just set
-    return { ok: true, verb: 'describe', intent, commit, described, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
+    const proposed = this.proposalsOf(viewId).find((p) => p.slot === slot)!;
+    this.log.publish([commit]);
+    return { ok: true, verb: 'describe', intent, commit, described, proposed };
   }
 
   /** DECLINE: a `declined` value with its reason lands in the lane, answering the open proposal — the words never land. */
@@ -4135,7 +4148,9 @@ class InteractionSessionImpl implements InteractionSession {
     const value: ProseProposal = { record: open.record, status: 'declined', proposal: decline.proposal, by, reason: decline.reason };
     const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
     this.foldProposal(viewId, slot, value, commit.id);
-    return { ok: true, verb: 'describe', intent, commit, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
+    const proposed = this.proposalsOf(viewId).find((p) => p.slot === slot)!;
+    this.log.publish([commit]);
+    return { ok: true, verb: 'describe', intent, commit, proposed };
   }
 
   /** The live selections as JSON-safe data — what a caption's basis is compared against. */
@@ -4233,6 +4248,7 @@ class InteractionSessionImpl implements InteractionSession {
     const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
     this.foldProse(viewId, slot, record);
     const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot) ?? null;
+    this.log.publish([commit]);
     return { ok: true, verb: 'describe', intent, commit, described };
   }
 
@@ -4387,8 +4403,9 @@ class InteractionSessionImpl implements InteractionSession {
       field: target.length > 0 ? target : ANNOTATION_FIELD,
       value: note,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(record);
+    this.log.publish([record]);
     return { ok: true, verb: 'annotate', intent, commit: record, annotated: { target, note } };
   }
 
@@ -4458,11 +4475,12 @@ class InteractionSessionImpl implements InteractionSession {
       field,
       value,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(record);
     const current = this.activeLayouts.get(scope) ?? {};
     this.activeLayouts.set(scope, Object.freeze({ ...current, [field]: value }));
     this.noteFoldCommits(this.activeLayoutCommits, scope, [field], record.id); // R4
+    this.log.publish([record]);
     return { ok: true, verb: 'navigate', intent, navigatedTo: viewId, commit: record };
   }
 
@@ -4983,7 +5001,7 @@ class InteractionSessionImpl implements InteractionSession {
       field: landField,
       value: landValue,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(record);
 
     // R11: a columns-channel output materializes back into the data space so it
@@ -5055,6 +5073,7 @@ class InteractionSessionImpl implements InteractionSession {
       this.noteAnalysisProvenance(id, baseProv);
     }
 
+    this.log.publish([record]);
     return {
       analysisId: id,
       kind: analysis.kind,
@@ -5224,7 +5243,7 @@ class InteractionSessionImpl implements InteractionSession {
       // its claim was judged against just above.
       value: { id, table: this.defaultTable, pValue: 1 } satisfies TestAct,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(hypothesisCommit);
 
     // (b) register the chart as a session view (the render source). The gated
@@ -5242,7 +5261,7 @@ class InteractionSessionImpl implements InteractionSession {
       field: CHART_FIELD,
       value: payload,
       cause: stamped,
-    });
+    }, { deferPublication: true });
     this.landed(specCommit);
 
     const hypothesis: ChartHypothesis = { chartId: id, claim, authoredBy: computedBy, tested: false, pValueUsed: 1, fdrStep };
@@ -5256,6 +5275,7 @@ class InteractionSessionImpl implements InteractionSession {
       ledgerStep: fdrStep.step,
     };
     this._charts.set(id, deepFreeze(view)); // a proposed chart is finished when it lands: `charts()` and `overview().charts` hand it out
+    this.log.publish([hypothesisCommit, specCommit]);
     return { ok: true, chartId: id, view, hypothesis, commit: specCommit, fdrStep };
   }
 

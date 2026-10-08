@@ -239,6 +239,10 @@ export class CauseSelectionSession {
    * second.
    */
   readonly #ids = new Set<string>();
+  /** Clauses landed by a wider session transition, awaiting its settled publication. */
+  readonly #unpublished = new Map<CommitRecord, CauseClause>();
+  readonly #publicationQueue: (() => void)[] = [];
+  #publishing = false;
   /** Set by the session: the data versions to stamp on every commit that names none (table → version). */
   stampData?: () => Readonly<Record<string, string>> | undefined;
   /** The {@link stampData} twin for declared RESOURCES (name → version) — a separate hook because it is a separate map on the record. */
@@ -318,7 +322,7 @@ export class CauseSelectionSession {
    * [`src/detach/README.md`](../detach/README.md) says must be impossible: what
    * is on screen would no longer be derived from the trace.
    */
-  commit(input: CommitInput): { record: CommitRecord; clause: CauseClause } {
+  commit(input: CommitInput, opts: { deferPublication?: boolean } = {}): { record: CommitRecord; clause: CauseClause } {
     // ── JUDGE ────────────────────────────────────────────────────────────────
     // An id names ONE commit — the law `parseCommitLog` keeps on the way in, kept here on
     // the way out so a log this library writes is one it can read back.
@@ -411,6 +415,53 @@ export class CauseSelectionSession {
     this.#ids.add(record.id);
     this.#view = undefined; // the log moved: the next `records` read rebuilds the snapshot
 
+    this.#unpublished.set(record, clause);
+    if (opts.deferPublication !== true) this.publish([record]);
+    return { record, clause };
+  }
+
+  /**
+   * Publish exactly the records this caller has settled, once each. A batch is
+   * queued whole before delivery, so a listener's nested act cannot overtake
+   * its remaining effects. There is no ambient transaction across awaits:
+   * concurrent session doors can never publish each other's pending records.
+   * Bare `commit` publishes immediately; an interaction session defers until
+   * its cursor, refs and folds (including materialization) agree with the log.
+   */
+  publish(records: readonly CommitRecord[], afterPublication?: () => void): void {
+    let queued = false;
+    for (const record of records) {
+      const clause = this.#unpublished.get(record);
+      if (clause === undefined) continue; // already published, or not this log's record
+      this.#unpublished.delete(record);
+      this.#publicationQueue.push(() => this.#publishClause(record, clause));
+      queued = true;
+    }
+    if (queued && afterPublication !== undefined) this.#publicationQueue.push(afterPublication);
+    if (this.#publishing) return;
+    this.#publishing = true;
+    let failed = false;
+    let firstError: unknown;
+    try {
+      // New effects appended by a listener are visited after this batch. An
+      // advancing index keeps a large replay linear, unlike repeated shift().
+      for (let i = 0; i < this.#publicationQueue.length; i++) {
+        try {
+          this.#publicationQueue[i]!();
+        } catch (error) {
+          if (!failed) { failed = true; firstError = error; }
+        }
+      }
+    } finally {
+      this.#publicationQueue.length = 0;
+      this.#publishing = false;
+    }
+    // A bare log still throws a failed observer. Attempt the rest first:
+    // records are landed and removing their pending effects would lose them.
+    if (failed) throw firstError;
+  }
+
+  #publishClause(record: CommitRecord, clause: CauseClause): void {
     // ── OUTBOUND (not part of the act) ───────────────────────────────────────
     // Pushing the clause onto the port emits to every listener a host attached
     // (and an engine may relay it on) — third-party code running after the
@@ -422,7 +473,6 @@ export class CauseSelectionSession {
       if (this.onSelectionUpdateFailed === undefined) throw error;
       this.onSelectionUpdateFailed(error, record);
     }
-    return { record, clause };
   }
 }
 

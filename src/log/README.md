@@ -118,6 +118,16 @@ ordered this way, is in
 [`src/session/README.md`](../session/README.md) — "an act either fully happens,
 or it does not happen at all".
 
+**Settled publication.** Bare `commit(input)` still publishes immediately.
+A wider interaction session uses `commit(input, { deferPublication: true })`
+and `publish([record, ...], afterPublication?)` only after its cursor, refs,
+folds and materialization outcome agree. Publication cannot append or edit
+history, and releases only these exact record objects, once. A replay or chart
+proposal releases every clause after its complete transition, not one temporary
+middle state per record. The optional callback queues mounted render effects
+behind the batch. Nested effects join the same FIFO; a failed effect does not
+discard later effects (a bare log rethrows the first failure after the drain).
+
 ### ③ `parseCommitLog` — the door back in
 
 `deserializeLog` used to check `Array.isArray` and hand the result back cast as

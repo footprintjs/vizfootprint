@@ -129,6 +129,19 @@ refusal is now the first thing `commit()` judges, before it registers a source.
 
 ### 3. AN OUTBOUND EFFECT IS NOT PART OF THE ACT
 
+Selection listeners are announced only after the session's record, cursor,
+refs, active folds and provenance are settled. An analysis also awaits its
+materialization attempt before announcing its clause (a failed write remains a
+typed gap). A multi-record proposal or replay still emits one notification per
+record, each exactly once, but every notification sees the complete settled
+transition. `applySaved` remains a sequence of separately settled dispatches.
+Publication is an explicit per-transition release, not a global transaction
+held across awaits: one concurrent operation cannot flush another's pending
+effects. Reentrant acts follow the settled cursor, and their notifications and
+mounted renders queue behind the current batch. A later listener may therefore
+see a newer, fully settled reentrant act, never a half-applied one; the earlier
+notification does not promise to pin the cursor backwards.
+
 Some steps genuinely can fail and are genuinely not the act: they reach outside
 the session, into code this library does not own. A mounted adapter re-rendering
 (`ViewAdapter.applyClause`, R3 inbound). The selection port (`../selection`; the
