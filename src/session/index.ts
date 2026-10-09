@@ -18,6 +18,7 @@ export type {
   // read by the agent port's fire-time judge as well as by every caller of `dispatch`
   WalkAsk,
   AnalysisCommit,
+  GuardRefusalResult,
   BookmarkView,
   BranchInfo,
   TimeState,

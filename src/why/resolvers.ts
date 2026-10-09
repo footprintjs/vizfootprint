@@ -22,7 +22,7 @@
  */
 
 import { keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'footprintjs/trace';
-import type { CommitRecord } from '../log/index.js';
+import type { AgentCallIdentity, CommitRecord } from '../log/index.js';
 import type { AgentEventFrame, CrossTierMiss, RuntimeSnapshot } from './types.js';
 
 /** A resolver either returns its tier's payload or a typed {@link CrossTierMiss}. */
@@ -62,18 +62,20 @@ export function resolveVizTier(
 
 /**
  * AGENT tier — resolve the tool-call frame from a CALLER-SUPPLIED event log by
- * the SANCTIONED `EventMeta.correlationId` field (C4). agentfootprint is never
+ * exact host-runtime call identity. Turn correlation never proves a call.
+ * agentfootprint is never
  * imported here; the resolver consumes the typed {@link AgentEventFrame} shape.
  */
 export function resolveAgentTier(
-  correlationId: string | undefined,
+  identity: AgentCallIdentity | undefined,
   eventLog: readonly AgentEventFrame[] | undefined,
 ): Resolved<AgentEventFrame> {
   if (eventLog === undefined) return { miss: { tier: 'agent', missing: 'no-agent-tier' } };
-  if (correlationId === undefined) return { miss: { tier: 'agent', missing: 'no-join-key' } };
-  const frame = eventLog.find((f) => f.correlationId === correlationId);
-  if (!frame) return { miss: { tier: 'agent', missing: 'no-agent-frame' } };
-  return frame;
+  if (identity?.runId === undefined) return { miss: { tier: 'agent', missing: 'no-join-key' } };
+  const frames = eventLog.filter((f) => f.toolCallId === identity.toolCallId && f.runId === identity.runId);
+  if (frames.length === 0) return { miss: { tier: 'agent', missing: 'no-agent-frame' } };
+  if (frames.length > 1) return { miss: { tier: 'agent', missing: 'ambiguous-join', candidates: frames.map((f) => ({ ...f })) } };
+  return frames[0]!;
 }
 
 /** The kernel tier's resolved payload. */

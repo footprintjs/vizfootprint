@@ -17,6 +17,7 @@ export type {
   VizTool,
   VizToolResult,
   VizToolsPort,
+  VizToolCallContext,
   VizToolsOptions,
   // the ACTS, typed: what a consumer reads a field off instead of guessing at a bag
   VizDispatchResult,

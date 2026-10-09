@@ -298,10 +298,9 @@ describe('R8 — append-only enforced by construction (promotion strengthening)'
     const descriptors = named.map((n) => [n, Object.getOwnPropertyDescriptor(proto, n)!] as const);
     const methods = descriptors.filter(([, d]) => typeof d.value === 'function').map(([n]) => n);
     const accessors = descriptors.filter(([, d]) => d.get !== undefined || d.set !== undefined).map(([n]) => n);
-    // The class exposes exactly one write method. If this test ever needs to
-    // change because a new method was added, that new method must NOT be a
-    // delete/remove/edit — re-read R8 before adding one.
-    expect(methods).toEqual(['commit']);
+    // commit is still the only record writer. publish only releases a landed
+    // record's pending clause; it cannot edit, remove, or append a record.
+    expect(methods).toEqual(['commit', 'publish']);
     // …and exactly one READ accessor, which has no setter: `records` cannot be
     // replaced wholesale either.
     expect(accessors).toEqual(['records']);

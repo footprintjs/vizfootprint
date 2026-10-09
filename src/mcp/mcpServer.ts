@@ -24,10 +24,16 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { vizAsTools, type VizToolsOptions } from '../agent/vizAsTools.js';
+import { vizAsTools, type VizToolCallContext, type VizToolsOptions } from '../agent/vizAsTools.js';
 import type { InteractionSession } from '../session/index.js';
 
 export interface McpServerOptions extends VizToolsOptions {
+  /**
+   * Trusted host bridge: resolve native agent execution context for this
+   * transport request. MCP request/session ids alone are NOT agent identities.
+   * Absent => records honestly remain unlinked to an agent runtime.
+   */
+  executionContext?: (request: { readonly name: string; readonly requestId: string | number; readonly sessionId?: string }) => VizToolCallContext | undefined | Promise<VizToolCallContext | undefined>;
   /** Server name advertised over MCP. Default 'vizfootprint'. */
   name?: string;
   /** Server version advertised over MCP. Default '0.1.0'. */
@@ -54,10 +60,11 @@ export function mcpServer(session: InteractionSession, opts?: McpServerOptions):
   // Route a call to the port. A domain rejection (a typed gap, a not-implemented
   // why) is a NORMAL result the model reads; only a genuinely unknown tool or an
   // unexpected throw is surfaced as isError.
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
     try {
-      const result = await port.call(name, args ?? {});
+      const context = await opts?.executionContext?.({ name, requestId: extra.requestId, ...(extra.sessionId !== undefined ? { sessionId: extra.sessionId } : {}) });
+      const result = await port.call(name, args ?? {}, context);
       const misused = result['reason'] === 'UNKNOWN_TOOL';
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result) }],

@@ -14,7 +14,7 @@ import type { ResourceInfo, SourceInfo } from '../source/types.js';
 import type { Actor, Cause } from '../cause/index.js';
 import type { EmissionKind, FieldMapping, LinkEdge, LinkGraph, LinkOnClear, LinkResponse, LinkKind, ChannelPair } from '../links/types.js';
 import type { ReachRelation } from '../links/reach.js';
-import type { CommitRecord } from '../log/index.js';
+import type { AgentCallIdentity, CommitRecord } from '../log/index.js';
 import type { CauseClause, SelectionPort } from '../selection/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
 import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
@@ -164,6 +164,8 @@ export type GapOp =
    * this data — never for the records, which either all land or none do.
    */
   | 'replay'
+  /** Refusal at the host tool-call boundary, before a domain verb is entered. */
+  | 'toolCall'
   /**
    * Landing a commit itself, as opposed to any one verb: the op an
    * `effect-failed` gap carries when the live selection's own update threw
@@ -277,7 +279,7 @@ export type DispatchAction =
     }
   /** Layer 4: `asOf` names the offer (from whats_here.offers) an act answers; a stale one is refused by naming the current one. */
   | { readonly verb: 'filter'; readonly viewId: string; readonly field: string; readonly range: FilterRange; readonly cause: Cause; readonly correlationId?: string; readonly asOf?: string }
-  | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause }
+  | { readonly verb: 'annotate'; readonly target: string; readonly note: string; readonly cause: Cause; readonly correlationId?: string }
   /**
    * Layer 4 `link`: edit ONE edge of the link graph — what `target` does with
    * `source`'s `kind` emission. Validated like a declared edge (a refusal in a
@@ -631,12 +633,16 @@ export type BringOverResult =
     }
   | { readonly ok: false; readonly gap: GapRow };
 
-/** The typed record of a declared-analysis invocation (the L3-flags landing spot). */
-export interface AnalysisCommit {
+/** The invocation was refused before execution; it makes no claim about rows. */
+export interface GuardRefusalResult {
+  readonly ok: false;
+  readonly reason: 'guard-failed';
+  readonly detail: string;
+}
+
+/** Fields shared by executed analyses and pre-execution invocation refusals. */
+interface AnalysisCommitFields {
   readonly analysisId: string;
-  readonly kind: AnalysisKind;
-  /** The typed, value-bearing output, or a typed degenerate flag (R14). */
-  readonly result: AnalysisResult<AnalysisOutput>;
   /** The cause-tagged L1 record landed for this invocation (absent when degenerate — nothing lands). */
   readonly commit?: CommitRecord;
   /** kind:'test' only — the emitted HypothesisRecord (absent for transforms / degenerate). */
@@ -648,6 +654,12 @@ export interface AnalysisCommit {
   /** A materialize/backend rejection filed as a gap (R14) instead of silently dropped. */
   readonly gap?: GapRow;
 }
+
+/** Unknown kind is possible only for a refused, undeclared invocation. */
+export type AnalysisCommit = AnalysisCommitFields & (
+  | { readonly kind: AnalysisKind; readonly result: AnalysisResult<AnalysisOutput> }
+  | { readonly kind: AnalysisKind | 'unknown'; readonly result: GuardRefusalResult }
+);
 
 // ── RP-3: agent-authored charts (the ledger-gated proposeChart pipeline). ──────
 
@@ -664,7 +676,7 @@ export interface ProposeChartInput {
   readonly claim?: string;
   /** Agent-authored provenance. `computedBy` is respected (a chart is agent-computed, not system). */
   readonly cause?: Cause;
-  /** Cross-tier join key stamped on the landed commits (R10). */
+  /** Turn/gesture grouping label; exact call evidence is separate agentCall metadata. */
   readonly correlationId?: string;
 }
 
@@ -1619,6 +1631,8 @@ export interface Overview {
 
 /** Options for a direct `declareAnalysis` invocation. */
 export interface DeclareAnalysisOptions {
+  /** Host-runtime execution identity, separate from the batch correlation. */
+  readonly agentCall?: AgentCallIdentity;
   /** Register (and validate) a def/module under `id` before running it (SPEC §7 `declareAnalysis(id, def)`). */
   readonly def?: import('../def/types.js').AnalysisSlot;
   /** Explicit input rows. Absent = the current selection (or the FULL table for a columns-channel analysis). */
@@ -1629,6 +1643,6 @@ export interface DeclareAnalysisOptions {
   readonly cause?: Cause;
   /** Acting principal (sets `requestedBy`). Default: the session default. */
   readonly as?: Actor;
-  /** Cross-tier join key stamped on the landed commit (R10). */
+  /** Turn/gesture grouping label; exact call evidence is separate agentCall metadata. */
   readonly correlationId?: string;
 }

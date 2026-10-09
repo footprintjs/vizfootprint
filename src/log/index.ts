@@ -8,4 +8,4 @@ export {
   replayLog,
   serializeLog,
 } from './log.js';
-export type { CommitInput, CommitLogParseResult, CommitRecord } from './log.js';
+export type { AgentCallIdentity, CommitInput, CommitLogParseResult, CommitRecord } from './log.js';

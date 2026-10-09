@@ -36,6 +36,8 @@
 
 import { ACTORS, isActor, markReplayed, parseCause, validateCause, type Cause } from '../cause/index.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
+import { parseAgentCall, type AgentCallIdentity } from './agentCall.js';
+export type { AgentCallIdentity } from './agentCall.js';
 // the PAIR-kind fork is `../data`'s, which owns the clause grammar: one owner, so the next
 // two-column kind lands in one place rather than in every replica that asks about a KIND
 import { isPairKind } from '../data/types.js';
@@ -95,6 +97,8 @@ export interface CommitRecord {
    * absent, or reused by a caller's own scheme.
    */
   readonly correlationId?: string;
+  /** Trusted execution identity, never taken from model-authored tool arguments. */
+  readonly agentCall?: AgentCallIdentity;
   /** Registry key that resolves to the clause `source` identity on replay. */
   readonly viewId: string;
   /** Serializable actor metadata so a fresh registry can rebuild the source. */
@@ -189,6 +193,7 @@ export interface CommitInput {
   parent: string | null;
   /** Optional cross-tier join key — see {@link CommitRecord.correlationId}. */
   correlationId?: string;
+  agentCall?: AgentCallIdentity;
   viewId: string;
   actorMeta: ActorMeta;
   /** The wire's kind vocabulary, owned by {@link CommitRecord.kind} — one union, never a copy of it. */
@@ -239,6 +244,10 @@ export class CauseSelectionSession {
    * second.
    */
   readonly #ids = new Set<string>();
+  /** Clauses landed by a wider session transition, awaiting its settled publication. */
+  readonly #unpublished = new Map<CommitRecord, CauseClause>();
+  readonly #publicationQueue: (() => void)[] = [];
+  #publishing = false;
   /** Set by the session: the data versions to stamp on every commit that names none (table → version). */
   stampData?: () => Readonly<Record<string, string>> | undefined;
   /** The {@link stampData} twin for declared RESOURCES (name → version) — a separate hook because it is a separate map on the record. */
@@ -318,7 +327,9 @@ export class CauseSelectionSession {
    * [`src/detach/README.md`](../detach/README.md) says must be impossible: what
    * is on screen would no longer be derived from the trace.
    */
-  commit(input: CommitInput): { record: CommitRecord; clause: CauseClause } {
+  commit(input: CommitInput, opts: { deferPublication?: boolean } = {}): { record: CommitRecord; clause: CauseClause } {
+    const offeredIdentity = input.agentCall;
+    const identity = offeredIdentity === undefined ? undefined : copyAgentCall(offeredIdentity);
     // ── JUDGE ────────────────────────────────────────────────────────────────
     // An id names ONE commit — the law `parseCommitLog` keeps on the way in, kept here on
     // the way out so a log this library writes is one it can read back.
@@ -366,6 +377,7 @@ export class CauseSelectionSession {
       id: input.id,
       parent: input.parent,
       ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
+      ...(identity !== undefined && { agentCall: identity }),
       viewId: input.viewId,
       actorMeta: source.meta,
       kind: input.kind,
@@ -411,6 +423,53 @@ export class CauseSelectionSession {
     this.#ids.add(record.id);
     this.#view = undefined; // the log moved: the next `records` read rebuilds the snapshot
 
+    this.#unpublished.set(record, clause);
+    if (opts.deferPublication !== true) this.publish([record]);
+    return { record, clause };
+  }
+
+  /**
+   * Publish exactly the records this caller has settled, once each. A batch is
+   * queued whole before delivery, so a listener's nested act cannot overtake
+   * its remaining effects. There is no ambient transaction across awaits:
+   * concurrent session doors can never publish each other's pending records.
+   * Bare `commit` publishes immediately; an interaction session defers until
+   * its cursor, refs and folds (including materialization) agree with the log.
+   */
+  publish(records: readonly CommitRecord[], afterPublication?: () => void): void {
+    let queued = false;
+    for (const record of records) {
+      const clause = this.#unpublished.get(record);
+      if (clause === undefined) continue; // already published, or not this log's record
+      this.#unpublished.delete(record);
+      this.#publicationQueue.push(() => this.#publishClause(record, clause));
+      queued = true;
+    }
+    if (queued && afterPublication !== undefined) this.#publicationQueue.push(afterPublication);
+    if (this.#publishing) return;
+    this.#publishing = true;
+    let failed = false;
+    let firstError: unknown;
+    try {
+      // New effects appended by a listener are visited after this batch. An
+      // advancing index keeps a large replay linear, unlike repeated shift().
+      for (let i = 0; i < this.#publicationQueue.length; i++) {
+        try {
+          this.#publicationQueue[i]!();
+        } catch (error) {
+          if (!failed) { failed = true; firstError = error; }
+        }
+      }
+    } finally {
+      this.#publicationQueue.length = 0;
+      this.#publishing = false;
+    }
+    // A bare log still throws a failed observer. Attempt the rest first:
+    // records are landed and removing their pending effects would lose them.
+    if (failed) throw firstError;
+  }
+
+  #publishClause(record: CommitRecord, clause: CauseClause): void {
     // ── OUTBOUND (not part of the act) ───────────────────────────────────────
     // Pushing the clause onto the port emits to every listener a host attached
     // (and an engine may relay it on) — third-party code running after the
@@ -422,7 +481,6 @@ export class CauseSelectionSession {
       if (this.onSelectionUpdateFailed === undefined) throw error;
       this.onSelectionUpdateFailed(error, record);
     }
-    return { record, clause };
   }
 }
 
@@ -441,7 +499,7 @@ export function serializeLog(records: readonly CommitRecord[]): string {
  * dropped on the way in.
  */
 const RECORD_KEYS = new Set([
-  'id', 'parent', 'correlationId', 'viewId', 'actorMeta', 'kind', 'field',
+  'id', 'parent', 'correlationId', 'agentCall', 'viewId', 'actorMeta', 'kind', 'field',
   'value', 'fields', 'clientViewIds', 'predicateSQL', 'cause', 'ts', 'data',
   'resources', 'extents',
 ]);
@@ -486,6 +544,12 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === 'string');
 }
 
+function copyAgentCall(raw: AgentCallIdentity): AgentCallIdentity {
+  const parsed = parseAgentCall(raw);
+  if (!parsed.ok) throw new Error(`vizfootprint log: ${parsed.detail}`);
+  return parsed.identity!;
+}
+
 /** Everything wrong with ONE record's shape, in reading order. Empty = well-formed. */
 function recordProblems(raw: unknown): string[] {
   const problems: string[] = [];
@@ -501,6 +565,10 @@ function recordProblems(raw: unknown): string[] {
   }
   if ('correlationId' in raw && typeof raw.correlationId !== 'string') {
     problems.push('correlationId, if present, must be a string');
+  }
+  if ('agentCall' in raw) {
+    const identity = parseAgentCall(raw.agentCall);
+    if (!identity.ok) problems.push(identity.detail);
   }
   if (typeof raw.viewId !== 'string' || raw.viewId.length === 0) problems.push('viewId must be a non-empty string');
 
@@ -564,6 +632,7 @@ function rebuildRecord(raw: Record<string, unknown>): CommitRecord {
     id: raw.id as string,
     parent: raw.parent as string | null,
     ...(raw.correlationId !== undefined && { correlationId: raw.correlationId as string }),
+    ...(raw.agentCall !== undefined && { agentCall: copyAgentCall(raw.agentCall as unknown as AgentCallIdentity) }),
     viewId: raw.viewId as string,
     actorMeta: rebuildActorMeta(raw.actorMeta as Record<string, unknown>),
     kind: raw.kind as CommitRecord['kind'],
@@ -699,6 +768,7 @@ export function replayInput(rec: CommitRecord): CommitInput {
     // answers to the same correlationId (no markReplayed analog: the key
     // is an ADDRESS, not provenance).
     ...(rec.correlationId !== undefined && { correlationId: rec.correlationId }),
+    ...(rec.agentCall !== undefined && { agentCall: rec.agentCall }),
     viewId: rec.viewId,
     actorMeta: rec.actorMeta,
     kind: rec.kind,

@@ -37,7 +37,8 @@ import { voiceOf } from '../links/index.js';
 import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
 import { CauseSelectionSession, parseCommitLog } from '../log/index.js';
-import type { CommitInput, CommitRecord } from '../log/index.js';
+import type { AgentCallIdentity, CommitInput, CommitRecord } from '../log/index.js';
+import { parseAgentCall } from '../log/agentCall.js';
 // The record → re-landing input translation, one owner for both replays (the
 // L1 `replayLog` and this session's own `replay`). Not on the `/log` barrel:
 // no importer outside this package has asked for it — PACKAGING.md, Law 2.
@@ -82,6 +83,7 @@ import type { ProseProposal, ProseRecord, ProseSlot, ProseStatus, ProposalStatus
 import type { LinkGraph, TableReach } from '../links/index.js';
 import type { Bindings, EncodingProblem, Fit } from '../encoding/index.js';
 import { GapLedger, messageOf } from './gapLedger.js';
+import { PublicationScope } from './publicationScope.js';
 import { clausesReaching, mappingsInto, narrowedByDef, narrowToJudgeable, unjudgeableColumn } from './clausesReaching.js';
 import { tablesInfoOf } from './tablesInfo.js';
 import { stampCause } from './stampCause.js';
@@ -356,13 +358,13 @@ export interface InteractionSession {
    * adapter) is reported as a skip with the thrown message and files a gap —
    * the run continues, and the caller always gets its report.
    */
-  adoptPath(name: string, opts?: { as?: Actor }): Promise<AdoptPathResult>;
+  adoptPath(name: string, opts?: { as?: Actor; agentCall?: AgentCallIdentity; correlationId?: string }): Promise<AdoptPathResult>;
 
   /** Register a view adapter under a declared view identity (R3). */
   mountView(viewId: string, adapter: ViewAdapter): { ok: true } | { ok: false; gap: GapRow };
 
   /** THE single semantic entry point (R4). */
-  dispatch(action: DispatchAction, opts?: { as?: Actor }): Promise<DispatchResult>;
+  dispatch(action: DispatchAction, opts?: { as?: Actor; agentCall?: AgentCallIdentity }): Promise<DispatchResult>;
 
   /** Run a declared analysis: stamp cause, land the AnalysisCommit, step L4, materialize columns (R11). */
   declareAnalysis(id: string, opts?: DeclareAnalysisOptions): Promise<AnalysisCommit>;
@@ -380,7 +382,7 @@ export interface InteractionSession {
    * back and repairs. A rejected proposal never registers a hypothesis and so
    * never advances the FDR wealth ("alpha spent only on real claims").
    */
-  proposeChart(input: ProposeChartInput, opts?: { as?: Actor }): Promise<ProposeChartResult>;
+  proposeChart(input: ProposeChartInput, opts?: { as?: Actor; agentCall?: AgentCallIdentity }): Promise<ProposeChartResult>;
 
   /** The agent-authored charts registered this session (with their gated specs) — the host's render source. */
   charts(): readonly ChartView[];
@@ -863,15 +865,40 @@ class InteractionSessionImpl implements InteractionSession {
    * auto-creates a NAMED ref (today's branch-on-act, now named) — journaled.
    */
   private landed(record: CommitRecord): void {
-    // Routing through the refs FIRST, then moving the two pointers, keeps this
-    // an apply phase in the same shape as everything else: the one step that
-    // does real work (naming or advancing a ref, journaling the event) runs
-    // while the session still stands where it stood, and the pointers move as
-    // the last two assignments — which cannot fail. `noteCommit` reads only the
-    // refs' own HEAD, never `_head`/`_cursor`, so the order is free.
-    this.refs.noteCommit(record);
-    this._head = record.id;
-    this._cursor = record.id;
+    // Ref routing reads its own HEAD, not these pointers. The assignments in
+    // finally keep an already-landed record visible even if routing fails;
+    // the owning publication scope then repairs the current fold and reports
+    // the failure before attempting its outward effects.
+    try {
+      this.refs.noteCommit(record);
+    } finally {
+      // The record is already immutable history even if ref routing fails.
+      // Failure finalization folds this current head before announcing it.
+      this._head = record.id;
+      this._cursor = record.id;
+    }
+  }
+
+  /** One owner/finally rule for every semantic door, including async replay. */
+  private withPublication<T>(op: GapOp, operation: (publication: PublicationScope) => T, restoreHead = false): T {
+    const publication = new PublicationScope(this.log);
+    return publication.run(() => operation(publication), [
+      (failure) => {
+        if (failure !== undefined && publication.hasRecords) {
+          this.gapLedger.file('effect-failed', op, `commit ${publication.lastRecord!.id} landed, but completing the invocation threw: ${messageOf(failure.error)}`, publication.lastRecord!.id);
+        }
+      },
+      (failure) => {
+        if (publication.hasRecords && (failure !== undefined || restoreHead)) {
+          // Replay owns its temporary walk; an ordinary background act does
+          // not own a human's later choice to seek somewhere else.
+          if (restoreHead) this.seekTo(this._head!);
+          else this.rebuildFold(this._cursor);
+        }
+      },
+    ], (cleanupError) => {
+      this.gapLedger.file('effect-failed', op, `commit ${publication.lastRecord!.id} landed, but finalizing its publication also threw: ${messageOf(cleanupError)}`, publication.lastRecord!.id);
+    });
   }
 
   /**
@@ -1087,143 +1114,148 @@ class InteractionSessionImpl implements InteractionSession {
     }
     const gapsBefore = this.gapLedger.size;
 
-    // ── APPLY — assignment only; the dry run proved none of it can throw ──────
-    // A number a landed record already names is spent, exactly as it is for a
-    // restored bookmark (`../log/README.md`, Law 2): without this a fresh
-    // dashboard would happily mint `s3` again and the replayed `s3` would start
-    // meaning two acts.
-    raiseMinted(COMMIT_ID_PREFIX, records.map((r) => r.id), this.runtime.commitIds);
-    // A replay STAMPS NOTHING. `stampData` says which data version an act was
-    // true of at the moment it happened; a record that carries one replays it
-    // verbatim, and a record that carries none never made that claim — writing
-    // today's version onto it would be the replay inventing provenance.
-    const stamp = this.log.stampData;
-    this.log.stampData = undefined;
-    try {
-      for (const input of inputs) this.landed(this.log.commit(input).record);
-    } finally {
-      this.log.stampData = stamp;
-    }
-    // Every analysis a record declared FOR ITSELF, registered before anything is
-    // re-performed — assignment only, over modules the judge already built. A
-    // log holding record-declared analyses therefore needs nothing registered
-    // on this session first; one holding module-declared ones still does, and
-    // says so in the gap below.
-    for (const [analysisId, module] of declared) this.localAnalyses.set(analysisId, module);
-    // Where `landed` left both pointers — the same place a walk of these acts
-    // would have ended, and where the fold is rebuilt once the acts below have
-    // been re-performed at their own positions.
-    const tip = this._head;
-
-    // ── OUTBOUND — re-performing an act reaches code this library does not own ─
-    // The log is the record of ACTS. A derived column's VALUES are not on it —
-    // they live in the provider store (`../data/README.md`) — so a replay
-    // re-performs the acts it can and says so about the ones it cannot.
-    let reran = 0;
-    for (const rec of records) {
-      if (!rec.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) continue;
-      const analysisId = rec.viewId.slice(ANALYSIS_VIEW_PREFIX.length);
-      const analysis = this.analysis(analysisId);
-      if (analysis === undefined) {
-        // Honest, not silent: a column this act made is simply not here, so a
-        // later read answers `needs-column` — and this line is why.
-        this.gapLedger.file('needs-analysis-kind', 'replay', `commit ${rec.id} ran analysis "${analysisId}", which this session does not declare — any column it wrote could not be rebuilt; declare it and replay again`, analysisId);
-        continue;
-      }
-      // `acts` holds exactly the records the judge accepted as re-performable,
-      // with the table each one read — so the rule for "does anything of this
-      // act live outside the log?" is asked once, in `actToReperform`, and
-      // never restated here. Every other channel — a statistic, a fit, a
-      // summary table — leaves nothing outside the log, so it is not in the map
-      // and is not re-run. (No `sink` is passed either: the FDR ledger records
-      // what THIS walker asked for, and law 3 names it a legitimate walk/replay
-      // difference. A replay must never re-spend alpha.)
-      const act = acts.get(rec.id);
-      if (act === undefined) continue;
-      // …and with the declaration ITS OWN commit carried, when it carried one:
-      // the registered module is the tip's word, and this act may predate it.
-      const performing = act.module ?? analysis;
-      // The act is re-performed AT ITS OWN POSITION: which `risk` an analysis
-      // could read is a question about the cursor (law 5), and running them all
-      // at the tip would answer it with columns the act never saw.
-      this.seekTo(rec.id);
-      // …and over THE TABLE IT READ, off the record itself, never assumed.
-      // …with the tables it reads BESIDE that one, read the same way at the same
-      // position: the ONE input path serves both doors, so a replayed act sees
-      // the rows its original saw. No permission is re-judged here — the act
-      // already happened, and a replay re-performs it rather than re-deciding it.
-      // …under the rule its OWN channel reads by: a columns act runs over the whole
-      // table (its values must align to the row order), and every other channel —
-      // an aggregate's table among them — over the selection folded HERE. Reading a
-      // table act whole would rebuild it from rows the act never folded in.
-      const input = await this.resolveAnalysisInput(performing.def.produces === 'columns', act.table, performing.def.reads ?? [], performing.def.requiresCompleteInput);
-      if ('rejected' in input) {
-        this.gapLedger.file('needs-backend-data', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but its input could not be read back: ${input.rejected}`, analysisId);
-        continue;
-      }
-      let run: Awaited<ReturnType<typeof performing.run>>;
+    const completed = await this.withPublication('replay', async (publication) => {
+      // ── APPLY — assignment only; the dry run proved none of it can throw ──────
+      // A number a landed record already names is spent, exactly as it is for a
+      // restored bookmark (`../log/README.md`, Law 2): without this a fresh
+      // dashboard would happily mint `s3` again and the replayed `s3` would start
+      // meaning two acts.
+      raiseMinted(COMMIT_ID_PREFIX, records.map((r) => r.id), this.runtime.commitIds);
+      // A replay STAMPS NOTHING. `stampData` says which data version an act was
+      // true of at the moment it happened; a record that carries one replays it
+      // verbatim, and a record that carries none never made that claim — writing
+      // today's version onto it would be the replay inventing provenance.
+      const stamp = this.log.stampData;
+      this.log.stampData = undefined;
       try {
-        run = await performing.run(input.rows, { related: input.related });
-      } catch (error) {
-        this.gapLedger.file('effect-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it threw: ${messageOf(error)}`, analysisId);
-        continue;
+        for (const input of inputs) {
+          const { record } = publication.commit(input);
+          this.landed(record);
+        }
+      } finally {
+        this.log.stampData = stamp;
       }
-      const output = run.result.ok ? run.result.output : undefined;
-      if (output === undefined) {
-        this.gapLedger.file('guard-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it found no honest answer on this data — what it landed could not be rebuilt`, analysisId);
-        continue;
-      }
-      // The SAME two owners the walk lands through, at the replayed commit's own
-      // id — so a column goes back into the slot it had, and a table is cut into
-      // the slot it had, with the key and the relation minted from the record again.
-      let slots: ReadonlyMap<string, string> = EMPTY_SLOTS;
-      if (output.as === 'columns') {
-        slots = (await this.writeColumns(analysisId, output, run.snapshot, rec.id, 'replay')).slots;
-      } else if (output.as === 'table' && act.aggregate !== undefined) {
-        this.writeTable(analysisId, output, act.aggregate, act.table, rec.id, 'replay');
-      } else if (output.as === 'table' && tableFilledBy(this.runtime.def, analysisId) !== undefined) {
-        // …and the other door's table goes back into the DECLARED table the def says this act
-        // fills, at the replayed commit's own id — so the fill lands in the slot it had. The
-        // declaration is read from THIS dashboard's def and never from the log, for the reason a
-        // replayed `bringOver` follows this session's relations: which table an act fills is
-        // declared, not recorded.
-        this.writeFilledTable(analysisId, output, tableFilledBy(this.runtime.def, analysisId)!, act.table, rec.id, 'replay');
-      } else {
-        // The act was accepted as one that lands something, and it landed something
-        // else — a module whose declared channel and its answer disagree. Named, not
-        // guessed at: guessing would put real values under real provenance.
-        this.gapLedger.file('guard-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it produced ${output.as === 'table' ? 'a table no declaration on the commit could cut' : `a ${output.as}`} — what it landed could not be rebuilt`, analysisId);
-        continue;
-      }
-      // `why({kind:'column'})` answers about the act, and the act is the
-      // replayed commit — so the provenance is rebuilt beside the values.
-      // A columns transform reads the whole table, never the selection, so its
-      // input-selection set holds only what shaped a RELATED table — empty for
-      // the one-table acts, exactly as `declareAnalysis` records it.
-      const prov: WhyProvenance = {
-        analysisId,
-        declaringCommitId: rec.id,
-        inputSelectionCommitIds: this.relatedSelectionCommitIds(input.related),
-        ...(run.snapshot ? { snapshot: run.snapshot } : {}),
-        ...(rec.correlationId !== undefined ? { correlationId: rec.correlationId } : {}),
-      };
-      this.noteColumnProvenance(slots, prov);
-      // …and the hypothesis channel beside it, on the same rule the walk uses:
-      // a declared test is answerable by `why({kind:'hypothesis'})` whichever
-      // channel it produced on. It carries NO `fdrStep`, and that is the law
-      // rather than an omission — a replay never re-spends alpha, so the
-      // ledger row belongs to the walker who ran the test, not to the log.
-      if (performing.kind === 'test') this.noteAnalysisProvenance(analysisId, prov);
-      reran += 1;
-    }
-    // The fold, rebuilt from the tip — the one place this door leaves the
-    // cursor, whether or not an act above moved it.
-    if (tip !== null) this.seekTo(tip);
+      // Every analysis a record declared FOR ITSELF, registered before anything is
+      // re-performed — assignment only, over modules the judge already built. A
+      // log holding record-declared analyses therefore needs nothing registered
+      // on this session first; one holding module-declared ones still does, and
+      // says so in the gap below.
+      for (const [analysisId, module] of declared) this.localAnalyses.set(analysisId, module);
+      // Where `landed` left both pointers — the same place a walk of these acts
+      // would have ended, and where the fold is rebuilt once the acts below have
+      // been re-performed at their own positions.
 
-    // Counted BEFORE the fold is read: `filed` is what the REPLAY could not do,
-    // and `overview()` is an ordinary read the caller could have made itself.
+      // ── OUTBOUND — re-performing an act reaches code this library does not own ─
+      // The log is the record of ACTS. A derived column's VALUES are not on it —
+      // they live in the provider store (`../data/README.md`) — so a replay
+      // re-performs the acts it can and says so about the ones it cannot.
+      let reran = 0;
+      for (const rec of records) {
+        if (!rec.viewId.startsWith(ANALYSIS_VIEW_PREFIX)) continue;
+        const analysisId = rec.viewId.slice(ANALYSIS_VIEW_PREFIX.length);
+        const analysis = this.analysis(analysisId);
+        if (analysis === undefined) {
+          // Honest, not silent: a column this act made is simply not here, so a
+          // later read answers `needs-column` — and this line is why.
+          this.gapLedger.file('needs-analysis-kind', 'replay', `commit ${rec.id} ran analysis "${analysisId}", which this session does not declare — any column it wrote could not be rebuilt; declare it and replay again`, analysisId);
+          continue;
+        }
+        // `acts` holds exactly the records the judge accepted as re-performable,
+        // with the table each one read — so the rule for "does anything of this
+        // act live outside the log?" is asked once, in `actToReperform`, and
+        // never restated here. Every other channel — a statistic, a fit, a
+        // summary table — leaves nothing outside the log, so it is not in the map
+        // and is not re-run. (No `sink` is passed either: the FDR ledger records
+        // what THIS walker asked for, and law 3 names it a legitimate walk/replay
+        // difference. A replay must never re-spend alpha.)
+        const act = acts.get(rec.id);
+        if (act === undefined) continue;
+        // …and with the declaration ITS OWN commit carried, when it carried one:
+        // the registered module is the tip's word, and this act may predate it.
+        const performing = act.module ?? analysis;
+        // The act is re-performed AT ITS OWN POSITION: which `risk` an analysis
+        // could read is a question about the cursor (law 5), and running them all
+        // at the tip would answer it with columns the act never saw.
+        this.seekTo(rec.id);
+        // …and over THE TABLE IT READ, off the record itself, never assumed.
+        // …with the tables it reads BESIDE that one, read the same way at the same
+        // position: the ONE input path serves both doors, so a replayed act sees
+        // the rows its original saw. No permission is re-judged here — the act
+        // already happened, and a replay re-performs it rather than re-deciding it.
+        // …under the rule its OWN channel reads by: a columns act runs over the whole
+        // table (its values must align to the row order), and every other channel —
+        // an aggregate's table among them — over the selection folded HERE. Reading a
+        // table act whole would rebuild it from rows the act never folded in.
+        const input = await this.resolveAnalysisInput(performing.def.produces === 'columns', act.table, performing.def.reads ?? [], performing.def.requiresCompleteInput);
+        if ('rejected' in input) {
+          this.gapLedger.file('needs-backend-data', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but its input could not be read back: ${input.rejected}`, analysisId);
+          continue;
+        }
+        let run: Awaited<ReturnType<typeof performing.run>>;
+        try {
+          run = await performing.run(input.rows, { related: input.related });
+        } catch (error) {
+          this.gapLedger.file('effect-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it threw: ${messageOf(error)}`, analysisId);
+          continue;
+        }
+        const output = run.result.ok ? run.result.output : undefined;
+        if (output === undefined) {
+          this.gapLedger.file('guard-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it found no honest answer on this data — what it landed could not be rebuilt`, analysisId);
+          continue;
+        }
+        // The SAME two owners the walk lands through, at the replayed commit's own
+        // id — so a column goes back into the slot it had, and a table is cut into
+        // the slot it had, with the key and the relation minted from the record again.
+        let slots: ReadonlyMap<string, string> = EMPTY_SLOTS;
+        if (output.as === 'columns') {
+          slots = (await this.writeColumns(analysisId, output, run.snapshot, rec.id, 'replay')).slots;
+        } else if (output.as === 'table' && act.aggregate !== undefined) {
+          this.writeTable(analysisId, output, act.aggregate, act.table, rec.id, 'replay');
+        } else if (output.as === 'table' && tableFilledBy(this.runtime.def, analysisId) !== undefined) {
+          // …and the other door's table goes back into the DECLARED table the def says this act
+          // fills, at the replayed commit's own id — so the fill lands in the slot it had. The
+          // declaration is read from THIS dashboard's def and never from the log, for the reason a
+          // replayed `bringOver` follows this session's relations: which table an act fills is
+          // declared, not recorded.
+          this.writeFilledTable(analysisId, output, tableFilledBy(this.runtime.def, analysisId)!, act.table, rec.id, 'replay');
+        } else {
+          // The act was accepted as one that lands something, and it landed something
+          // else — a module whose declared channel and its answer disagree. Named, not
+          // guessed at: guessing would put real values under real provenance.
+          this.gapLedger.file('guard-failed', 'replay', `commit ${rec.id} ran analysis "${analysisId}", but re-running it produced ${output.as === 'table' ? 'a table no declaration on the commit could cut' : `a ${output.as}`} — what it landed could not be rebuilt`, analysisId);
+          continue;
+        }
+        // `why({kind:'column'})` answers about the act, and the act is the
+        // replayed commit — so the provenance is rebuilt beside the values.
+        // A columns transform reads the whole table, never the selection, so its
+        // input-selection set holds only what shaped a RELATED table — empty for
+        // the one-table acts, exactly as `declareAnalysis` records it.
+        const prov: WhyProvenance = {
+          analysisId,
+          declaringCommitId: rec.id,
+          inputSelectionCommitIds: this.relatedSelectionCommitIds(input.related),
+          ...(run.snapshot ? { snapshot: run.snapshot } : {}),
+          ...(rec.correlationId !== undefined ? { correlationId: rec.correlationId } : {}),
+        };
+        this.noteColumnProvenance(slots, prov);
+        // …and the hypothesis channel beside it, on the same rule the walk uses:
+        // a declared test is answerable by `why({kind:'hypothesis'})` whichever
+        // channel it produced on. It carries NO `fdrStep`, and that is the law
+        // rather than an omission — a replay never re-spends alpha, so the
+        // ledger row belongs to the walker who ran the test, not to the log.
+        if (performing.kind === 'test') this.noteAnalysisProvenance(analysisId, prov);
+        reran += 1;
+      }
+      // The invocation's finally restores the CURRENT head before any listener
+      // runs, even if a re-performance exits while visiting an earlier record.
+      return { reran };
+    }, true);
+
+    // Publication has attempted its effects before these reads, so observer
+    // failures are included; a later overview failure cannot strand records.
     const filed = this.gapLedger.size - gapsBefore;
-    return { ok: true, landed: records.length, reran, filed, overview: await this.overview() };
+    const overview = await this.overview();
+    return { ok: true, landed: records.length, reran: completed.reran, filed, overview };
   }
 
   /** Every (view, emission kind) this dashboard can be acted on with — see `./offers.ts`. */
@@ -1540,7 +1572,10 @@ class InteractionSessionImpl implements InteractionSession {
     return { ok: true, path: target.name, at, kept: res.kept, keptTip: res.from, steps };
   }
 
-  async adoptPath(name: string, opts: { as?: Actor } = {}): Promise<AdoptPathResult> {
+  async adoptPath(name: string, opts: { as?: Actor; agentCall?: AgentCallIdentity; correlationId?: string } = {}): Promise<AdoptPathResult> {
+    const identity = parseAgentCall(opts.agentCall, { optional: true });
+    if (!identity.ok) return this.lifecycleGap('adoptPath', identity.detail, name);
+    opts = { ...opts, agentCall: identity.identity };
     const sourceTip = this.refs.tipOf(name); // archived paths answer too — adopting from one is fair
     if (sourceTip === undefined) return this.lifecycleGap('adoptPath', `no path named "${name}"`, name);
     if (name === this.refs.currentBranch()) {
@@ -1585,7 +1620,7 @@ class InteractionSessionImpl implements InteractionSession {
       // step and an `effect-failed` gap — which is what actually happened.
       let landed: BringOverResult;
       try {
-        landed = await this.executePlan(plan, { replayedFrom: step.id }, 'adoptPath', opts.as);
+        landed = await this.executePlan(plan, { replayedFrom: step.id }, 'adoptPath', opts.as, opts);
       } catch (error) {
         const detail = `replaying this step threw: ${messageOf(error)}`; // ONE spelling of "what did it say" — see messageOf
         this.gapLedger.file('guard-failed', 'adoptPath', detail, step.id);
@@ -1731,6 +1766,7 @@ class InteractionSessionImpl implements InteractionSession {
     bookmark: { replayedFrom?: string; revertOf?: string },
     op: 'bringOver' | 'undo' | 'adoptPath',
     as: Actor | undefined,
+    attribution?: { readonly agentCall?: AgentCallIdentity; readonly correlationId?: string },
   ): Promise<BringOverResult> {
     const actor = as ?? this.defaultActor;
     const cause: Cause = {
@@ -1752,7 +1788,8 @@ class InteractionSessionImpl implements InteractionSession {
       }
       stamped = { ...action, asOf: this.offerStamp() };
     }
-    const result = await this.dispatch(stamped, { as: actor });
+    const correlated = attribution?.correlationId === undefined ? stamped : { ...stamped, correlationId: attribution.correlationId };
+    const result = await this.dispatch(correlated, { as: actor, ...(attribution?.agentCall !== undefined ? { agentCall: attribution.agentCall } : {}) });
     if (!result.ok) return { ok: false, gap: result.rejection };
     // An analyze recipe's record rides inside the AnalysisCommit (absent only
     // for a degenerate run, which honestly lands nothing); every other recipe
@@ -3357,44 +3394,48 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   // ── link (layer 4) — edit ONE edge of the graph, as a commit ───────────────────
-  private doLink(action: Extract<DispatchAction, { verb: 'link' }>, as: Actor | undefined, intent: DispatchResult['intent']): DispatchResult {
-    const { source, kind, target, response, mapping, channels, onClear, fold, cause, correlationId } = action;
-    const id = edgeId(source, kind, target);
-    // the same refusals a declared edge gets, in the same sentences (the response may be null = un-declare)
-    const problems: string[] = [];
-    const probe: LinkDecl = { source, kind, target, response: response ?? 'none', ...(mapping !== undefined ? { mapping } : {}), ...(channels !== undefined ? { channels } : {}), ...(onClear !== undefined ? { onClear } : {}), ...(fold !== undefined ? { fold } : {}) };
-    // review finding: this call used to omit `reach`, so a runtime `link` dispatch
-    // never got the reach-law refusal the SAME edge gets from the def door
-    // (`validateDashboardDef`) — the "same sentences" the comment above promises
-    // required it. Read off `this.runtime.def` (the ONE reader both doors share,
-    // `../def/tableReach.ts`), not a second derivation.
-    validateLinks([probe], undefined, this.runtime.links.views, problems, tableReachOf(this.runtime.def));
-    if (problems.length > 0) {
-      return this.reject('link', intent, this.gapLedger.file('guard-failed', 'link', problems.map((p) => p.replace(/^links\[0\]/, `link ${id}`)).join('; '), id));
-    }
-    const value: LinkDecl | null = response === null ? null : probe;
-    const stamped = stampCause(cause, 'link', as);
-    const { record } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor,
-      ...(correlationId !== undefined ? { correlationId } : {}),
-      viewId: linkViewId(id),
-      actorMeta: this.metaFor(source),
-      kind: 'point',
-      field: 'response',
-      value,
-      cause: stamped,
+  private doLink(action: Extract<DispatchAction, { verb: 'link' }>, as: Actor | undefined, intent: DispatchResult['intent'], agentCall?: AgentCallIdentity): DispatchResult {
+    return this.withPublication('link', (publication) => {
+      const { source, kind, target, response, mapping, channels, onClear, fold, cause, correlationId } = action;
+      const id = edgeId(source, kind, target);
+      // the same refusals a declared edge gets, in the same sentences (the response may be null = un-declare)
+      const problems: string[] = [];
+      const probe: LinkDecl = { source, kind, target, response: response ?? 'none', ...(mapping !== undefined ? { mapping } : {}), ...(channels !== undefined ? { channels } : {}), ...(onClear !== undefined ? { onClear } : {}), ...(fold !== undefined ? { fold } : {}) };
+      // review finding: this call used to omit `reach`, so a runtime `link` dispatch
+      // never got the reach-law refusal the SAME edge gets from the def door
+      // (`validateDashboardDef`) — the "same sentences" the comment above promises
+      // required it. Read off `this.runtime.def` (the ONE reader both doors share,
+      // `../def/tableReach.ts`), not a second derivation.
+      validateLinks([probe], undefined, this.runtime.links.views, problems, tableReachOf(this.runtime.def));
+      if (problems.length > 0) {
+        return this.reject('link', intent, this.gapLedger.file('guard-failed', 'link', problems.map((p) => p.replace(/^links\[0\]/, `link ${id}`)).join('; '), id));
+      }
+      const value: LinkDecl | null = response === null ? null : probe;
+      const stamped = stampCause(cause, 'link', as);
+      const { record } = publication.commit({
+        ...(agentCall !== undefined ? { agentCall } : {}),
+        id: this.nextId(),
+        parent: this._cursor,
+        ...(correlationId !== undefined ? { correlationId } : {}),
+        viewId: linkViewId(id),
+        actorMeta: this.metaFor(source),
+        kind: 'point',
+        field: 'response',
+        value,
+        cause: stamped,
+      });
+      this.landed(record);
+      if (value === null) {
+        this.activeLinks.delete(id);
+        this.activeLinkCommits.delete(id); // R4
+      } else {
+        this.activeLinks.set(id, value);
+        this.activeLinkCommits.set(id, record.id);
+      }
+      const linked = applyLinkOverrides(this.runtime.links, this.activeLinks).edges.find((e) => e.id === id);
+
+      return { ok: true, verb: 'link', intent, commit: record, ...(linked !== undefined ? { linked } : {}) };
     });
-    this.landed(record);
-    if (value === null) {
-      this.activeLinks.delete(id);
-      this.activeLinkCommits.delete(id); // R4
-    } else {
-      this.activeLinks.set(id, value);
-      this.activeLinkCommits.set(id, record.id);
-    }
-    const linked = applyLinkOverrides(this.runtime.links, this.activeLinks).edges.find((e) => e.id === id);
-    return { ok: true, verb: 'link', intent, commit: record, ...(linked !== undefined ? { linked } : {}) };
   }
 
   // ── mountView (R3) ───────────────────────────────────────────────────────────
@@ -3407,10 +3448,13 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   // ── dispatch (R4) ─────────────────────────────────────────────────────────────
-  async dispatch(action: DispatchAction, opts: { as?: Actor } = {}): Promise<DispatchResult> {
+  async dispatch(action: DispatchAction, opts: { as?: Actor; agentCall?: AgentCallIdentity } = {}): Promise<DispatchResult> {
     const verb = action.verb;
     const intent = this.runtime.intentOf(verb);
     const as = opts.as;
+    const identity = parseAgentCall(opts.agentCall, { optional: true });
+    if (!identity.ok) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, identity.detail));
+    const agentCall = identity.identity;
     switch (action.verb) {
       case 'select': {
         const stale = this.offerGuard('select', action.viewId, kindOfAct(action), action.asOf, intent);
@@ -3425,10 +3469,10 @@ class InteractionSessionImpl implements InteractionSession {
           if (action.seed === undefined) {
             return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.seed is missing — a neighbourhood names the node it walks from, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)', action.field));
           }
-          return this.doNeighbourhoodProbe(action.viewId, action.field, action.seed, action.walk, action.cause, as, intent, action.correlationId);
+          return this.doNeighbourhoodProbe(action.viewId, action.field, action.seed, action.walk, action.cause, as, intent, action.correlationId, agentCall);
         }
         if ('fields' in action) {
-          return this.doCellProbe(action.viewId, action.fields, action.values, action.cause, as, intent, action.correlationId);
+          return this.doCellProbe(action.viewId, action.fields, action.values, action.cause, as, intent, action.correlationId, agentCall);
         }
         if ('values' in action) {
           // SET-1: the MATCH form — many values on one field, optional exclude; `values: null` clears.
@@ -3437,7 +3481,7 @@ class InteractionSessionImpl implements InteractionSession {
             return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.values must be an array of values, or null to clear the match', action.field));
           }
           const value: MatchValue = action.values === null ? null : { values: action.values, ...(action.exclude === true ? { exclude: true } : {}) };
-          return this.doProbe(action.viewId, action.field, value, 'match', action.cause, as, intent, action.correlationId);
+          return this.doProbe(action.viewId, action.field, value, 'match', action.cause, as, intent, action.correlationId, agentCall);
         }
         // The POINT form. Cleared is `null` — the one spelling every kind uses,
         // because it is the only one that survives JSON (README, law 6). Every
@@ -3448,7 +3492,7 @@ class InteractionSessionImpl implements InteractionSession {
         if (action.value === undefined) {
           return this.reject('select', intent, this.gapLedger.file('guard-failed', 'select', 'select.value is missing — a point names the value it selects, or `null` to clear it (the one spelling of cleared; `undefined` does not survive JSON)', action.field));
         }
-        return this.doProbe(action.viewId, action.field, action.value, 'point', action.cause, as, intent, action.correlationId);
+        return this.doProbe(action.viewId, action.field, action.value, 'point', action.cause, as, intent, action.correlationId, agentCall);
       }
       case 'filter': {
         const stale = this.offerGuard('filter', action.viewId, 'interval', action.asOf, intent);
@@ -3468,30 +3512,31 @@ class InteractionSessionImpl implements InteractionSession {
           as,
           intent,
           action.correlationId,
+          agentCall,
         );
       }
       case 'annotate':
-        return this.doAnnotate(action.target, action.note, action.cause, as, intent);
+        return this.doAnnotate(action.target, action.note, action.cause, as, intent, action.correlationId, agentCall);
       case 'link':
-        return this.doLink(action, as, intent);
+        return this.doLink(action, as, intent, agentCall);
       case 'describe':
         // three modes, told apart by the key each REQUIRES (`DispatchAction`): an accept with its key dropped is not a clear
-        if ('accept' in action) return this.doAccept(action.viewId, action.slot, action.accept, action.cause, as, intent, action.correlationId);
-        if ('decline' in action) return this.doDecline(action.viewId, action.slot, action.decline, action.cause, as, intent, action.correlationId);
-        if (action.proposal === true) return this.doPropose(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId);
-        return this.doDescribe(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId);
+        if ('accept' in action) return this.doAccept(action.viewId, action.slot, action.accept, action.cause, as, intent, action.correlationId, agentCall);
+        if ('decline' in action) return this.doDecline(action.viewId, action.slot, action.decline, action.cause, as, intent, action.correlationId, agentCall);
+        if (action.proposal === true) return this.doPropose(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId, agentCall);
+        return this.doDescribe(action.viewId, action.slot, action.record, action.cause, as, intent, action.correlationId, agentCall);
       case 'navigate':
-        return this.doNavigate(action.viewId, action.field, action.value, action.cause, as, intent, action.correlationId);
+        return this.doNavigate(action.viewId, action.field, action.value, action.cause, as, intent, action.correlationId, agentCall);
       case 'analyze':
-        return this.doAnalyze(action, as, intent);
+        return this.doAnalyze(action, as, intent, agentCall);
       case 'fork':
         return this.doFork(action.fromCommitId, intent);
       case 'bookmark':
         return this.doBookmark(action.label, action.cause, as, intent);
       case 'reencode':
         return 'bindings' in action
-          ? this.doReencodeSet(action.viewId, action.bindings, action.cause, as, intent, action.correlationId)
-          : this.doReencode(action.viewId, action.channel, action.field, action.cause, as, intent, action.correlationId);
+          ? this.doReencodeSet(action.viewId, action.bindings, action.cause, as, intent, action.correlationId, agentCall)
+          : this.doReencode(action.viewId, action.channel, action.field, action.cause, as, intent, action.correlationId, agentCall);
     }
   }
 
@@ -3508,92 +3553,96 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
-    const verb: DispatchVerb = kind === 'interval' ? 'filter' : 'select';
-    // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
-    if (!this.holdsView(viewId)) {
-      return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
-    }
-    // 2. the view's own door (R14): what it DECLARES (`guard-failed`) and whether the table it draws is
-    //    here yet (`needs-act`) — one guard, and it says which code it is refused under.
-    const guard = this.probeGuard(viewId, kind);
-    if (guard) return this.reject(verb, intent, this.gapLedger.file(guard.code, verb, guard.detail, viewId));
-    // 2b. a probe may not target a reserved session field (R6: keep the log's
-    //     test-analog channel uncorruptible by an ordinary select/filter).
-    if (RESERVED_PROBE_FIELDS.has(field)) {
-      return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
-    }
-    // 3. the field must be a column VISIBLE on this branch (R14: needs-column /
-    //    needs-backend-data). A materialized column absent from the cursor's
-    //    branch fold is honestly `needs-column` here — branch isolation.
-    const table = this.tableFor(viewId); // a layer's own table; the default for a view
-    const cols = await this.effectiveColumnsOf(table);
-    if ('rejected' in cols) {
-      return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, field));
-    }
-    const column = cols.find((c) => c.name === field);
-    if (column === undefined) {
-      return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${table}"`, field));
-    }
-    // 3c. …AND THE VALUES MUST BE ABLE TO ADDRESS IT. A clause of the wrong quantity keeps no row, and
-    //     until this step it LANDED: a drag across a band drawn over a column of numbers emitted a set
-    //     of SPELLINGS, the door took it, the commit went on the record and every picture emptied — 4
-    //     commits before the drag and 5 after, the refusal ledger unchanged, 185 marks in force and
-    //     then 0. A landed clause that kept nothing is worse than a refusal AND worse than the dead
-    //     gesture it replaced, because the record now claims the question was answered. So it is
-    //     refused BY NAME, under a code an agent can branch on, with the column and what it was
-    //     handed (`unaddressableClause` / `unaddressableValueRefusal`, `../encoding/frame.ts` — the
-    //     value-level tier of law 13, whose own interval sentence this quotes verbatim). The scale is
-    //     the column's own through `frameScaleOf`, never re-derived; a type nothing folds from, and a
-    //     column folded as CATEGORIES (whose fold names every cell it meets, so a column reported as
-    //     text may honestly hold numbers), are not judged at all — refused on evidence, never on
-    //     ignorance. The chart tier lands the column's own values now (`slotValues`,
-    //     `vizfootprint-ui/primitives`), so this fence is what the NEXT one meets.
-    const scale = frameScaleOf(column.type);
-    const unaddressable = unaddressableClause(kind, value, scale);
-    if (unaddressable !== null) {
-      // `scale` is defined here by construction: `unaddressableClause` answers null for an unfolded one
-      return this.reject(verb, intent, this.gapLedger.file('unaddressable-value', verb, unaddressableValueRefusal(`view "${viewId}"`, field, kind, scale!, unaddressable.delivered), field));
-    }
-    // 3b. the clause TRAVELS the relations its edges carry, BEFORE the commit is written (`travelFor`): an engine
-    //     read, like step 3's, that cannot fail the act — a refusal is filed beside it. Nothing to travel for a clear.
-    const landing = isClearedSelection({ kind, value }) ? null : await this.travelFor(viewId, probeClause(kind, field, value), verb);
-    // 4. land the cause-tagged clause commit (commit-on-intent) + update the active filter set.
-    //    Parent is the CURSOR: a probe from a past cursor branches (R8 branch-on-act).
-    const stamped = stampCause(cause, verb, as);
-    const { record, clause } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor,
-      ...(correlationId !== undefined ? { correlationId } : {}),
-      viewId,
-      actorMeta: this.metaFor(viewId), // a layer lands as its own source under its address
-      kind,
-      field,
-      value,
-      cause: stamped,
+    return this.withPublication(kind === 'interval' ? 'filter' : 'select', async (publication) => {
+      const verb: DispatchVerb = kind === 'interval' ? 'filter' : 'select';
+      // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
+      if (!this.holdsView(viewId)) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
+      }
+      // 2. the view's own door (R14): what it DECLARES (`guard-failed`) and whether the table it draws is
+      //    here yet (`needs-act`) — one guard, and it says which code it is refused under.
+      const guard = this.probeGuard(viewId, kind);
+      if (guard) return this.reject(verb, intent, this.gapLedger.file(guard.code, verb, guard.detail, viewId));
+      // 2b. a probe may not target a reserved session field (R6: keep the log's
+      //     test-analog channel uncorruptible by an ordinary select/filter).
+      if (RESERVED_PROBE_FIELDS.has(field)) {
+        return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
+      }
+      // 3. the field must be a column VISIBLE on this branch (R14: needs-column /
+      //    needs-backend-data). A materialized column absent from the cursor's
+      //    branch fold is honestly `needs-column` here — branch isolation.
+      const table = this.tableFor(viewId); // a layer's own table; the default for a view
+      const cols = await this.effectiveColumnsOf(table);
+      if ('rejected' in cols) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, field));
+      }
+      const column = cols.find((c) => c.name === field);
+      if (column === undefined) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${table}"`, field));
+      }
+      // 3c. …AND THE VALUES MUST BE ABLE TO ADDRESS IT. A clause of the wrong quantity keeps no row, and
+      //     until this step it LANDED: a drag across a band drawn over a column of numbers emitted a set
+      //     of SPELLINGS, the door took it, the commit went on the record and every picture emptied — 4
+      //     commits before the drag and 5 after, the refusal ledger unchanged, 185 marks in force and
+      //     then 0. A landed clause that kept nothing is worse than a refusal AND worse than the dead
+      //     gesture it replaced, because the record now claims the question was answered. So it is
+      //     refused BY NAME, under a code an agent can branch on, with the column and what it was
+      //     handed (`unaddressableClause` / `unaddressableValueRefusal`, `../encoding/frame.ts` — the
+      //     value-level tier of law 13, whose own interval sentence this quotes verbatim). The scale is
+      //     the column's own through `frameScaleOf`, never re-derived; a type nothing folds from, and a
+      //     column folded as CATEGORIES (whose fold names every cell it meets, so a column reported as
+      //     text may honestly hold numbers), are not judged at all — refused on evidence, never on
+      //     ignorance. The chart tier lands the column's own values now (`slotValues`,
+      //     `vizfootprint-ui/primitives`), so this fence is what the NEXT one meets.
+      const scale = frameScaleOf(column.type);
+      const unaddressable = unaddressableClause(kind, value, scale);
+      if (unaddressable !== null) {
+        // `scale` is defined here by construction: `unaddressableClause` answers null for an unfolded one
+        return this.reject(verb, intent, this.gapLedger.file('unaddressable-value', verb, unaddressableValueRefusal(`view "${viewId}"`, field, kind, scale!, unaddressable.delivered), field));
+      }
+      // 3b. the clause TRAVELS the relations its edges carry, BEFORE the commit is written (`travelFor`): an engine
+      //     read, like step 3's, that cannot fail the act — a refusal is filed beside it. Nothing to travel for a clear.
+      const landing = isClearedSelection({ kind, value }) ? null : await this.travelFor(viewId, probeClause(kind, field, value), verb);
+      // 4. land the cause-tagged clause commit (commit-on-intent) + update the active filter set.
+      //    Parent is the CURSOR: a probe from a past cursor branches (R8 branch-on-act).
+      const stamped = stampCause(cause, verb, as);
+      const { record, clause } = publication.commit({
+        ...(agentCall !== undefined ? { agentCall } : {}),
+        id: this.nextId(),
+        parent: this._cursor,
+        ...(correlationId !== undefined ? { correlationId } : {}),
+        viewId,
+        actorMeta: this.metaFor(viewId), // a layer lands as its own source under its address
+        kind,
+        field,
+        value,
+        cause: stamped,
+      }, ({ record, clause }) => this.notifyAdapter(viewId, clause, verb, record.id));
+      this.landed(record);
+      if (landing === null) {
+        if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture
+        this.activeFilters.delete(viewId);
+        this.activeFilterCommits.delete(viewId); // a cleared selection is no longer an input dependency
+      } else {
+        this.clearedFilters.delete(viewId);
+        // THE LIVE CLAUSE IS THE RECORD'S. The travel above judged the probe over the DISPATCHER's own
+        // value (a match's `values` array, an interval's `range` pair), and the log has since copied
+        // and deep-frozen it into `record.value`. Keeping the probe's clause would keep the caller's
+        // array: a `push` after the act moved the live selection while the record stood still (pinned
+        // in matchSelect.test.ts), and the memory engine's set, built once per array (`predicate.ts` ·
+        // `membershipOf`), would then read one thing while `resolvePredicateSQL` re-read another. The
+        // seek/fold path (`rebuildFold`'s live-clause ternary) builds from the record; so does this.
+        this.activeFilters.set(viewId, probeClause(kind, field, record.value));
+        this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
+        this.travelledByCommit.set(record.id, landing.travel); // what the clause became elsewhere, keyed like the commit that landed it
+      }
+      // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
+      // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
+
+      return { ok: true, verb, intent, commit: record };
     });
-    this.landed(record);
-    if (landing === null) {
-      if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture
-      this.activeFilters.delete(viewId);
-      this.activeFilterCommits.delete(viewId); // a cleared selection is no longer an input dependency
-    } else {
-      this.clearedFilters.delete(viewId);
-      // THE LIVE CLAUSE IS THE RECORD'S. The travel above judged the probe over the DISPATCHER's own
-      // value (a match's `values` array, an interval's `range` pair), and the log has since copied
-      // and deep-frozen it into `record.value`. Keeping the probe's clause would keep the caller's
-      // array: a `push` after the act moved the live selection while the record stood still (pinned
-      // in matchSelect.test.ts), and the memory engine's set, built once per array (`predicate.ts` ·
-      // `membershipOf`), would then read one thing while `resolvePredicateSQL` re-read another. The
-      // seek/fold path (`rebuildFold`'s live-clause ternary) builds from the record; so does this.
-      this.activeFilters.set(viewId, probeClause(kind, field, record.value));
-      this.activeFilterCommits.set(viewId, record.id); // a superseded select on the same view drops out here
-      this.travelledByCommit.set(record.id, landing.travel); // what the clause became elsewhere, keyed like the commit that landed it
-    }
-    // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
-    // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
-    this.notifyAdapter(viewId, clause, verb, record.id);
-    return { ok: true, verb, intent, commit: record };
   }
 
   /**
@@ -3614,73 +3663,77 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
-    const verb: DispatchVerb = 'select';
-    // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
-    if (!this.holdsView(viewId)) {
-      return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
-    }
-    // 2. the view's own door (R14, the two codes of `probeGuard`) — a cell must be a
-    //    DECLARED emission kind (the classic charts honestly do not emit cells).
-    const guard = this.probeGuard(viewId, 'cell');
-    if (guard) return this.reject(verb, intent, this.gapLedger.file(guard.code, verb, guard.detail, viewId));
-    // 2b. a cell is a TWO-field gesture — the same field twice is almost
-    //     certainly a caller bug, refused honestly rather than landing a
-    //     double constraint that looks like a heatmap cell but is not one.
-    if (fields[0] === fields[1]) {
-      return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `a cell selects on two DIFFERENT fields — got "${fields[0]}" twice`, fields[0]));
-    }
-    // 2c. neither side may target a reserved session field (R6, both sides).
-    for (const field of fields) {
-      if (RESERVED_PROBE_FIELDS.has(field)) {
-        return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
+    return this.withPublication('select', async (publication) => {
+      const verb: DispatchVerb = 'select';
+      // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
+      if (!this.holdsView(viewId)) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
       }
-    }
-    // 3. BOTH fields must be columns VISIBLE on this branch (R14: needs-column
-    //    / needs-backend-data) — the doProbe guard, applied to each side.
-    const table = this.tableFor(viewId); // a layer's own table; the default for a view
-    const cols = await this.effectiveColumnsOf(table);
-    if ('rejected' in cols) {
-      return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, fields[0]));
-    }
-    for (const field of fields) {
-      if (!cols.some((c) => c.name === field)) {
-        return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${table}"`, field));
+      // 2. the view's own door (R14, the two codes of `probeGuard`) — a cell must be a
+      //    DECLARED emission kind (the classic charts honestly do not emit cells).
+      const guard = this.probeGuard(viewId, 'cell');
+      if (guard) return this.reject(verb, intent, this.gapLedger.file(guard.code, verb, guard.detail, viewId));
+      // 2b. a cell is a TWO-field gesture — the same field twice is almost
+      //     certainly a caller bug, refused honestly rather than landing a
+      //     double constraint that looks like a heatmap cell but is not one.
+      if (fields[0] === fields[1]) {
+        return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `a cell selects on two DIFFERENT fields — got "${fields[0]}" twice`, fields[0]));
       }
-    }
-    // 3b. the cell TRAVELS the relations its edges carry, before the commit — the point door's step, the same law
-    const landing = values === null ? null : await this.travelFor(viewId, { kind: 'cell', fields: [fields[0], fields[1]], value: values } satisfies CellClause, verb);
-    // 4. land ONE cause-tagged compound commit (commit-on-intent). Parent is
-    //    the CURSOR: a cell select from a past cursor branches (R8), like doProbe.
-    const stamped = stampCause(cause, verb, as);
-    const { record, clause } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor,
-      ...(correlationId !== undefined ? { correlationId } : {}),
-      viewId,
-      actorMeta: this.metaFor(viewId), // a layer lands as its own source under its address
-      kind: 'cell',
-      field: cellFieldLabel(fields), // display-only joint label; the pair is authoritative
-      fields: [fields[0], fields[1]],
-      value: values,
-      cause: stamped,
+      // 2c. neither side may target a reserved session field (R6, both sides).
+      for (const field of fields) {
+        if (RESERVED_PROBE_FIELDS.has(field)) {
+          return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
+        }
+      }
+      // 3. BOTH fields must be columns VISIBLE on this branch (R14: needs-column
+      //    / needs-backend-data) — the doProbe guard, applied to each side.
+      const table = this.tableFor(viewId); // a layer's own table; the default for a view
+      const cols = await this.effectiveColumnsOf(table);
+      if ('rejected' in cols) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, fields[0]));
+      }
+      for (const field of fields) {
+        if (!cols.some((c) => c.name === field)) {
+          return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${field}" in table "${table}"`, field));
+        }
+      }
+      // 3b. the cell TRAVELS the relations its edges carry, before the commit — the point door's step, the same law
+      const landing = values === null ? null : await this.travelFor(viewId, { kind: 'cell', fields: [fields[0], fields[1]], value: values } satisfies CellClause, verb);
+      // 4. land ONE cause-tagged compound commit (commit-on-intent). Parent is
+      //    the CURSOR: a cell select from a past cursor branches (R8), like doProbe.
+      const stamped = stampCause(cause, verb, as);
+      const { record, clause } = publication.commit({
+        ...(agentCall !== undefined ? { agentCall } : {}),
+        id: this.nextId(),
+        parent: this._cursor,
+        ...(correlationId !== undefined ? { correlationId } : {}),
+        viewId,
+        actorMeta: this.metaFor(viewId), // a layer lands as its own source under its address
+        kind: 'cell',
+        field: cellFieldLabel(fields), // display-only joint label; the pair is authoritative
+        fields: [fields[0], fields[1]],
+        value: values,
+        cause: stamped,
+      }, ({ record, clause }) => this.notifyAdapter(viewId, clause, verb, record.id));
+      this.landed(record);
+      if (landing === null) {
+        if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture — the same rule as the point door
+        this.activeFilters.delete(viewId); // a cleared cell releases the view's filter
+        this.activeFilterCommits.delete(viewId);
+      } else {
+        this.clearedFilters.delete(viewId); // a live cell speaks for itself: nothing cleared is remembered beside it
+        // the record's own (copied, frozen) pair, never the dispatcher's — the point door's rule, and the fold path's shape
+        this.activeFilters.set(viewId, { kind: 'cell', fields: [fields[0], fields[1]], value: record.value as CellClause['value'] });
+        this.activeFilterCommits.set(viewId, record.id);
+        this.travelledByCommit.set(record.id, landing.travel);
+      }
+      // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
+      // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
+
+      return { ok: true, verb, intent, commit: record };
     });
-    this.landed(record);
-    if (landing === null) {
-      if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it; nor does a clear that makes room for a saved picture — the same rule as the point door
-      this.activeFilters.delete(viewId); // a cleared cell releases the view's filter
-      this.activeFilterCommits.delete(viewId);
-    } else {
-      this.clearedFilters.delete(viewId); // a live cell speaks for itself: nothing cleared is remembered beside it
-      // the record's own (copied, frozen) pair, never the dispatcher's — the point door's rule, and the fold path's shape
-      this.activeFilters.set(viewId, { kind: 'cell', fields: [fields[0], fields[1]], value: record.value as CellClause['value'] });
-      this.activeFilterCommits.set(viewId, record.id);
-      this.travelledByCommit.set(record.id, landing.travel);
-    }
-    // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
-    // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
-    this.notifyAdapter(viewId, clause, verb, record.id);
-    return { ok: true, verb, intent, commit: record };
   }
 
   /**
@@ -3713,115 +3766,119 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
-    const verb: DispatchVerb = 'select';
-    // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
-    if (!this.holdsView(viewId)) {
-      return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
-    }
-    // 2. the view's own door (R14, the two codes of `probeGuard`) — a walk is a DECLARED
-    //    emission kind, implied by nothing (`../links/voice.ts`).
-    const guard = this.probeGuard(viewId, 'neighbourhood');
-    if (guard) return this.reject(verb, intent, this.gapLedger.file(guard.code, verb, guard.detail, viewId));
-    // 2b. a walk may not start from a reserved session field (R6), like every other probe.
-    if (RESERVED_PROBE_FIELDS.has(field)) {
-      return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
-    }
-    // 2c. the WALK QUESTION must be ASKABLE (R3) — the walk's own door owns those
-    //     laws (`./neighbourhood.ts`, `walkRefusal`), and it is read HERE so an
-    //     unaskable question is refused before an engine is asked for a single row.
-    //     Judged whatever the seed is: the question is either legal or it is not,
-    //     and a clear that carried an illegal one still asked something impossible.
-    //     The SEED goes last: a `walk` is a payload, and a payload naming its own `seed` may not
-    //     quietly move the act — the node the act named is the node that is walked from and recorded.
-    const unaskable = walkRefusal({ ...walk, seed });
-    if (unaskable !== null) {
-      return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, unaskable, field));
-    }
-    // 3. the EDGE: two declared relations at one identity (law 7). Read off the
-    //    MAP, in declaration order, so either end names the same walk.
-    const table = this.tableFor(viewId); // a layer's own table; the default for a view
-    const ends = neighbourhoodEndpoints(this.relationsAt(), table, field);
-    if ('rejected' in ends) {
-      return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, ends.rejected, field));
-    }
-    const fields = ends.fields;
-    // 4. BOTH endpoint columns must be VISIBLE on this branch (R14: needs-column
-    //    / needs-backend-data) — the doProbe guard, applied to the pair the map named.
-    const cols = await this.effectiveColumnsOf(table);
-    if ('rejected' in cols) {
-      return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, field));
-    }
-    for (const end of fields) {
-      if (!cols.some((c) => c.name === end)) {
-        return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${end}" in table "${table}"`, end));
+    return this.withPublication('select', async (publication) => {
+      const verb: DispatchVerb = 'select';
+      // 1. the view must be declared (R14: needs-view) — a layer address names a declared layer of one.
+      if (!this.holdsView(viewId)) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-view', verb, `no declared view "${viewId}"`, viewId));
       }
-    }
-    // 5. the WALK — once, now, at the cursor. A clear reads no rows: there is no
-    //    question to answer, and asking would be an engine call for a null.
-    let value: NeighbourhoodValue = null;
-    if (seed !== null) {
-      // WHY the acting view's OWN clause is left out: a view is never filtered by
-      // its own selection (the crossfilter law this package keeps everywhere else
-      // — `clausesReaching`, `clientViewIds`). The gesture was made on the graph
-      // as this view DRAWS it, so the walk answers about that graph; reading
-      // under the last walk would answer about the ego net it left behind, which
-      // is not what anybody clicked on.
-      const own = this.activeFilters.get(viewId);
-      // The walk reads under `clausesOn`, which NARROWS to the clauses this table
-      // can judge (`./clausesReaching.ts` · `unjudgeableColumn`) — the law this
-      // probe used to keep a private copy of, and now shares with every other
-      // read. It judges against the same `effectiveColumnsOf` reading the
-      // endpoint check above was made against, so the guard and the walk cannot
-      // disagree about what this table has.
-      const here = (await this.clausesOn(table)).filter((c) => c !== own);
-      const rows = await this.allRows(table, here);
-      if ('rejected' in rows) {
-        return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, rows.rejected, field));
+      // 2. the view's own door (R14, the two codes of `probeGuard`) — a walk is a DECLARED
+      //    emission kind, implied by nothing (`../links/voice.ts`).
+      const guard = this.probeGuard(viewId, 'neighbourhood');
+      if (guard) return this.reject(verb, intent, this.gapLedger.file(guard.code, verb, guard.detail, viewId));
+      // 2b. a walk may not start from a reserved session field (R6), like every other probe.
+      if (RESERVED_PROBE_FIELDS.has(field)) {
+        return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
       }
-      // ONE door for the live act and a saved picture's re-ask alike — so the CEILING
-      // (`NEIGHBOURHOOD_ID_CEILING`) refuses the same walk in both. The question was
-      // already judged askable at step 2c, so the only refusal left here is that ceiling:
-      // an answer too big to record, which nothing about the declaration can repair.
-      const walked = walkNeighbourhood(rows, fields, { ...walk, seed }); // the ACT's seed wins over any the payload carries (step 2c)
-      if (!walked.ok) {
-        return this.reject(verb, intent, this.gapLedger.file('result-too-large', verb, walked.rejected, field));
+      // 2c. the WALK QUESTION must be ASKABLE (R3) — the walk's own door owns those
+      //     laws (`./neighbourhood.ts`, `walkRefusal`), and it is read HERE so an
+      //     unaskable question is refused before an engine is asked for a single row.
+      //     Judged whatever the seed is: the question is either legal or it is not,
+      //     and a clear that carried an illegal one still asked something impossible.
+      //     The SEED goes last: a `walk` is a payload, and a payload naming its own `seed` may not
+      //     quietly move the act — the node the act named is the node that is walked from and recorded.
+      const unaskable = walkRefusal({ ...walk, seed });
+      if (unaskable !== null) {
+        return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, unaskable, field));
       }
-      value = walked.body;
-    }
-    // 5b. the walk's clause TRAVELS the relations its edges carry, before the commit — the point door's step, the same law
-    const landing = value === null ? null : await this.travelFor(viewId, probeClause('neighbourhood', neighbourhoodFieldLabel(fields), value, fields), verb);
-    // 6. land ONE cause-tagged commit (commit-on-intent), parented at the CURSOR
-    //    (R8 branch-on-act) — the question and its answer in one value.
-    const stamped = stampCause(cause, verb, as);
-    const { record, clause } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor,
-      ...(correlationId !== undefined ? { correlationId } : {}),
-      viewId,
-      actorMeta: this.metaFor(viewId), // a layer lands as its own source under its address
-      kind: 'neighbourhood',
-      field: neighbourhoodFieldLabel(fields), // display-only joint label; the pair is authoritative
-      fields: [fields[0], fields[1]],
-      value,
-      cause: stamped,
+      // 3. the EDGE: two declared relations at one identity (law 7). Read off the
+      //    MAP, in declaration order, so either end names the same walk.
+      const table = this.tableFor(viewId); // a layer's own table; the default for a view
+      const ends = neighbourhoodEndpoints(this.relationsAt(), table, field);
+      if ('rejected' in ends) {
+        return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, ends.rejected, field));
+      }
+      const fields = ends.fields;
+      // 4. BOTH endpoint columns must be VISIBLE on this branch (R14: needs-column
+      //    / needs-backend-data) — the doProbe guard, applied to the pair the map named.
+      const cols = await this.effectiveColumnsOf(table);
+      if ('rejected' in cols) {
+        return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, cols.rejected, field));
+      }
+      for (const end of fields) {
+        if (!cols.some((c) => c.name === end)) {
+          return this.reject(verb, intent, this.gapLedger.file('needs-column', verb, `no column "${end}" in table "${table}"`, end));
+        }
+      }
+      // 5. the WALK — once, now, at the cursor. A clear reads no rows: there is no
+      //    question to answer, and asking would be an engine call for a null.
+      let value: NeighbourhoodValue = null;
+      if (seed !== null) {
+        // WHY the acting view's OWN clause is left out: a view is never filtered by
+        // its own selection (the crossfilter law this package keeps everywhere else
+        // — `clausesReaching`, `clientViewIds`). The gesture was made on the graph
+        // as this view DRAWS it, so the walk answers about that graph; reading
+        // under the last walk would answer about the ego net it left behind, which
+        // is not what anybody clicked on.
+        const own = this.activeFilters.get(viewId);
+        // The walk reads under `clausesOn`, which NARROWS to the clauses this table
+        // can judge (`./clausesReaching.ts` · `unjudgeableColumn`) — the law this
+        // probe used to keep a private copy of, and now shares with every other
+        // read. It judges against the same `effectiveColumnsOf` reading the
+        // endpoint check above was made against, so the guard and the walk cannot
+        // disagree about what this table has.
+        const here = (await this.clausesOn(table)).filter((c) => c !== own);
+        const rows = await this.allRows(table, here);
+        if ('rejected' in rows) {
+          return this.reject(verb, intent, this.gapLedger.file('needs-backend-data', verb, rows.rejected, field));
+        }
+        // ONE door for the live act and a saved picture's re-ask alike — so the CEILING
+        // (`NEIGHBOURHOOD_ID_CEILING`) refuses the same walk in both. The question was
+        // already judged askable at step 2c, so the only refusal left here is that ceiling:
+        // an answer too big to record, which nothing about the declaration can repair.
+        const walked = walkNeighbourhood(rows, fields, { ...walk, seed }); // the ACT's seed wins over any the payload carries (step 2c)
+        if (!walked.ok) {
+          return this.reject(verb, intent, this.gapLedger.file('result-too-large', verb, walked.rejected, field));
+        }
+        value = walked.body;
+      }
+      // 5b. the walk's clause TRAVELS the relations its edges carry, before the commit — the point door's step, the same law
+      const landing = value === null ? null : await this.travelFor(viewId, probeClause('neighbourhood', neighbourhoodFieldLabel(fields), value, fields), verb);
+      // 6. land ONE cause-tagged commit (commit-on-intent), parented at the CURSOR
+      //    (R8 branch-on-act) — the question and its answer in one value.
+      const stamped = stampCause(cause, verb, as);
+      const { record, clause } = publication.commit({
+        ...(agentCall !== undefined ? { agentCall } : {}),
+        id: this.nextId(),
+        parent: this._cursor,
+        ...(correlationId !== undefined ? { correlationId } : {}),
+        viewId,
+        actorMeta: this.metaFor(viewId), // a layer lands as its own source under its address
+        kind: 'neighbourhood',
+        field: neighbourhoodFieldLabel(fields), // display-only joint label; the pair is authoritative
+        fields: [fields[0], fields[1]],
+        value,
+        cause: stamped,
+      }, ({ record, clause }) => this.notifyAdapter(viewId, clause, verb, record.id));
+      this.landed(record);
+      if (landing === null) {
+        if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it — the same rule as the point door
+        this.activeFilters.delete(viewId);
+        this.activeFilterCommits.delete(viewId);
+      } else {
+        this.clearedFilters.delete(viewId);
+        // the record's own (copied, frozen) walk, never the payload's — the point door's rule
+        this.activeFilters.set(viewId, probeClause('neighbourhood', neighbourhoodFieldLabel(fields), record.value, fields));
+        this.activeFilterCommits.set(viewId, record.id);
+        this.travelledByCommit.set(record.id, landing.travel);
+      }
+      // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
+      // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
+
+      return { ok: true, verb, intent, commit: record };
     });
-    this.landed(record);
-    if (landing === null) {
-      if (record.cause.revertOf === undefined && record.cause.replacedBy === undefined) this.noteCleared(viewId, record.id); // an undo takes the selection back, it does not "clear" it — the same rule as the point door
-      this.activeFilters.delete(viewId);
-      this.activeFilterCommits.delete(viewId);
-    } else {
-      this.clearedFilters.delete(viewId);
-      // the record's own (copied, frozen) walk, never the payload's — the point door's rule
-      this.activeFilters.set(viewId, probeClause('neighbourhood', neighbourhoodFieldLabel(fields), record.value, fields));
-      this.activeFilterCommits.set(viewId, record.id);
-      this.travelledByCommit.set(record.id, landing.travel);
-    }
-    // R3 inbound: hand the resolved clause to a mounted adapter to re-render.
-    // OUTBOUND — after the act, and unable to fail it (see notifyAdapter).
-    this.notifyAdapter(viewId, clause, verb, record.id);
-    return { ok: true, verb, intent, commit: record };
   }
 
   /**
@@ -3891,9 +3948,10 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** Land one `encoding:` commit (single channel, or the `*`-marked binding set) and fold it live. */
-  private landEncoding(viewId: string, field: string, value: unknown, next: Bindings, cause: Cause, as: Actor | undefined, correlationId: string | undefined): CommitRecord {
+  private landEncoding(publication: PublicationScope, viewId: string, field: string, value: unknown, next: Bindings, cause: Cause, as: Actor | undefined, correlationId: string | undefined, agentCall?: AgentCallIdentity): CommitRecord {
     const stamped = stampCause(cause, 'reencode', as);
-    const { record } = this.log.commit({
+    const { record } = publication.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor, // R8 branch-on-act: a reencode from a past cursor branches, exactly like doProbe
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -3924,21 +3982,24 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
-    const guarded = await this.reencodeGuards(viewId, [[channel, field]]);
-    if ('gap' in guarded) return this.reject('reencode', intent, guarded.gap);
-    // 5. the encoding plane's ONE validator (src/encoding): the channel's
-    //    requirement, the built-in absence law and the def's business rules,
-    //    judged on the RESULTING bindings (so a two-column rule sees the whole
-    //    chart) and against the other views' bindings (dashboard scope). A
-    //    refusal is a gap with the sentence — the same sentence the build door
-    //    throws and the picker greys with. Under the coerce policy a named
-    //    coercer may take the binding instead; the coercion rides the result.
-    const judged = this.judgeBindings(viewId, { ...this.viewEncodings(viewId), [channel]: field }, [channel], guarded.cols);
-    if (refuses(judged)) return this.reject('reencode', intent, this.refusalGap(judged, field));
-    // 6. land ONE cause-tagged commit (commit-on-intent).
-    const record = this.landEncoding(viewId, channel, field, { [channel]: field }, cause, as, correlationId);
-    return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, channel, field }, ...(judged.length > 0 ? { coerced: judged } : {}) };
+    return this.withPublication('reencode', async (publication) => {
+      const guarded = await this.reencodeGuards(viewId, [[channel, field]]);
+      if ('gap' in guarded) return this.reject('reencode', intent, guarded.gap);
+      // 5. the encoding plane's ONE validator (src/encoding): the channel's
+      //    requirement, the built-in absence law and the def's business rules,
+      //    judged on the RESULTING bindings (so a two-column rule sees the whole
+      //    chart) and against the other views' bindings (dashboard scope). A
+      //    refusal is a gap with the sentence — the same sentence the build door
+      //    throws and the picker greys with. Under the coerce policy a named
+      //    coercer may take the binding instead; the coercion rides the result.
+      const judged = this.judgeBindings(viewId, { ...this.viewEncodings(viewId), [channel]: field }, [channel], guarded.cols);
+      if (refuses(judged)) return this.reject('reencode', intent, this.refusalGap(judged, field));
+      // 6. land ONE cause-tagged commit (commit-on-intent).
+      const record = this.landEncoding(publication, viewId, channel, field, { [channel]: field }, cause, as, correlationId, agentCall);
+      return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, channel, field }, ...(judged.length > 0 ? { coerced: judged } : {}) };
+    });
   }
 
   /**
@@ -3954,17 +4015,20 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
-    const pairs = Object.entries(bindings).map(([channel, field]) => [channel, field] as const);
-    if (pairs.some(([, field]) => typeof field !== 'string')) {
-      return this.reject('reencode', intent, this.gapLedger.file('guard-failed', 'reencode', `a binding set maps every channel to a column name`, viewId));
-    }
-    const guarded = await this.reencodeGuards(viewId, pairs);
-    if ('gap' in guarded) return this.reject('reencode', intent, guarded.gap);
-    const judged = this.judgeBindings(viewId, { ...this.viewEncodings(viewId), ...bindings }, Object.keys(bindings), guarded.cols);
-    if (refuses(judged)) return this.reject('reencode', intent, this.refusalGap(judged, viewId));
-    const record = this.landEncoding(viewId, ENCODING_SET_FIELD, { ...bindings }, bindings, cause, as, correlationId);
-    return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, bindings }, ...(judged.length > 0 ? { coerced: judged } : {}) };
+    return this.withPublication('reencode', async (publication) => {
+      const pairs = Object.entries(bindings).map(([channel, field]) => [channel, field] as const);
+      if (pairs.some(([, field]) => typeof field !== 'string')) {
+        return this.reject('reencode', intent, this.gapLedger.file('guard-failed', 'reencode', `a binding set maps every channel to a column name`, viewId));
+      }
+      const guarded = await this.reencodeGuards(viewId, pairs);
+      if ('gap' in guarded) return this.reject('reencode', intent, guarded.gap);
+      const judged = this.judgeBindings(viewId, { ...this.viewEncodings(viewId), ...bindings }, Object.keys(bindings), guarded.cols);
+      if (refuses(judged)) return this.reject('reencode', intent, this.refusalGap(judged, viewId));
+      const record = this.landEncoding(publication, viewId, ENCODING_SET_FIELD, { ...bindings }, bindings, cause, as, correlationId, agentCall);
+      return { ok: true, verb: 'reencode', intent, commit: record, reencoded: { viewId, bindings }, ...(judged.length > 0 ? { coerced: judged } : {}) };
+    });
   }
 
   /** The refusal as a gap: every refusing sentence (an explainer's prose when it added one), the law first. */
@@ -4065,9 +4129,10 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** Land one prose-lane commit (a slot's words, or its proposal lane) and fold it live. */
-  private landProse(viewId: string, field: string, value: unknown, cause: Cause, as: Actor | undefined, correlationId: string | undefined): CommitRecord {
+  private landProse(publication: PublicationScope, viewId: string, field: string, value: unknown, cause: Cause, as: Actor | undefined, correlationId: string | undefined, agentCall?: AgentCallIdentity): CommitRecord {
     const stamped = stampCause(cause, 'describe', as);
-    const { record: commit } = this.log.commit({
+    const { record: commit } = publication.commit({
+      ...(agentCall !== undefined ? { agentCall } : {}),
       id: this.nextId(),
       parent: this._cursor,
       ...(correlationId !== undefined ? { correlationId } : {}),
@@ -4083,59 +4148,71 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   /** PROPOSE: the record lands in the slot's proposal lane (status open), judged by the same laws — never as the live words. */
-  private async doPropose(viewId: string, slot: ProseSlot, record: ProseRecord | null, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined): Promise<DispatchResult> {
-    const gap = this.proseGuards(viewId, slot, 'describe');
-    if (gap !== null) return this.reject('describe', intent, gap);
-    if (record === null) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', `a proposal for "${viewId}".${slot} needs a record — null is not a proposal`, slot));
-    const cols = await this.effectiveColumnsOf(this.tableFor(viewId)); // a layer's words are judged against the columns it reads
-    if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
-    const problems = validateProseRecord(viewId, slot, record, this.proseWorld(cols, 'proposal'));
-    if (proseRefuses(problems)) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
-    const by = stampCause(cause, 'describe', as).requestedBy;
-    const value: ProseProposal = { record, status: 'open', by };
-    const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
-    this.foldProposal(viewId, slot, value, commit.id);
-    return { ok: true, verb: 'describe', intent, commit, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
+  private async doPropose(viewId: string, slot: ProseSlot, record: ProseRecord | null, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined, agentCall?: AgentCallIdentity): Promise<DispatchResult> {
+    return this.withPublication('describe', async (publication) => {
+      const gap = this.proseGuards(viewId, slot, 'describe');
+      if (gap !== null) return this.reject('describe', intent, gap);
+      if (record === null) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', `a proposal for "${viewId}".${slot} needs a record — null is not a proposal`, slot));
+      const cols = await this.effectiveColumnsOf(this.tableFor(viewId)); // a layer's words are judged against the columns it reads
+      if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
+      const problems = validateProseRecord(viewId, slot, record, this.proseWorld(cols, 'proposal'));
+      if (proseRefuses(problems)) return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
+      const by = stampCause(cause, 'describe', as).requestedBy;
+      const value: ProseProposal = { record, status: 'open', by };
+      const commit = this.landProse(publication, viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId, agentCall);
+      this.foldProposal(viewId, slot, value, commit.id);
+      const proposed = this.proposalsOf(viewId).find((p) => p.slot === slot)!;
+
+      return { ok: true, verb: 'describe', intent, commit, proposed };
+    });
   }
 
   /** ACCEPT: the open proposal's record lands on the slot with `author.acceptedFrom` = the proposing commit — one commit, and the proposal reads accepted. */
-  private async doAccept(viewId: string, slot: ProseSlot, proposalId: string, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined): Promise<DispatchResult> {
-    const gap = this.proseGuards(viewId, slot, 'describe');
-    if (gap !== null) return this.reject('describe', intent, gap);
-    const open = this.activeProposals.get(viewId)?.get(slot);
-    const derived = this.proposalsOf(viewId).find((p) => p.slot === slot)?.status; // accepted is derived from the live words
-    if (open === undefined || open.proposal !== proposalId || derived !== 'open') {
-      return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.noProposal, { view: viewId, slot, proposal: proposalId }), slot));
-    }
-    const acceptedBy = stampCause(cause, 'describe', as).requestedBy;
-    const record: ProseRecord = { ...open.record, author: { ...open.record.author, acceptedFrom: proposalId, acceptedBy } };
-    const table = this.tableFor(viewId); // the same table the propose door judged against — a layer's words are judged against the columns it reads
-    const cols = await this.effectiveColumnsOf(table);
-    /* v8 ignore next 2 -- an open proposal exists only where the columns could be listed when it was proposed; a provider that answered then and refuses now is a mid-session engine failure this door cannot exercise */
-    if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
-    const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
-    this.foldProse(viewId, slot, record);
-    const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot)!; // the slot was just set
-    return { ok: true, verb: 'describe', intent, commit, described, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
+  private async doAccept(viewId: string, slot: ProseSlot, proposalId: string, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined, agentCall?: AgentCallIdentity): Promise<DispatchResult> {
+    return this.withPublication('describe', async (publication) => {
+      const gap = this.proseGuards(viewId, slot, 'describe');
+      if (gap !== null) return this.reject('describe', intent, gap);
+      const open = this.activeProposals.get(viewId)?.get(slot);
+      const derived = this.proposalsOf(viewId).find((p) => p.slot === slot)?.status; // accepted is derived from the live words
+      if (open === undefined || open.proposal !== proposalId || derived !== 'open') {
+        return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.noProposal, { view: viewId, slot, proposal: proposalId }), slot));
+      }
+      const acceptedBy = stampCause(cause, 'describe', as).requestedBy;
+      const record: ProseRecord = { ...open.record, author: { ...open.record.author, acceptedFrom: proposalId, acceptedBy } };
+      const table = this.tableFor(viewId); // the same table the propose door judged against — a layer's words are judged against the columns it reads
+      const cols = await this.effectiveColumnsOf(table);
+      /* v8 ignore next 2 -- an open proposal exists only where the columns could be listed when it was proposed; a provider that answered then and refuses now is a mid-session engine failure this door cannot exercise */
+      if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
+      const commit = this.landProse(publication, viewId, slot, record, cause, as, correlationId, agentCall);
+      this.foldProse(viewId, slot, record);
+      const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot)!; // the slot was just set
+      const proposed = this.proposalsOf(viewId).find((p) => p.slot === slot)!;
+
+      return { ok: true, verb: 'describe', intent, commit, described, proposed };
+    });
   }
 
   /** DECLINE: a `declined` value with its reason lands in the lane, answering the open proposal — the words never land. */
-  private async doDecline(viewId: string, slot: ProseSlot, decline: { readonly proposal: string; readonly reason: string }, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined): Promise<DispatchResult> {
-    const gap = this.proseGuards(viewId, slot, 'describe');
-    if (gap !== null) return this.reject('describe', intent, gap);
-    const open = this.activeProposals.get(viewId)?.get(slot);
-    const derived = this.proposalsOf(viewId).find((p) => p.slot === slot)?.status;
-    if (open === undefined || open.proposal !== decline.proposal || derived !== 'open') {
-      return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.noProposal, { view: viewId, slot, proposal: decline.proposal }), slot));
-    }
-    if (typeof decline.reason !== 'string' || decline.reason.trim().length === 0) {
-      return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.declineReason, { view: viewId, slot }), slot));
-    }
-    const by = stampCause(cause, 'describe', as).requestedBy;
-    const value: ProseProposal = { record: open.record, status: 'declined', proposal: decline.proposal, by, reason: decline.reason };
-    const commit = this.landProse(viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId);
-    this.foldProposal(viewId, slot, value, commit.id);
-    return { ok: true, verb: 'describe', intent, commit, proposed: this.proposalsOf(viewId).find((p) => p.slot === slot)! };
+  private async doDecline(viewId: string, slot: ProseSlot, decline: { readonly proposal: string; readonly reason: string }, cause: Cause, as: Actor | undefined, intent: DispatchResult['intent'], correlationId: string | undefined, agentCall?: AgentCallIdentity): Promise<DispatchResult> {
+    return this.withPublication('describe', async (publication) => {
+      const gap = this.proseGuards(viewId, slot, 'describe');
+      if (gap !== null) return this.reject('describe', intent, gap);
+      const open = this.activeProposals.get(viewId)?.get(slot);
+      const derived = this.proposalsOf(viewId).find((p) => p.slot === slot)?.status;
+      if (open === undefined || open.proposal !== decline.proposal || derived !== 'open') {
+        return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.noProposal, { view: viewId, slot, proposal: decline.proposal }), slot));
+      }
+      if (typeof decline.reason !== 'string' || decline.reason.trim().length === 0) {
+        return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', fillProse(PROSE_SENTENCES.declineReason, { view: viewId, slot }), slot));
+      }
+      const by = stampCause(cause, 'describe', as).requestedBy;
+      const value: ProseProposal = { record: open.record, status: 'declined', proposal: decline.proposal, by, reason: decline.reason };
+      const commit = this.landProse(publication, viewId, `${slot}${PROPOSAL_LANE}`, value, cause, as, correlationId, agentCall);
+      this.foldProposal(viewId, slot, value, commit.id);
+      const proposed = this.proposalsOf(viewId).find((p) => p.slot === slot)!;
+
+      return { ok: true, verb: 'describe', intent, commit, proposed };
+    });
   }
 
   /** The live selections as JSON-safe data — what a caption's basis is compared against. */
@@ -4202,38 +4279,42 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
-    const gap = this.proseGuards(viewId, slot, 'describe');
-    if (gap !== null) return this.reject('describe', intent, gap);
-    const table = this.tableFor(viewId); // a layer's words are judged against the columns it reads
-    const cols = await this.effectiveColumnsOf(table);
-    if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
-    if (record !== null && record.author.kind === 'humanEdited' && record.basis !== undefined) {
-      // a person edited an agent's words looking at THIS screen: the basis keeps the keys the agent stated,
-      // re-stamped to what is on screen now — so the edit is judged fresh, and goes stale on its own terms
-      const effective = this.proseEncodingsNow(viewId, this.runtime.encoding.facetsOf(table, cols));
-      const { editedFrom: prior, ...stated } = record.basis; // the agent's ORIGINAL evidence survives every edit, kept once — never nested
-      record = {
-        ...record,
-        basis: {
-          ...stated,
-          ...(stated.encodings !== undefined ? { encodings: effective } : {}),
-          ...(stated.filters !== undefined ? { filters: this.filtersNow() } : {}),
-          atCommit: this._cursor,
-          editedFrom: prior ?? stated,
-        },
-      };
-    }
-    if (record !== null) {
-      const problems = validateProseRecord(viewId, slot, record, this.proseWorld(cols, 'set'));
-      if (proseRefuses(problems)) {
-        return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
+    return this.withPublication('describe', async (publication) => {
+      const gap = this.proseGuards(viewId, slot, 'describe');
+      if (gap !== null) return this.reject('describe', intent, gap);
+      const table = this.tableFor(viewId); // a layer's words are judged against the columns it reads
+      const cols = await this.effectiveColumnsOf(table);
+      if ('rejected' in cols) return this.reject('describe', intent, this.gapLedger.file('needs-backend-data', 'describe', cols.rejected, viewId));
+      if (record !== null && record.author.kind === 'humanEdited' && record.basis !== undefined) {
+        // a person edited an agent's words looking at THIS screen: the basis keeps the keys the agent stated,
+        // re-stamped to what is on screen now — so the edit is judged fresh, and goes stale on its own terms
+        const effective = this.proseEncodingsNow(viewId, this.runtime.encoding.facetsOf(table, cols));
+        const { editedFrom: prior, ...stated } = record.basis; // the agent's ORIGINAL evidence survives every edit, kept once — never nested
+        record = {
+          ...record,
+          basis: {
+            ...stated,
+            ...(stated.encodings !== undefined ? { encodings: effective } : {}),
+            ...(stated.filters !== undefined ? { filters: this.filtersNow() } : {}),
+            atCommit: this._cursor,
+            editedFrom: prior ?? stated,
+          },
+        };
       }
-    }
-    const commit = this.landProse(viewId, slot, record, cause, as, correlationId);
-    this.foldProse(viewId, slot, record);
-    const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot) ?? null;
-    return { ok: true, verb: 'describe', intent, commit, described };
+      if (record !== null) {
+        const problems = validateProseRecord(viewId, slot, record, this.proseWorld(cols, 'set'));
+        if (proseRefuses(problems)) {
+          return this.reject('describe', intent, this.gapLedger.file('guard-failed', 'describe', problems.map((p) => p.sentence).join('; '), slot));
+        }
+      }
+      const commit = this.landProse(publication, viewId, slot, record, cause, as, correlationId, agentCall);
+      this.foldProse(viewId, slot, record);
+      const described = this.proseOf(viewId, this.runtime.encoding.facetsOf(table, cols)).find((p) => p.slot === slot) ?? null;
+
+      return { ok: true, verb: 'describe', intent, commit, described };
+    });
   }
 
   /** The last effective map, keyed by what it depends on (the folds, the graph, the columns). */
@@ -4372,24 +4453,31 @@ class InteractionSessionImpl implements InteractionSession {
     cause: Cause,
     as: Actor | undefined,
     intent: DispatchResult['intent'],
+    correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): DispatchResult {
-    // An annotation is an INERT note (R12): stored as commit data, never parsed.
-    // Its `field` names WHAT it annotates (a commit id, a view, a column) — so a
-    // note on a selection commit is a SAVED SELECTION the log can find again.
-    const stamped = stampCause(cause, 'annotate', as);
-    const viewId = `${ANNOTATION_VIEW_PREFIX}${stamped.requestedBy}`; // single-sourced wire prefix (BR-1)
-    const { record } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor, // R8 branch-on-act: an annotation from a past cursor branches too
-      viewId,
-      actorMeta: { actor: stamped.requestedBy },
-      kind: 'point',
-      field: target.length > 0 ? target : ANNOTATION_FIELD,
-      value: note,
-      cause: stamped,
+    return this.withPublication('annotate', (publication) => {
+      // An annotation is an INERT note (R12): stored as commit data, never parsed.
+      // Its `field` names WHAT it annotates (a commit id, a view, a column) — so a
+      // note on a selection commit is a SAVED SELECTION the log can find again.
+      const stamped = stampCause(cause, 'annotate', as);
+      const viewId = `${ANNOTATION_VIEW_PREFIX}${stamped.requestedBy}`; // single-sourced wire prefix (BR-1)
+      const { record } = publication.commit({
+        ...(agentCall !== undefined ? { agentCall } : {}),
+        id: this.nextId(),
+        parent: this._cursor, // R8 branch-on-act: an annotation from a past cursor branches too
+        ...(correlationId !== undefined ? { correlationId } : {}),
+        viewId,
+        actorMeta: { actor: stamped.requestedBy },
+        kind: 'point',
+        field: target.length > 0 ? target : ANNOTATION_FIELD,
+        value: note,
+        cause: stamped,
+      });
+      this.landed(record);
+
+      return { ok: true, verb: 'annotate', intent, commit: record, annotated: { target, note } };
     });
-    this.landed(record);
-    return { ok: true, verb: 'annotate', intent, commit: record, annotated: { target, note } };
   }
 
   private doNavigate(
@@ -4400,11 +4488,12 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): DispatchResult {
     // LY-1: the `layout:${scope}` synthetic identity LANDS a fold-carried
     // commit (see LAYOUT_SOURCE_META); every other navigate stays commit-free.
     if (viewId.startsWith(LAYOUT_VIEW_PREFIX)) {
-      return this.doLayoutNote(viewId, field, value, cause, as, intent, correlationId);
+      return this.doLayoutNote(viewId, field, value, cause, as, intent, correlationId, agentCall);
     }
     if (!this.holdsView(viewId)) {
       return this.reject('navigate', intent, this.gapLedger.file('needs-view', 'navigate', `no declared view "${viewId}"`, viewId));
@@ -4433,43 +4522,49 @@ class InteractionSessionImpl implements InteractionSession {
     as: Actor | undefined,
     intent: DispatchResult['intent'],
     correlationId: string | undefined,
+    agentCall?: AgentCallIdentity,
   ): DispatchResult {
-    const scope = viewId.slice(LAYOUT_VIEW_PREFIX.length);
-    if (scope.length === 0) {
-      return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', 'a layout navigate needs a scope — use "layout:dashboard", not bare "layout:"', viewId));
-    }
-    if (typeof field !== 'string' || field.trim().length === 0) {
-      return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `a layout navigate on "${viewId}" needs a field naming the arrangement prop (e.g. preset / order / focus)`, viewId));
-    }
-    if (typeof value !== 'string') {
-      return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `a layout navigate on "${viewId}" needs a plain-string value for "${field}"`, field));
-    }
-    if (value.length > LAYOUT_VALUE_MAX) {
-      return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `layout value too long (max ${LAYOUT_VALUE_MAX} chars)`, field));
-    }
-    const stamped = stampCause(cause, 'navigate', as);
-    const { record } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor, // R8 branch-on-act: a layout set from a past cursor branches too
-      ...(correlationId !== undefined ? { correlationId } : {}),
-      viewId,
-      actorMeta: LAYOUT_SOURCE_META, // constant per source — WHO acted lives in the cause
-      kind: 'point',
-      field,
-      value,
-      cause: stamped,
+    return this.withPublication('navigate', (publication) => {
+      const scope = viewId.slice(LAYOUT_VIEW_PREFIX.length);
+      if (scope.length === 0) {
+        return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', 'a layout navigate needs a scope — use "layout:dashboard", not bare "layout:"', viewId));
+      }
+      if (typeof field !== 'string' || field.trim().length === 0) {
+        return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `a layout navigate on "${viewId}" needs a field naming the arrangement prop (e.g. preset / order / focus)`, viewId));
+      }
+      if (typeof value !== 'string') {
+        return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `a layout navigate on "${viewId}" needs a plain-string value for "${field}"`, field));
+      }
+      if (value.length > LAYOUT_VALUE_MAX) {
+        return this.reject('navigate', intent, this.gapLedger.file('guard-failed', 'navigate', `layout value too long (max ${LAYOUT_VALUE_MAX} chars)`, field));
+      }
+      const stamped = stampCause(cause, 'navigate', as);
+      const { record } = publication.commit({
+        ...(agentCall !== undefined ? { agentCall } : {}),
+        id: this.nextId(),
+        parent: this._cursor, // R8 branch-on-act: a layout set from a past cursor branches too
+        ...(correlationId !== undefined ? { correlationId } : {}),
+        viewId,
+        actorMeta: LAYOUT_SOURCE_META, // constant per source — WHO acted lives in the cause
+        kind: 'point',
+        field,
+        value,
+        cause: stamped,
+      });
+      this.landed(record);
+      const current = this.activeLayouts.get(scope) ?? {};
+      this.activeLayouts.set(scope, Object.freeze({ ...current, [field]: value }));
+      this.noteFoldCommits(this.activeLayoutCommits, scope, [field], record.id); // R4
+
+      return { ok: true, verb: 'navigate', intent, navigatedTo: viewId, commit: record };
     });
-    this.landed(record);
-    const current = this.activeLayouts.get(scope) ?? {};
-    this.activeLayouts.set(scope, Object.freeze({ ...current, [field]: value }));
-    this.noteFoldCommits(this.activeLayoutCommits, scope, [field], record.id); // R4
-    return { ok: true, verb: 'navigate', intent, navigatedTo: viewId, commit: record };
   }
 
   private async doAnalyze(
     action: Extract<DispatchAction, { verb: 'analyze' }>,
     as: Actor | undefined,
     intent: DispatchResult['intent'],
+    agentCall?: AgentCallIdentity,
   ): Promise<DispatchResult> {
     const { analysisId, input, def, table, cause, correlationId } = action;
     // An act may bring its own declaration — `declareAnalysis(id, def)` as a
@@ -4488,6 +4583,7 @@ class InteractionSessionImpl implements InteractionSession {
       return this.reject('analyze', intent, this.gapLedger.file('needs-analysis-kind', 'analyze', `no declared analysis "${analysisId}"`, analysisId));
     }
     const analysis = await this.declareAnalysis(analysisId, {
+      ...(agentCall !== undefined ? { agentCall } : {}),
       ...(input !== undefined ? { input } : {}),
       ...(def !== undefined ? { def } : {}),
       ...(table !== undefined ? { table } : {}),
@@ -4841,230 +4937,240 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   async declareAnalysis(id: string, opts: DeclareAnalysisOptions = {}): Promise<AnalysisCommit> {
-    if (opts.def) this.registerAnalysis(id, opts.def);
-    const analysis = this.analysis(id);
-    if (!analysis) throw new Error(`vizfootprint: unknown analysis "${id}" — declare it in the def or pass { def }`);
-
-    const table = opts.table ?? this.defaultTable;
-    /** Nothing happened, and here is the sentence — the shape every refusal below answers with. */
-    const refused = (gap: GapRow): AnalysisCommit => ({
-      analysisId: id,
-      kind: analysis.kind,
-      result: { ok: false, reason: 'degenerate-fit', n: 0, fitDegenerate: true },
-      gap,
-    });
-    /**
-     * The rows could not be READ. When an ENGINE refused them the act was never
-     * performed and nothing is known about the data — that is UNAVAILABLE, a
-     * third outcome, and calling it a degenerate fit was a claim about rows
-     * nobody ever saw. With no engine to refuse (no provider at all) there is
-     * nothing to say about the data, and the judge's shape is the honest one.
-     */
-    const couldNotRead = (read: ReadRefusal, code: GapCode): AnalysisCommit => {
-      const gap = this.gapLedger.file(code, 'declareAnalysis', read.rejected, id);
-      return read.rejection === undefined
-        ? refused(gap)
-        : { analysisId: id, kind: analysis.kind, result: { ok: false, reason: 'unavailable', rejection: read.rejection }, gap };
-    };
-    // THE PERMISSION, FIRST OF ALL (./README.md, law 1; ../def/README.md law 6).
-    // An analysis that reads a table BESIDE the one it runs over may do so only
-    // where a declared relation joins the two. This is the cheapest judge on the
-    // door — declaration against declaration, no row and no backend — so it is
-    // asked before the columns are even fetched.
-    const reads = analysis.def.reads ?? [];
-    // AT THE CURSOR: a table an act cut is a table, and the edge it minted back
-    // to its parent is a permission — on the branch that cut it, and nowhere else.
-    const notPermitted = judgeAnalysisReads(id, table, reads, this.tablesAt(), this.relationsAt());
-    if (notPermitted.length > 0) {
-      return refused(this.gapLedger.file('guard-failed', 'declareAnalysis', notPermitted.join('; '), id));
-    }
-    // JUDGE NEXT (./README.md, law 1). An analysis that wants to be judged
-    // against the table it reads is asked here, before a row is touched and
-    // before a commit exists: the columns visible AT THE CURSOR, so a formula
-    // over a column an earlier act derived is judged against what that act
-    // actually left there (law 5). Almost every analysis declines this hook
-    // and pays nothing for it.
-    if (analysis.def.judgeTable) {
-      const columns = await this.effectiveColumnsOf(table);
-      if ('rejected' in columns) {
-        return couldNotRead({ ...columns, rejected: `analysis "${id}" could not be judged against table "${table}": ${columns.rejected}` }, this.gapCodeFor(id, 'source'));
+    return this.withPublication('declareAnalysis', async (publication) => {
+      const identity = parseAgentCall(opts.agentCall, { optional: true });
+      if (!identity.ok) {
+        const slotKind = opts.def !== null && typeof opts.def === 'object' && 'kind' in opts.def ? opts.def.kind : undefined;
+        const kind = this.analysis(id)?.kind ?? (slotKind === 'test' || slotKind === 'transform' ? slotKind : 'unknown');
+        return { analysisId: id, kind, result: { ok: false, reason: 'guard-failed', detail: identity.detail }, gap: this.gapLedger.file('guard-failed', 'declareAnalysis', identity.detail, id) };
       }
-      const problems = analysis.def.judgeTable(table, columns);
-      if (problems.length > 0) {
-        return refused(this.gapLedger.file(this.gapCodeFor(id, 'invalid'), 'declareAnalysis', problems.join('; '), id));
+      const agentCall = identity.identity;
+      if (opts.def) this.registerAnalysis(id, opts.def);
+      const analysis = this.analysis(id);
+      if (!analysis) throw new Error(`vizfootprint: unknown analysis "${id}" — declare it in the def or pass { def }`);
+
+      const table = opts.table ?? this.defaultTable;
+      /** Nothing happened, and here is the sentence — the shape every refusal below answers with. */
+      const refused = (gap: GapRow): AnalysisCommit => ({
+        analysisId: id,
+        kind: analysis.kind,
+        result: { ok: false, reason: 'degenerate-fit', n: 0, fitDegenerate: true },
+        gap,
+      });
+      /**
+       * The rows could not be READ. When an ENGINE refused them the act was never
+       * performed and nothing is known about the data — that is UNAVAILABLE, a
+       * third outcome, and calling it a degenerate fit was a claim about rows
+       * nobody ever saw. With no engine to refuse (no provider at all) there is
+       * nothing to say about the data, and the judge's shape is the honest one.
+       */
+      const couldNotRead = (read: ReadRefusal, code: GapCode): AnalysisCommit => {
+        const gap = this.gapLedger.file(code, 'declareAnalysis', read.rejected, id);
+        return read.rejection === undefined
+          ? refused(gap)
+          : { analysisId: id, kind: analysis.kind, result: { ok: false, reason: 'unavailable', rejection: read.rejection }, gap };
+      };
+      // THE PERMISSION, FIRST OF ALL (./README.md, law 1; ../def/README.md law 6).
+      // An analysis that reads a table BESIDE the one it runs over may do so only
+      // where a declared relation joins the two. This is the cheapest judge on the
+      // door — declaration against declaration, no row and no backend — so it is
+      // asked before the columns are even fetched.
+      const reads = analysis.def.reads ?? [];
+      // AT THE CURSOR: a table an act cut is a table, and the edge it minted back
+      // to its parent is a permission — on the branch that cut it, and nowhere else.
+      const notPermitted = judgeAnalysisReads(id, table, reads, this.tablesAt(), this.relationsAt());
+      if (notPermitted.length > 0) {
+        return refused(this.gapLedger.file('guard-failed', 'declareAnalysis', notPermitted.join('; '), id));
       }
-    }
-    // Resolve input (R11 / the demo's own split: columns-channel over the full
-    // table, everything else over the selection). A backend rejection is filed
-    // as a typed gap and short-circuits — never silently masked as empty (R14).
-    let input: readonly Row[];
-    let related: RelatedRows = NO_RELATED_ROWS;
-    if (opts.input !== undefined) {
-      if (analysis.def.requiresCompleteInput) return refused(this.gapLedger.file('guard-failed', 'declareAnalysis', 'This analysis requires the complete native selection; explicit input cannot vouch for it', id));
-      input = opts.input;
-      // WHY the related tables are still read: `reads` is a promise about the
-      // ACT, not about where the own rows came from. A caller that brings its
-      // own rows has not said the edges do not exist — and an analysis handed
-      // `{}` for a table it declared would lay out an edgeless graph and call
-      // it a success. Half an input is not an input (R14).
-      const beside = await this.resolveRelatedRows(reads);
-      if ('rejected' in beside) return couldNotRead(beside, 'needs-backend-data');
-      related = beside.related;
-    } else {
-      const resolved = await this.resolveAnalysisInput(analysis.def.produces === 'columns', table, reads, analysis.def.requiresCompleteInput);
-      if ('rejected' in resolved) return couldNotRead(resolved, this.gapCodeFor(id, 'source'));
-      input = resolved.rows;
-      related = resolved.related;
-    }
+      // JUDGE NEXT (./README.md, law 1). An analysis that wants to be judged
+      // against the table it reads is asked here, before a row is touched and
+      // before a commit exists: the columns visible AT THE CURSOR, so a formula
+      // over a column an earlier act derived is judged against what that act
+      // actually left there (law 5). Almost every analysis declines this hook
+      // and pays nothing for it.
+      if (analysis.def.judgeTable) {
+        const columns = await this.effectiveColumnsOf(table);
+        if ('rejected' in columns) {
+          return couldNotRead({ ...columns, rejected: `analysis "${id}" could not be judged against table "${table}": ${columns.rejected}` }, this.gapCodeFor(id, 'source'));
+        }
+        const problems = analysis.def.judgeTable(table, columns);
+        if (problems.length > 0) {
+          return refused(this.gapLedger.file(this.gapCodeFor(id, 'invalid'), 'declareAnalysis', problems.join('; '), id));
+        }
+      }
+      // Resolve input (R11 / the demo's own split: columns-channel over the full
+      // table, everything else over the selection). A backend rejection is filed
+      // as a typed gap and short-circuits — never silently masked as empty (R14).
+      let input: readonly Row[];
+      let related: RelatedRows = NO_RELATED_ROWS;
+      if (opts.input !== undefined) {
+        if (analysis.def.requiresCompleteInput) return refused(this.gapLedger.file('guard-failed', 'declareAnalysis', 'This analysis requires the complete native selection; explicit input cannot vouch for it', id));
+        input = opts.input;
+        // WHY the related tables are still read: `reads` is a promise about the
+        // ACT, not about where the own rows came from. A caller that brings its
+        // own rows has not said the edges do not exist — and an analysis handed
+        // `{}` for a table it declared would lay out an edgeless graph and call
+        // it a success. Half an input is not an input (R14).
+        const beside = await this.resolveRelatedRows(reads);
+        if ('rejected' in beside) return couldNotRead(beside, 'needs-backend-data');
+        related = beside.related;
+      } else {
+        const resolved = await this.resolveAnalysisInput(analysis.def.produces === 'columns', table, reads, analysis.def.requiresCompleteInput);
+        if ('rejected' in resolved) return couldNotRead(resolved, this.gapCodeFor(id, 'source'));
+        input = resolved.rows;
+        related = resolved.related;
+      }
 
-    const baseCause: Cause = opts.cause ?? { requestedBy: opts.as ?? this.defaultActor, computedBy: 'system' };
-    const stamped = stampCause(baseCause, 'analyze', opts.as); // computedBy FORCED to 'system' (R1)
+      const baseCause: Cause = opts.cause ?? { requestedBy: opts.as ?? this.defaultActor, computedBy: 'system' };
+      const stamped = stampCause(baseCause, 'analyze', opts.as); // computedBy FORCED to 'system' (R1)
 
-    /** The declaration a derived TABLE is minted from — present exactly for an aggregate ({@link aggregateOf}). */
-    const aggregate = this.aggregateOf(analysis);
-    /** …and the DECLARED table this act fills, when the def says it fills one ({@link writeFilledTable}). */
-    const fills = tableFilledBy(this.runtime.def, id);
-    let hypothesis: AnalysisCommit['hypothesis'];
-    let fdrStep: FdrStep | undefined;
-    const run = await analysis.run(input, {
-      related,
-      timestamp: ++this.testClock,
-      sink: (h) => {
-        hypothesis = h;
-        fdrStep = this.fdrStepper.step(h); // step L4 exactly once per declared test
-        // frozen where it LANDS, like a commit and like a gap row: an audit row
-        // is finished the moment it is written, and `ledger()` copies the list
-        // but shares the rows
-        this._ledger.push(deepFreeze(fdrStep));
-      },
+      /** The declaration a derived TABLE is minted from — present exactly for an aggregate ({@link aggregateOf}). */
+      const aggregate = this.aggregateOf(analysis);
+      /** …and the DECLARED table this act fills, when the def says it fills one ({@link writeFilledTable}). */
+      const fills = tableFilledBy(this.runtime.def, id);
+      let hypothesis: AnalysisCommit['hypothesis'];
+      let fdrStep: FdrStep | undefined;
+      const run = await analysis.run(input, {
+        related,
+        timestamp: ++this.testClock,
+        sink: (h) => {
+          hypothesis = h;
+          fdrStep = this.fdrStepper.step(h); // step L4 exactly once per declared test
+          // frozen where it LANDS, like a commit and like a gap row: an audit row
+          // is finished the moment it is written, and `ledger()` copies the list
+          // but shares the rows
+          this._ledger.push(deepFreeze(fdrStep));
+        },
+      });
+
+      // R14: a degenerate result lands NOTHING (no commit) and spends NO wealth
+      // (the sink never fired) — the honest flag is the whole answer.
+      if (!run.result.ok) {
+        return { analysisId: id, kind: analysis.kind, result: run.result };
+      }
+
+      // Land ONE cause-tagged provenance commit for the invocation.
+      const analysisViewId = `${ANALYSIS_VIEW_PREFIX}${id}`; // single-sourced wire prefix (BR-1)
+      let landField = ANALYSIS_FIELD;
+      // THE ACT, in enough detail to perform it again: the id, the TABLE IT READ,
+      // and — when the analysis is one that CAN be written down — its own
+      // declaration. The slot used to carry the id alone, which the `viewId`
+      // already said; then the table, without which a replay had to guess which
+      // rows an act ran over. The declaration is the last piece: an analysis
+      // built from a builtin record is data all the way down, so a log holding
+      // one is enough to perform it again with nothing registered first. A module
+      // carries none, because a function cannot ride. See {@link AnalysisAct}.
+      const declaration = analysis.record !== undefined ? { def: analysis.record } : {};
+      const dataStamp = this.dataStampFor(table);
+      let landValue: unknown = { id, table, ...declaration } satisfies AnalysisAct;
+      if (analysis.kind === 'test' && hypothesis) {
+        // The L1-native test emission: a point commit on the reserved 'pValue'
+        // field (fromLog re-derives it; R6 holds — brushes never land here). The
+        // slot carries the ACT and the p-value together: this lane's value used
+        // to be the bare number, which named neither the analysis nor the table
+        // it read — so a test that ALSO writes columns could not be replayed.
+        landField = TEST_ANALOG_FIELD;
+        landValue = { id, table, ...declaration, pValue: hypothesis.pValue } satisfies TestAct;
+      }
+      const { record } = publication.commit({
+        ...(agentCall !== undefined ? { agentCall } : {}),
+        id: this.nextId(),
+        parent: this._cursor, // R8 branch-on-act: declaring from a past cursor branches first, then lands
+        ...(opts.correlationId !== undefined ? { correlationId: opts.correlationId } : {}),
+        // WHICH DATA THIS ACT WAS TRUE OF — the table it READ, when that is not the
+        // session's default. The session's own hook answers for the default table,
+        // which is a different table's version for an act over another one; an
+        // aggregate stamped that way would claim a version its rows never came from.
+        ...(dataStamp === undefined ? {} : { data: dataStamp }),
+        viewId: analysisViewId,
+        actorMeta: { actor: 'system' },
+        kind: 'point',
+        field: landField,
+        value: landValue,
+        cause: stamped,
+      });
+      this.landed(record);
+
+      // R11: a columns-channel output materializes back into the data space so it
+      // re-enters as ordinary, filterable columns.
+      let materialized: string[] | undefined;
+      /** logical name → the store slot this act landed it in, for the provenance keys below. */
+      let slots: ReadonlyMap<string, string> = EMPTY_SLOTS;
+      let gap: AnalysisCommit['gap'];
+      if (run.result.output.as === 'columns') {
+        const written = await this.writeColumns(id, run.result.output, run.snapshot, record.id, 'declareAnalysis');
+        materialized = written.materialized;
+        slots = written.slots;
+        gap = written.gap;
+      } else if (run.result.output.as === 'table' && aggregate !== undefined) {
+        // …and a table-channel output lands the same way, one level out: an
+        // aggregate re-enters the data space as an ordinary, readable table.
+        gap = this.writeTable(id, run.result.output, aggregate, table, record.id, 'declareAnalysis');
+      } else if (run.result.output.as === 'table' && fills !== undefined) {
+        // …or into the DECLARED table the def says this act fills, which re-enters
+        // nothing: it was already a table, with its own columns, key and relations.
+        // The aggregate is asked FIRST and keeps precedence — its record rides the
+        // commit and mints its own table, which is what a replay rebuilds from. A
+        // def can never reach this line with both (the def door refuses an
+        // aggregate in `filledBy`); a session-local override that registers one
+        // lands what its own record says, exactly as it always did.
+        gap = this.writeFilledTable(id, run.result.output, fills, table, record.id, 'declareAnalysis');
+      }
+
+      // ── L6 provenance capture (collect during the run, never post-process) ──────
+      // A full-table columns transform has NO selection dependency (its input is
+      // the whole table, not the selection) — record an EMPTY input-selection set
+      // so `why()` honestly excludes an active-but-unused filter (minimality). Any
+      // other channel ran over the selection, so the active filter commits ARE the
+      // causal input.
+      //
+      // A RELATED table is the exception, and it is not an exception to the rule
+      // but the rule applied honestly: the own table was read whole, but a table
+      // read BESIDE it was read under its own clauses, so the brush that shaped
+      // it really is a causal input — and `why()` must say so or it lies.
+      const relatedCommitIds = this.relatedSelectionCommitIds(related);
+      const inputSelectionCommitIds =
+        analysis.def.produces === 'columns' && opts.input === undefined
+          ? relatedCommitIds
+          : [...new Set([...this.activeFilterCommits.values(), ...relatedCommitIds])];
+      const baseProv: WhyProvenance = {
+        analysisId: id,
+        declaringCommitId: record.id,
+        inputSelectionCommitIds,
+        ...(run.snapshot ? { snapshot: run.snapshot } : {}),
+        ...(opts.correlationId !== undefined ? { correlationId: opts.correlationId } : {}),
+        ...(fdrStep ? { fdrStep } : {}),
+      };
+      const output = run.result.output;
+      if (output.as === 'columns') {
+        this.noteColumnProvenance(slots, baseProv);
+        // A `kind:'test'` analysis is a HYPOTHESIS whichever channel it produced
+        // on. `why({kind:'hypothesis'})` names it by its analysis id, and the
+        // columns channel must not be the reason that question has no answer —
+        // the test really ran, and its ledger row is right there in `baseProv`.
+        if (analysis.kind === 'test') this.noteAnalysisProvenance(id, baseProv);
+      } else if (output.as === 'scalar') {
+        // The scalar's kernel key is the (unique) committed state key holding its
+        // value; unresolved (ambiguous/absent) → `why()` reports a kernel miss.
+        const kernelKey = this.resolveScalarKernelKey(run.snapshot, output.value);
+        this.noteAnalysisProvenance(id, { ...baseProv, ...(kernelKey !== undefined ? { kernelKey } : {}) });
+      } else {
+        // table / geometry — indexed for `why({kind:'hypothesis'})`; no scalar key
+        // (kernel tier reports `kernel-key-unresolved`, honestly).
+        this.noteAnalysisProvenance(id, baseProv);
+      }
+
+      return {
+        analysisId: id,
+        kind: analysis.kind,
+        result: run.result,
+        commit: record,
+        ...(hypothesis ? { hypothesis } : {}),
+        ...(fdrStep ? { fdrStep } : {}),
+        ...(materialized ? { materialized } : {}),
+        ...(gap ? { gap } : {}),
+      };
     });
-
-    // R14: a degenerate result lands NOTHING (no commit) and spends NO wealth
-    // (the sink never fired) — the honest flag is the whole answer.
-    if (!run.result.ok) {
-      return { analysisId: id, kind: analysis.kind, result: run.result };
-    }
-
-    // Land ONE cause-tagged provenance commit for the invocation.
-    const analysisViewId = `${ANALYSIS_VIEW_PREFIX}${id}`; // single-sourced wire prefix (BR-1)
-    let landField = ANALYSIS_FIELD;
-    // THE ACT, in enough detail to perform it again: the id, the TABLE IT READ,
-    // and — when the analysis is one that CAN be written down — its own
-    // declaration. The slot used to carry the id alone, which the `viewId`
-    // already said; then the table, without which a replay had to guess which
-    // rows an act ran over. The declaration is the last piece: an analysis
-    // built from a builtin record is data all the way down, so a log holding
-    // one is enough to perform it again with nothing registered first. A module
-    // carries none, because a function cannot ride. See {@link AnalysisAct}.
-    const declaration = analysis.record !== undefined ? { def: analysis.record } : {};
-    const dataStamp = this.dataStampFor(table);
-    let landValue: unknown = { id, table, ...declaration } satisfies AnalysisAct;
-    if (analysis.kind === 'test' && hypothesis) {
-      // The L1-native test emission: a point commit on the reserved 'pValue'
-      // field (fromLog re-derives it; R6 holds — brushes never land here). The
-      // slot carries the ACT and the p-value together: this lane's value used
-      // to be the bare number, which named neither the analysis nor the table
-      // it read — so a test that ALSO writes columns could not be replayed.
-      landField = TEST_ANALOG_FIELD;
-      landValue = { id, table, ...declaration, pValue: hypothesis.pValue } satisfies TestAct;
-    }
-    const { record } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor, // R8 branch-on-act: declaring from a past cursor branches first, then lands
-      ...(opts.correlationId !== undefined ? { correlationId: opts.correlationId } : {}),
-      // WHICH DATA THIS ACT WAS TRUE OF — the table it READ, when that is not the
-      // session's default. The session's own hook answers for the default table,
-      // which is a different table's version for an act over another one; an
-      // aggregate stamped that way would claim a version its rows never came from.
-      ...(dataStamp === undefined ? {} : { data: dataStamp }),
-      viewId: analysisViewId,
-      actorMeta: { actor: 'system' },
-      kind: 'point',
-      field: landField,
-      value: landValue,
-      cause: stamped,
-    });
-    this.landed(record);
-
-    // R11: a columns-channel output materializes back into the data space so it
-    // re-enters as ordinary, filterable columns.
-    let materialized: string[] | undefined;
-    /** logical name → the store slot this act landed it in, for the provenance keys below. */
-    let slots: ReadonlyMap<string, string> = EMPTY_SLOTS;
-    let gap: AnalysisCommit['gap'];
-    if (run.result.output.as === 'columns') {
-      const written = await this.writeColumns(id, run.result.output, run.snapshot, record.id, 'declareAnalysis');
-      materialized = written.materialized;
-      slots = written.slots;
-      gap = written.gap;
-    } else if (run.result.output.as === 'table' && aggregate !== undefined) {
-      // …and a table-channel output lands the same way, one level out: an
-      // aggregate re-enters the data space as an ordinary, readable table.
-      gap = this.writeTable(id, run.result.output, aggregate, table, record.id, 'declareAnalysis');
-    } else if (run.result.output.as === 'table' && fills !== undefined) {
-      // …or into the DECLARED table the def says this act fills, which re-enters
-      // nothing: it was already a table, with its own columns, key and relations.
-      // The aggregate is asked FIRST and keeps precedence — its record rides the
-      // commit and mints its own table, which is what a replay rebuilds from. A
-      // def can never reach this line with both (the def door refuses an
-      // aggregate in `filledBy`); a session-local override that registers one
-      // lands what its own record says, exactly as it always did.
-      gap = this.writeFilledTable(id, run.result.output, fills, table, record.id, 'declareAnalysis');
-    }
-
-    // ── L6 provenance capture (collect during the run, never post-process) ──────
-    // A full-table columns transform has NO selection dependency (its input is
-    // the whole table, not the selection) — record an EMPTY input-selection set
-    // so `why()` honestly excludes an active-but-unused filter (minimality). Any
-    // other channel ran over the selection, so the active filter commits ARE the
-    // causal input.
-    //
-    // A RELATED table is the exception, and it is not an exception to the rule
-    // but the rule applied honestly: the own table was read whole, but a table
-    // read BESIDE it was read under its own clauses, so the brush that shaped
-    // it really is a causal input — and `why()` must say so or it lies.
-    const relatedCommitIds = this.relatedSelectionCommitIds(related);
-    const inputSelectionCommitIds =
-      analysis.def.produces === 'columns' && opts.input === undefined
-        ? relatedCommitIds
-        : [...new Set([...this.activeFilterCommits.values(), ...relatedCommitIds])];
-    const baseProv: WhyProvenance = {
-      analysisId: id,
-      declaringCommitId: record.id,
-      inputSelectionCommitIds,
-      ...(run.snapshot ? { snapshot: run.snapshot } : {}),
-      ...(opts.correlationId !== undefined ? { correlationId: opts.correlationId } : {}),
-      ...(fdrStep ? { fdrStep } : {}),
-    };
-    const output = run.result.output;
-    if (output.as === 'columns') {
-      this.noteColumnProvenance(slots, baseProv);
-      // A `kind:'test'` analysis is a HYPOTHESIS whichever channel it produced
-      // on. `why({kind:'hypothesis'})` names it by its analysis id, and the
-      // columns channel must not be the reason that question has no answer —
-      // the test really ran, and its ledger row is right there in `baseProv`.
-      if (analysis.kind === 'test') this.noteAnalysisProvenance(id, baseProv);
-    } else if (output.as === 'scalar') {
-      // The scalar's kernel key is the (unique) committed state key holding its
-      // value; unresolved (ambiguous/absent) → `why()` reports a kernel miss.
-      const kernelKey = this.resolveScalarKernelKey(run.snapshot, output.value);
-      this.noteAnalysisProvenance(id, { ...baseProv, ...(kernelKey !== undefined ? { kernelKey } : {}) });
-    } else {
-      // table / geometry — indexed for `why({kind:'hypothesis'})`; no scalar key
-      // (kernel tier reports `kernel-key-unresolved`, honestly).
-      this.noteAnalysisProvenance(id, baseProv);
-    }
-
-    return {
-      analysisId: id,
-      kind: analysis.kind,
-      result: run.result,
-      commit: record,
-      ...(hypothesis ? { hypothesis } : {}),
-      ...(fdrStep ? { fdrStep } : {}),
-      ...(materialized ? { materialized } : {}),
-      ...(gap ? { gap } : {}),
-    };
   }
 
   /** File one invocation's provenance under its analysis id, appended — a re-run never erases the run before it (they may be on different branches). */
@@ -5131,132 +5237,140 @@ class InteractionSessionImpl implements InteractionSession {
     return [...this._charts.values()];
   }
 
-  async proposeChart(input: ProposeChartInput, opts: { as?: Actor } = {}): Promise<ProposeChartResult> {
-    const { id, spec, correlationId } = input;
-    const as = opts.as;
-    const file = (code: GapCode, detail: string, target?: string): ProposeChartResult => ({
-      ok: false,
-      gap: this.gapLedger.file(code, 'proposeChart', detail, target),
+  async proposeChart(input: ProposeChartInput, opts: { as?: Actor; agentCall?: AgentCallIdentity } = {}): Promise<ProposeChartResult> {
+    return this.withPublication('proposeChart', async (publication) => {
+      const identity = parseAgentCall(opts.agentCall, { optional: true });
+      if (!identity.ok) return { ok: false, gap: this.gapLedger.file('guard-failed', 'proposeChart', identity.detail, input.id) };
+      const agentCall = identity.identity;
+      const { id, spec, correlationId } = input;
+      const as = opts.as;
+      const file = (code: GapCode, detail: string, target?: string): ProposeChartResult => ({
+        ok: false,
+        gap: this.gapLedger.file(code, 'proposeChart', detail, target),
+      });
+
+      // 0. the id must be a usable, unique handle (a re-used id would collide the view/ledger row).
+      if (typeof id !== 'string' || id.trim().length === 0) {
+        return file('chart-invalid-spec', 'chart id must be a non-empty string', typeof id === 'string' ? id : '');
+      }
+      if (this._charts.has(id)) {
+        return file('chart-hypothesis-rejected', `a chart with id "${id}" was already proposed — pick a fresh id`, id);
+      }
+
+      // 1 + 2. schema-valid → capability-check, via the pure runtime-free shape
+      //        gate (no Vega-Lite in the library; the bridge shares this gate).
+      const gate = gateChartSpec(spec);
+      if (!gate.ok) {
+        const code: GapCode =
+          gate.reason === 'invalid-spec'
+            ? 'chart-invalid-spec'
+            : gate.reason === 'unsupported-composition'
+              ? 'chart-unsupported-composition'
+              : 'chart-transforms-not-owned';
+        return file(code, gate.detail, id);
+      }
+
+      // 3. hypothesis grounding: the chart CLAIMS a relationship over the fields it
+      //    encodes — those must be REAL, branch-visible columns, else the claim is
+      //    over nothing. A rejected hypothesis the agent reads back and repairs.
+      const cols = await this.effectiveColumnsOf(this.defaultTable);
+      if ('rejected' in cols) return file('needs-backend-data', cols.rejected, id);
+      const fields = gate.facts.encodedFields;
+      if (fields.length === 0) {
+        return file('chart-hypothesis-rejected', 'the chart encodes no data field — it makes no claim to ledger', id);
+      }
+      const known = new Set(cols.map((c) => c.name));
+      const missing = fields.filter((f) => !known.has(f));
+      if (missing.length > 0) {
+        return file(
+          'chart-hypothesis-rejected',
+          `the chart claims a relationship over column(s) absent from "${this.defaultTable}": ${missing.join(', ')}`,
+          missing.join(', '),
+        );
+      }
+
+      // ── every gate passed: register the hypothesis in the LORD++ ledger BEFORE it renders ──
+      // A chart is AGENT-computed (not system): keep `computedBy` as authored,
+      // UNLIKE `analyze` (which R1-forces 'system'). validateCause is the R12 gate.
+      const validated = validateCause(input.cause ?? { requestedBy: as ?? this.defaultActor, computedBy: as ?? this.defaultActor });
+      const requestedBy: Actor = as ?? validated.requestedBy;
+      const computedBy: Actor = as ?? validated.computedBy;
+      const stamped: Cause = { requestedBy, computedBy, ...(validated.intent !== undefined ? { intent: validated.intent } : {}) };
+      const claim = typeof input.claim === 'string' && input.claim.length > 0 ? input.claim : `${fields.join(' vs ')} reveals a relationship`;
+
+      // The spec's wire form is rendered HERE, while this is still a judgement
+      // and nothing has moved. `gateChartSpec` judges the spec's SHAPE, not
+      // whether it can be written down: a spec carrying a BigInt, or a reference
+      // back to itself, passes every gate above and then makes `JSON.stringify`
+      // throw. That throw used to happen BETWEEN the two commits this act lands —
+      // after the FDR ledger had spent a step and the `pValue` hypothesis commit
+      // was already history — leaving a chart that half-exists: a ledgered claim,
+      // on the trace, for a chart with no spec and no view. Refused up here, the
+      // act simply does not happen.
+      let payload: string;
+      try {
+        payload = JSON.stringify({ spec, claim, authoredBy: computedBy });
+      } catch (error) {
+        return file('chart-invalid-spec', `the chart spec cannot be written to the trace — it must be plain JSON: ${messageOf(error)}`, id);
+      }
+
+      // (a) the ledgered hypothesis — an UNTESTED visual claim entered at p = 1.0:
+      //     it COSTS multiplicity budget (an agent cannot fish charts for free) but
+      //     can never be a discovery (reject is always false at p=1). Landed as a
+      //     `pValue` commit so `hypothesisRecordsFromLog` re-derives it on replay.
+      const hRecord: HypothesisRecord = { hypothesisId: correlationId ?? id, pValue: 1, timestamp: ++this.testClock };
+      const fdrStep = this.fdrStepper.step(hRecord);
+      this._ledger.push(deepFreeze(fdrStep)); // an audit row is finished when it lands (see the other push site)
+      const { record: hypothesisCommit } = publication.commit({
+        ...(agentCall !== undefined ? { agentCall } : {}),
+        id: this.nextId(),
+        parent: this._cursor, // R8 branch-on-act: proposing from a past cursor branches first
+        ...(correlationId !== undefined ? { correlationId } : {}),
+        viewId: chartViewId(id),
+        actorMeta: { actor: computedBy },
+        kind: 'point',
+        field: TEST_ANALOG_FIELD,
+        // ONE shape on this lane, for every writer of it: the act, and the
+        // p-value it entered at. A chart's act is the chart, read over the table
+        // its claim was judged against just above.
+        value: { id, table: this.defaultTable, pValue: 1 } satisfies TestAct,
+        cause: stamped,
+      });
+      this.landed(hypothesisCommit);
+
+      // (b) register the chart as a session view (the render source). The gated
+      //     spec is stored as a JSON STRING (inert like the annotation note — the
+      //     log's clause factory takes a primitive value), so it round-trips
+      //     structuredClone + JSON with the rest of the log. Rendered above, in
+      //     the judge phase — nothing between the two commits may throw.
+      const { record: specCommit } = publication.commit({
+        ...(agentCall !== undefined ? { agentCall } : {}),
+        id: this.nextId(),
+        parent: this._cursor,
+        ...(correlationId !== undefined ? { correlationId } : {}),
+        viewId: chartViewId(id),
+        actorMeta: { actor: computedBy },
+        kind: 'point',
+        field: CHART_FIELD,
+        value: payload,
+        cause: stamped,
+      });
+      this.landed(specCommit);
+
+      const hypothesis: ChartHypothesis = { chartId: id, claim, authoredBy: computedBy, tested: false, pValueUsed: 1, fdrStep };
+      const view: ChartView = {
+        chartId: id,
+        viewId: chartViewId(id),
+        spec,
+        claim,
+        authoredBy: computedBy,
+        commitId: specCommit.id,
+        ledgerStep: fdrStep.step,
+      };
+      this._charts.set(id, deepFreeze(view)); // a proposed chart is finished when it lands: `charts()` and `overview().charts` hand it out
+
+      return { ok: true, chartId: id, view, hypothesis, commit: specCommit, fdrStep };
     });
-
-    // 0. the id must be a usable, unique handle (a re-used id would collide the view/ledger row).
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      return file('chart-invalid-spec', 'chart id must be a non-empty string', typeof id === 'string' ? id : '');
-    }
-    if (this._charts.has(id)) {
-      return file('chart-hypothesis-rejected', `a chart with id "${id}" was already proposed — pick a fresh id`, id);
-    }
-
-    // 1 + 2. schema-valid → capability-check, via the pure runtime-free shape
-    //        gate (no Vega-Lite in the library; the bridge shares this gate).
-    const gate = gateChartSpec(spec);
-    if (!gate.ok) {
-      const code: GapCode =
-        gate.reason === 'invalid-spec'
-          ? 'chart-invalid-spec'
-          : gate.reason === 'unsupported-composition'
-            ? 'chart-unsupported-composition'
-            : 'chart-transforms-not-owned';
-      return file(code, gate.detail, id);
-    }
-
-    // 3. hypothesis grounding: the chart CLAIMS a relationship over the fields it
-    //    encodes — those must be REAL, branch-visible columns, else the claim is
-    //    over nothing. A rejected hypothesis the agent reads back and repairs.
-    const cols = await this.effectiveColumnsOf(this.defaultTable);
-    if ('rejected' in cols) return file('needs-backend-data', cols.rejected, id);
-    const fields = gate.facts.encodedFields;
-    if (fields.length === 0) {
-      return file('chart-hypothesis-rejected', 'the chart encodes no data field — it makes no claim to ledger', id);
-    }
-    const known = new Set(cols.map((c) => c.name));
-    const missing = fields.filter((f) => !known.has(f));
-    if (missing.length > 0) {
-      return file(
-        'chart-hypothesis-rejected',
-        `the chart claims a relationship over column(s) absent from "${this.defaultTable}": ${missing.join(', ')}`,
-        missing.join(', '),
-      );
-    }
-
-    // ── every gate passed: register the hypothesis in the LORD++ ledger BEFORE it renders ──
-    // A chart is AGENT-computed (not system): keep `computedBy` as authored,
-    // UNLIKE `analyze` (which R1-forces 'system'). validateCause is the R12 gate.
-    const validated = validateCause(input.cause ?? { requestedBy: as ?? this.defaultActor, computedBy: as ?? this.defaultActor });
-    const requestedBy: Actor = as ?? validated.requestedBy;
-    const computedBy: Actor = as ?? validated.computedBy;
-    const stamped: Cause = { requestedBy, computedBy, ...(validated.intent !== undefined ? { intent: validated.intent } : {}) };
-    const claim = typeof input.claim === 'string' && input.claim.length > 0 ? input.claim : `${fields.join(' vs ')} reveals a relationship`;
-
-    // The spec's wire form is rendered HERE, while this is still a judgement
-    // and nothing has moved. `gateChartSpec` judges the spec's SHAPE, not
-    // whether it can be written down: a spec carrying a BigInt, or a reference
-    // back to itself, passes every gate above and then makes `JSON.stringify`
-    // throw. That throw used to happen BETWEEN the two commits this act lands —
-    // after the FDR ledger had spent a step and the `pValue` hypothesis commit
-    // was already history — leaving a chart that half-exists: a ledgered claim,
-    // on the trace, for a chart with no spec and no view. Refused up here, the
-    // act simply does not happen.
-    let payload: string;
-    try {
-      payload = JSON.stringify({ spec, claim, authoredBy: computedBy });
-    } catch (error) {
-      return file('chart-invalid-spec', `the chart spec cannot be written to the trace — it must be plain JSON: ${messageOf(error)}`, id);
-    }
-
-    // (a) the ledgered hypothesis — an UNTESTED visual claim entered at p = 1.0:
-    //     it COSTS multiplicity budget (an agent cannot fish charts for free) but
-    //     can never be a discovery (reject is always false at p=1). Landed as a
-    //     `pValue` commit so `hypothesisRecordsFromLog` re-derives it on replay.
-    const hRecord: HypothesisRecord = { hypothesisId: correlationId ?? id, pValue: 1, timestamp: ++this.testClock };
-    const fdrStep = this.fdrStepper.step(hRecord);
-    this._ledger.push(deepFreeze(fdrStep)); // an audit row is finished when it lands (see the other push site)
-    const { record: hypothesisCommit } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor, // R8 branch-on-act: proposing from a past cursor branches first
-      ...(correlationId !== undefined ? { correlationId } : {}),
-      viewId: chartViewId(id),
-      actorMeta: { actor: computedBy },
-      kind: 'point',
-      field: TEST_ANALOG_FIELD,
-      // ONE shape on this lane, for every writer of it: the act, and the
-      // p-value it entered at. A chart's act is the chart, read over the table
-      // its claim was judged against just above.
-      value: { id, table: this.defaultTable, pValue: 1 } satisfies TestAct,
-      cause: stamped,
-    });
-    this.landed(hypothesisCommit);
-
-    // (b) register the chart as a session view (the render source). The gated
-    //     spec is stored as a JSON STRING (inert like the annotation note — the
-    //     log's clause factory takes a primitive value), so it round-trips
-    //     structuredClone + JSON with the rest of the log. Rendered above, in
-    //     the judge phase — nothing between the two commits may throw.
-    const { record: specCommit } = this.log.commit({
-      id: this.nextId(),
-      parent: this._cursor,
-      ...(correlationId !== undefined ? { correlationId } : {}),
-      viewId: chartViewId(id),
-      actorMeta: { actor: computedBy },
-      kind: 'point',
-      field: CHART_FIELD,
-      value: payload,
-      cause: stamped,
-    });
-    this.landed(specCommit);
-
-    const hypothesis: ChartHypothesis = { chartId: id, claim, authoredBy: computedBy, tested: false, pValueUsed: 1, fdrStep };
-    const view: ChartView = {
-      chartId: id,
-      viewId: chartViewId(id),
-      spec,
-      claim,
-      authoredBy: computedBy,
-      commitId: specCommit.id,
-      ledgerStep: fdrStep.step,
-    };
-    this._charts.set(id, deepFreeze(view)); // a proposed chart is finished when it lands: `charts()` and `overview().charts` hand it out
-    return { ok: true, chartId: id, view, hypothesis, commit: specCommit, fdrStep };
   }
 
   /**

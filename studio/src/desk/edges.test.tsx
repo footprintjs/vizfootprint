@@ -91,6 +91,11 @@ describe('the slideshow’s edges', () => {
       session.bookmark('one');
       await session.dispatch({ verb: 'select', viewId: 'shelves', field: 'shelf', value: 'letters', cause });
       session.bookmark('two');
+      // Raw session setup does not refresh the view's cached projection.
+      await view.refresh();
+      expect(view.getState().bookmarks.map(({ label, at }) => ({ label, at }))).toEqual([
+        { label: 'one', at: 's1' }, { label: 'two', at: 's2' },
+      ]);
       await view.seek(view.getState().bookmarks[0]!.at as string);
       await view.refresh();
     });
@@ -115,6 +120,11 @@ describe('the slideshow’s edges', () => {
       session.bookmark('one');
       await session.dispatch({ verb: 'select', viewId: 'shelves', field: 'shelf', value: 'letters', cause });
       session.bookmark('two');
+      // Raw session setup does not refresh the view's cached projection.
+      await view.refresh();
+      expect(view.getState().bookmarks.map(({ label, at }) => ({ label, at }))).toEqual([
+        { label: 'one', at: 's1' }, { label: 'two', at: 's2' },
+      ]);
       await view.seek(view.getState().bookmarks[0]!.at as string);
       await view.refresh();
     });

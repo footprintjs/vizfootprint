@@ -106,7 +106,7 @@ landed — a change to what the dashboard is showing, with no commit behind it,
 which is the exact thing this folder exists to make impossible.
 
 **And in that ORDER.** `commit()` runs in two phases: everything that can throw
-(the cause gate, the registry lookups, the clause, the data stamp,
+(the native identity snapshot, the cause gate, the registry lookups, the clause, the data stamp,
 `predicateSQL`, the deep freeze) happens while nothing has moved; then the
 record is pushed. The selection update comes LAST, because it is the one
 OUTBOUND step — it emits to every listener a host attached (and an engine may
@@ -118,7 +118,28 @@ ordered this way, is in
 [`src/session/README.md`](../session/README.md) — "an act either fully happens,
 or it does not happen at all".
 
+**Settled publication.** Bare `commit(input)` still publishes immediately.
+A wider interaction session uses `commit(input, { deferPublication: true })`
+and `publish([record, ...], afterPublication?)` only after its cursor, refs,
+folds and materialization outcome agree. Publication cannot append or edit
+history, and releases only these exact record objects, once. A replay or chart
+proposal releases every clause after its complete transition, not one temporary
+middle state per record. The optional callback queues mounted render effects
+behind the batch. Nested effects join the same FIFO; a failed effect does not
+discard later effects (a bare log rethrows the first failure after the drain).
+
 ### ③ `parseCommitLog` — the door back in
+
+`agentCall` is optional inert provenance from the trusted runtime, with a
+non-empty `toolCallId` and optional non-empty `runId`. It is copied and frozen
+with the record, shape-checked on import and preserved by both replay doors.
+`correlationId` remains a turn/gesture grouping label, not exact call evidence.
+Old records with no `agentCall` remain valid; replay never fabricates one.
+`agentCall.ts` owns the validation/copy rule for both writers and imports.
+The higher-level port and session doors ask that same rule before any domain
+work, returning typed guard gaps rather than discovering a bad identity after
+FDR budget was spent. A bare low-level log still throws a malformed identity,
+but does so before source registration or clause creation.
 
 `deserializeLog` used to check `Array.isArray` and hand the result back cast as
 history. It now runs `parseCommitLog`, which judges five things in order and
