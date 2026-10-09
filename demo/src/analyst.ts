@@ -64,7 +64,8 @@ import {
 import { causeClauseFromEmission, isRejection, type ActorMeta, type ClauseEmission, type RegisteredSource } from 'vizfootprint/selection';
 import type { Cause } from 'vizfootprint/cause';
 import { matchesClause, type PredicateClause } from 'vizfootprint/data';
-import { correlationAnalysis, clusteringAnalysis, regressionAnalysis, groupByAnalysis, REGRESSION_MIN_POINTS, type DegenerateResult, type UnavailableResult } from 'vizfootprint/analysis';
+import { correlationAnalysis, clusteringAnalysis, regressionAnalysis, groupByAnalysis, REGRESSION_MIN_POINTS } from 'vizfootprint/analysis';
+import { analysisOutcomeText as saidOf } from './analysisOutcome.js';
 import type { FdrStep } from 'vizfootprint/session';
 import type { CommitRecord } from 'vizfootprint/log';
 import { buildDashboard, vizAsTools, type AnalysisCommit, type DashboardDef, type FdrSummary, type GapRow, type VizToolResult } from 'vizfootprint/agent';
@@ -285,12 +286,6 @@ export async function mountAnalyst(root: HTMLElement): Promise<void> {
    * print `n=undefined` under a confident sentence the day a second table, a
    * `reads` relation or a file source made that arm reachable.
    */
-  function saidOf(result: DegenerateResult | UnavailableResult, degenerate: (n: number) => string): string {
-    /* v8 ignore next -- see above: an `unavailable` result is consumed by `runAnalyze`'s own arm and never reaches a caller's `commit.result` */
-    if (result.reason !== 'degenerate-fit') return `unavailable — the engine refused the read: ${result.rejection.detail ?? result.rejection.reason}`;
-    return degenerate(result.n);
-  }
-
   // ── declared analyses ────────────────────────────────────────────────────────
   async function declareCorrelation(): Promise<void> {
     const commit = await runAnalyze('correlation', 'declare correlation');

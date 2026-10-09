@@ -38,6 +38,7 @@ import type { Actor, Cause } from '../cause/index.js';
 import { validateCause } from '../cause/index.js';
 import { CauseSelectionSession, parseCommitLog } from '../log/index.js';
 import type { AgentCallIdentity, CommitInput, CommitRecord } from '../log/index.js';
+import { parseAgentCall } from '../log/agentCall.js';
 // The record → re-landing input translation, one owner for both replays (the
 // L1 `replayLog` and this session's own `replay`). Not on the `/log` barrel:
 // no importer outside this package has asked for it — PACKAGING.md, Law 2.
@@ -1548,6 +1549,9 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   async adoptPath(name: string, opts: { as?: Actor; agentCall?: AgentCallIdentity; correlationId?: string } = {}): Promise<AdoptPathResult> {
+    const identity = parseAgentCall(opts.agentCall, { optional: true });
+    if (!identity.ok) return this.lifecycleGap('adoptPath', identity.detail, name);
+    opts = { ...opts, agentCall: identity.identity };
     const sourceTip = this.refs.tipOf(name); // archived paths answer too — adopting from one is fair
     if (sourceTip === undefined) return this.lifecycleGap('adoptPath', `no path named "${name}"`, name);
     if (name === this.refs.currentBranch()) {
@@ -3422,7 +3426,9 @@ class InteractionSessionImpl implements InteractionSession {
     const verb = action.verb;
     const intent = this.runtime.intentOf(verb);
     const as = opts.as;
-    const agentCall = opts.agentCall;
+    const identity = parseAgentCall(opts.agentCall, { optional: true });
+    if (!identity.ok) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, identity.detail));
+    const agentCall = identity.identity;
     switch (action.verb) {
       case 'select': {
         const stale = this.offerGuard('select', action.viewId, kindOfAct(action), action.asOf, intent);
@@ -4884,7 +4890,13 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   async declareAnalysis(id: string, opts: DeclareAnalysisOptions = {}): Promise<AnalysisCommit> {
-    const agentCall = opts.agentCall;
+    const identity = parseAgentCall(opts.agentCall, { optional: true });
+    if (!identity.ok) {
+      const slotKind = opts.def !== null && typeof opts.def === 'object' && 'kind' in opts.def ? opts.def.kind : undefined;
+      const kind = this.analysis(id)?.kind ?? (slotKind === 'test' || slotKind === 'transform' ? slotKind : 'unknown');
+      return { analysisId: id, kind, result: { ok: false, reason: 'guard-failed', detail: identity.detail }, gap: this.gapLedger.file('guard-failed', 'declareAnalysis', identity.detail, id) };
+    }
+    const agentCall = identity.identity;
     if (opts.def) this.registerAnalysis(id, opts.def);
     const analysis = this.analysis(id);
     if (!analysis) throw new Error(`vizfootprint: unknown analysis "${id}" — declare it in the def or pass { def }`);
@@ -5178,7 +5190,9 @@ class InteractionSessionImpl implements InteractionSession {
   }
 
   async proposeChart(input: ProposeChartInput, opts: { as?: Actor; agentCall?: AgentCallIdentity } = {}): Promise<ProposeChartResult> {
-    const agentCall = opts.agentCall;
+    const identity = parseAgentCall(opts.agentCall, { optional: true });
+    if (!identity.ok) return { ok: false, gap: this.gapLedger.file('guard-failed', 'proposeChart', identity.detail, input.id) };
+    const agentCall = identity.identity;
     const { id, spec, correlationId } = input;
     const as = opts.as;
     const file = (code: GapCode, detail: string, target?: string): ProposeChartResult => ({

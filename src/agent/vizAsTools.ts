@@ -27,11 +27,12 @@ import { PROSE_SLOTS } from '../prose/index.js';
 import type { ProseSlot } from '../prose/index.js';
 import type { Actor, Cause } from '../cause/index.js';
 import type { AgentCallIdentity } from '../log/index.js';
+import { parseAgentCall } from '../log/agentCall.js';
 import type { AgentEventFrame } from '../why/index.js';
 import { DISPATCH_VERBS } from '../def/index.js';
 import { acceptsOf } from '../encoding/index.js';
 import type { InteractionSession } from '../session/index.js';
-import type { CellValues, DispatchAction, DispatchResult, AnalysisCommit, FilterRange, LayerInfo, ProposeChartResult, WalkAsk, WhyTarget } from '../session/index.js';
+import type { CellValues, DispatchAction, DispatchResult, AnalysisCommit, FilterRange, GapRow, LayerInfo, ProposeChartResult, WalkAsk, WhyTarget } from '../session/index.js';
 import { SURFACE_PARTS, SURFACE_PART_NAMES } from './surfaceParts.js';
 import { basisOf } from './basis.js';
 import { narrowParts } from './narrow.js';
@@ -63,7 +64,7 @@ export type VizToolResult = Record<string, unknown>;
 
 /** A refusal from the PORT itself, before the session was asked: a payload it could not read, or a name it does not route. */
 export type VizPortRefusal =
-  | { readonly ok: false; readonly reason: 'PAYLOAD_INVALID'; readonly detail: string }
+  | { readonly ok: false; readonly reason: 'PAYLOAD_INVALID'; readonly detail: string; readonly gap?: GapRow }
   | { readonly ok: false; readonly reason: 'UNKNOWN_TOOL'; readonly tools: readonly string[] };
 
 /** The successful arm of a dispatch, as the port projects it: every decision the session made, with `analysis` projected and absent keys OMITTED (never `undefined` on the wire). */
@@ -1174,7 +1175,9 @@ export function vizAsTools(session: InteractionSession, opts?: VizToolsOptions):
     async call(name: string, rawArgs?: unknown, context?: VizToolCallContext): Promise<VizToolResult> {
       // Project ONLY native execution identity; model args cannot stamp it and
       // a richer runtime context cannot smuggle fields onto the saved record.
-      const agentCall = context === undefined ? undefined : { toolCallId: context.toolCallId, ...(context.runId !== undefined ? { runId: context.runId } : {}) };
+      const identity = parseAgentCall(context, { optional: true, hostContext: true });
+      if (!identity.ok) return { ok: false, reason: 'PAYLOAD_INVALID', detail: identity.detail, gap: session.gapLedger.file('guard-failed', 'toolCall', identity.detail, name) };
+      const agentCall = identity.identity;
       const args = (rawArgs ?? {}) as Record<string, unknown>;
       switch (name) {
         case NAMES.whatsHere:

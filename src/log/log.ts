@@ -36,6 +36,8 @@
 
 import { ACTORS, isActor, markReplayed, parseCause, validateCause, type Cause } from '../cause/index.js';
 import { copyValue, deepFreeze } from '../detach/index.js';
+import { parseAgentCall, type AgentCallIdentity } from './agentCall.js';
+export type { AgentCallIdentity } from './agentCall.js';
 // the PAIR-kind fork is `../data`'s, which owns the clause grammar: one owner, so the next
 // two-column kind lands in one place rather than in every replica that asks about a KIND
 import { isPairKind } from '../data/types.js';
@@ -66,12 +68,6 @@ export class ClauseRejectedError extends Error {
     this.name = 'ClauseRejectedError';
     this.rejection = rejection;
   }
-}
-
-/** Exact host-runtime tool identity; a turn correlation is not a call identity. */
-export interface AgentCallIdentity {
-  readonly toolCallId: string;
-  readonly runId?: string;
 }
 
 /** The serializable commit — one interaction's worth of clause + provenance. */
@@ -332,6 +328,8 @@ export class CauseSelectionSession {
    * is on screen would no longer be derived from the trace.
    */
   commit(input: CommitInput, opts: { deferPublication?: boolean } = {}): { record: CommitRecord; clause: CauseClause } {
+    const offeredIdentity = input.agentCall;
+    const identity = offeredIdentity === undefined ? undefined : copyAgentCall(offeredIdentity);
     // ── JUDGE ────────────────────────────────────────────────────────────────
     // An id names ONE commit — the law `parseCommitLog` keeps on the way in, kept here on
     // the way out so a log this library writes is one it can read back.
@@ -379,7 +377,7 @@ export class CauseSelectionSession {
       id: input.id,
       parent: input.parent,
       ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
-      ...(input.agentCall !== undefined && { agentCall: copyAgentCall(input.agentCall) }),
+      ...(identity !== undefined && { agentCall: identity }),
       viewId: input.viewId,
       actorMeta: source.meta,
       kind: input.kind,
@@ -546,17 +544,10 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === 'string');
 }
 
-function agentCallProblem(raw: unknown): string | undefined {
-  if (!isPlainObject(raw) || typeof raw.toolCallId !== 'string' || raw.toolCallId.trim().length === 0) return 'agentCall must carry a non-empty toolCallId';
-  if ('runId' in raw && (typeof raw.runId !== 'string' || raw.runId.trim().length === 0)) return 'agentCall.runId, if present, must be a non-empty string';
-  if (Object.keys(raw).some((key) => key !== 'toolCallId' && key !== 'runId')) return 'agentCall carries an unknown key';
-  return undefined;
-}
-
 function copyAgentCall(raw: AgentCallIdentity): AgentCallIdentity {
-  const problem = agentCallProblem(raw);
-  if (problem !== undefined) throw new Error(`vizfootprint log: ${problem}`);
-  return { toolCallId: raw.toolCallId, ...(raw.runId !== undefined && { runId: raw.runId }) };
+  const parsed = parseAgentCall(raw);
+  if (!parsed.ok) throw new Error(`vizfootprint log: ${parsed.detail}`);
+  return parsed.identity!;
 }
 
 /** Everything wrong with ONE record's shape, in reading order. Empty = well-formed. */
@@ -576,8 +567,8 @@ function recordProblems(raw: unknown): string[] {
     problems.push('correlationId, if present, must be a string');
   }
   if ('agentCall' in raw) {
-    const problem = agentCallProblem(raw.agentCall);
-    if (problem !== undefined) problems.push(problem);
+    const identity = parseAgentCall(raw.agentCall);
+    if (!identity.ok) problems.push(identity.detail);
   }
   if (typeof raw.viewId !== 'string' || raw.viewId.length === 0) problems.push('viewId must be a non-empty string');
 

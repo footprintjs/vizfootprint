@@ -164,6 +164,8 @@ export type GapOp =
    * this data — never for the records, which either all land or none do.
    */
   | 'replay'
+  /** Refusal at the host tool-call boundary, before a domain verb is entered. */
+  | 'toolCall'
   /**
    * Landing a commit itself, as opposed to any one verb: the op an
    * `effect-failed` gap carries when the live selection's own update threw
@@ -631,12 +633,16 @@ export type BringOverResult =
     }
   | { readonly ok: false; readonly gap: GapRow };
 
-/** The typed record of a declared-analysis invocation (the L3-flags landing spot). */
-export interface AnalysisCommit {
+/** The invocation was refused before execution; it makes no claim about rows. */
+export interface GuardRefusalResult {
+  readonly ok: false;
+  readonly reason: 'guard-failed';
+  readonly detail: string;
+}
+
+/** Fields shared by executed analyses and pre-execution invocation refusals. */
+interface AnalysisCommitFields {
   readonly analysisId: string;
-  readonly kind: AnalysisKind;
-  /** The typed, value-bearing output, or a typed degenerate flag (R14). */
-  readonly result: AnalysisResult<AnalysisOutput>;
   /** The cause-tagged L1 record landed for this invocation (absent when degenerate — nothing lands). */
   readonly commit?: CommitRecord;
   /** kind:'test' only — the emitted HypothesisRecord (absent for transforms / degenerate). */
@@ -648,6 +654,12 @@ export interface AnalysisCommit {
   /** A materialize/backend rejection filed as a gap (R14) instead of silently dropped. */
   readonly gap?: GapRow;
 }
+
+/** Unknown kind is possible only for a refused, undeclared invocation. */
+export type AnalysisCommit = AnalysisCommitFields & (
+  | { readonly kind: AnalysisKind; readonly result: AnalysisResult<AnalysisOutput> }
+  | { readonly kind: AnalysisKind | 'unknown'; readonly result: GuardRefusalResult }
+);
 
 // ── RP-3: agent-authored charts (the ledger-gated proposeChart pipeline). ──────
 
