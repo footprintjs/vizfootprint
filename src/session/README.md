@@ -13,10 +13,12 @@ them in one act, and law 1 below is a claim about the ORDER those moves happen
 in. A door split across two objects is a door whose order you have to
 reconstruct by reading both.
 
-What has been lifted out is everything beside it that is a RULE rather than a
-piece of state. Each of these is a plain function over its arguments — nothing
-here can reach the session, which is the property that makes them safe to hold
-apart, and each file's own header carries the reasoning:
+What has been lifted out is everything beside it that is a RULE rather than
+session state. The pure rules are plain functions over their arguments;
+`publicationScope.ts` is the invocation-local writer/finalizer that owns only
+the records and effects explicitly handed to that invocation. None can reach
+the session, which is the property that makes them safe to hold apart, and
+each file's own header carries the reasoning:
 
 | file | what it owns |
 |---|---|
@@ -31,13 +33,16 @@ apart, and each file's own header carries the reasoning:
 | `stampCause.ts` | the cause a commit carries, validated and R1-forced rather than believed |
 | `tablesInfo.ts` | the Sources rows — one of the two parts of `overview()` that project the MAP and not the trace; the other is `overview().relations` (`runtime.relations` echoed by reference, resolved once at build — [`../def/README.md`](../def/README.md), "Relations") |
 | `gapLedger.ts` | the R14 ledger, and `messageOf`, which turns whatever third-party code threw into a sentence a gap can carry |
+| `publicationScope.ts` | one invocation's exact landed records and queued effects; its shared synchronous/asynchronous finalizer attempts cleanup and publishes those records once on every exit, preserving the original completion error. It owns no cursor, fold, refs or session state |
 
 The memos stayed behind with everything else that is state: a cache key is
 session state, so `effectiveEncodings` and `fitsOfView` still hold theirs and
 call out to the computation. **The rule for the next cut is the one that
 produced these:** move the thing that only reads its arguments, and leave the
-thing that owns a field. A judge and its apply phase are one act, and moving
-half of one across a file boundary is how law 1 breaks without a test noticing.
+thing that owns a session field. Invocation-local publication bookkeeping is
+the narrow exception, passed explicitly rather than inferred from ambient
+session state. A judge and its apply phase are one act, and moving half of one
+across a file boundary is how law 1 breaks without a test noticing.
 
 Law 6's `replay` is the rule applied twice in one change, in both directions.
 The door itself stayed in `session.ts` and adds no row above: it moves the log,
@@ -129,6 +134,25 @@ refusal is now the first thing `commit()` judges, before it registers a source.
 
 ### 3. AN OUTBOUND EFFECT IS NOT PART OF THE ACT
 
+Every semantic owner runs through `publicationScope.ts`: one explicit scope
+records exactly the commits its writer lands, before any caller's ref/fold
+callback. The shared finalizer attempts all completion tasks and releases
+those records once even when post-land provider code or result projection
+throws. Single/set encoding and all four prose doors finish at their semantic
+wrapper, not at a lower writer. There is no global log slice or ambient scope
+held across awaits; adopting a path remains separately scoped per step.
+
+An escaped completion error still rejects with the original thrown value,
+including a primitive. Its commits and spent FDR remain; an `effect-failed`
+gap names the incomplete invocation, rather than inventing rollback or
+successful completion. A cleanup failure cannot replace that original error,
+and cannot prevent publication from being attempted. A cleanup-only failure
+still escapes. Ordinary failure rebuilds at the **current reader cursor**,
+preserving a later human seek; replay owns its temporary rerun walk and
+restores the **current head** before publication. Nothing rewinds again after
+listeners run. This is an ownership/finalization guarantee, not a general
+concurrent replay scheduler.
+
 Selection listeners are announced only after the session's record, cursor,
 refs, active folds and provenance are settled. An analysis also awaits its
 materialization attempt before announcing its clause (a failed write remains a
@@ -141,6 +165,14 @@ effects. Reentrant acts follow the settled cursor, and their notifications and
 mounted renders queue behind the current batch. A later listener may therefore
 see a newer, fully settled reentrant act, never a half-applied one; the earlier
 notification does not promise to pin the cursor backwards.
+
+Native identity is judged by the one snapshot/copy rule in
+`../log/agentCall.ts` before definitions, reads, counters, refs or FDR change.
+A malformed host call produces `PAYLOAD_INVALID` plus a `toolCall`
+`guard-failed` gap; direct session doors return their normal gap refusal.
+`declareAnalysis` uses `GuardRefusalResult` (`reason: 'guard-failed'`), never a
+fabricated degenerate fit or engine refusal. An undeclared identity-refused
+invocation may have `kind: 'unknown'`; a successful analysis cannot.
 
 Some steps genuinely can fail and are genuinely not the act: they reach outside
 the session, into code this library does not own. A mounted adapter re-rendering

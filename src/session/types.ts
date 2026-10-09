@@ -676,7 +676,7 @@ export interface ProposeChartInput {
   readonly claim?: string;
   /** Agent-authored provenance. `computedBy` is respected (a chart is agent-computed, not system). */
   readonly cause?: Cause;
-  /** Cross-tier join key stamped on the landed commits (R10). */
+  /** Turn/gesture grouping label; exact call evidence is separate agentCall metadata. */
   readonly correlationId?: string;
 }
 
@@ -1643,6 +1643,6 @@ export interface DeclareAnalysisOptions {
   readonly cause?: Cause;
   /** Acting principal (sets `requestedBy`). Default: the session default. */
   readonly as?: Actor;
-  /** Cross-tier join key stamped on the landed commit (R10). */
+  /** Turn/gesture grouping label; exact call evidence is separate agentCall metadata. */
   readonly correlationId?: string;
 }
