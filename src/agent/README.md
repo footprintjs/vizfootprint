@@ -28,6 +28,22 @@ ids only as lookup inputs; they are never automatically called agent ids.
 Without that bridge, records remain honestly unlinked. Tool descriptors stay
 fixed and contain no execution-identity properties.
 
+A supplied malformed identity is refused before registration, provider work,
+id minting, FDR spending or commit changes. The port returns the existing
+`PAYLOAD_INVALID` refusal with a recorded `guard-failed` gap (`op: 'toolCall'`);
+direct session mutation doors also return recorded guard refusals. Identity
+fields are read once, validated and copied before any await, without freezing
+the caller's context. An absent context, or a valid call id without a run id,
+still works but cannot prove an exact agent join.
+
+`declareAnalysis` now represents a pre-execution refusal as
+`result: { ok: false, reason: 'guard-failed', detail }`, not a degenerate data
+fit or an engine outage. Its `kind` is `'unknown'` only when that refused
+invocation has no resolved analysis kind. Consumers handling failed analysis
+results must handle this additional arm; executed analyses retain their
+existing result shapes. See `src/session/types.ts` and
+`src/session/identityBoundary.test.ts` for the exact contract.
+
 `vizAsTools(session)` hands a
 model nine tools whose bytes never change, and everything the model learns
 arrives as the RESULT of calling one — never as a change to the tool list, so a

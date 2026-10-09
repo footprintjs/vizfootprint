@@ -24,11 +24,13 @@ standing on right now. So the record IS the map, drawn by walking — a tree.
 A footprint is one mark on the ground. A **foottrail** is the branching
 record of everywhere the feet went, including the paths not taken.
 
-The two logs stay connected without merging: a first-class `correlationId`
-field threads a foottrail commit to the footprintjs run that caused or
-consumed it, resolved at the `why()` tier (`src/why/why.ts:31`,
-`src/why/resolvers.ts:37-54`) — a join, never a merge. Neither log needs to
-know the other's shape.
+The two logs stay connected without merging. `correlationId` groups a turn
+or gesture; it does not identify the particular AI call that made a commit.
+The `why()` tier joins a target's recorded `agentCall: {runId, toolCallId}`
+to exactly one host-harvested runtime frame, then reads the recorded kernel
+dependencies (`src/why/why.ts`, `src/why/resolvers.ts`). Missing or ambiguous
+evidence stays unlinked. This is a join, never a merge: neither log needs to
+know the other's shape, and the trail core never reconstructs runtime evidence.
 
 ## The pieces
 
@@ -48,7 +50,9 @@ mode, never a rewrite of who-did-what.
 
 `CommitRecord` (`src/log/log.ts:40`) is one interaction: `id`, `parent`
 (`string | null` — `null` marks a root, enabling branching), an optional
-`correlationId` (the cross-tier join key, `:55`), a `Cause`, and a payload.
+`correlationId` (an optional turn/gesture label), a `Cause`, and a payload.
+An optional `agentCall` records the host runtime's call identity; it is
+copied, validated and preserved on replay, never supplied through model arguments.
 `CauseSelectionSession.commit()` (`:113`) is the only way to add a record —
 it always appends (`this.records.push`, `:152`) and always freezes
 (`Object.freeze(record)`, `:151`) before appending, so even a caller holding
@@ -159,8 +163,8 @@ proven, not merely believed.
 - **Not the FDR ledger.** Declared analyses spending alpha budget is a
   vizfootprint-specific tier (`src/fdr/`) built on top of the log; the core
   has no concept of a hypothesis.
-- **Not an agent framework.** The `correlationId` join to an agent tool-call
-  frame (`src/why/`) is a consumer, not a dependency — the core never
+- **Not an agent framework.** The exact native run/call join to an agent frame
+  (`src/why/`) is a consumer, not a dependency — the core never
   imports agentfootprint or anything agent-shaped.
 - **Not state rollback.** There is no operation anywhere in this pattern
   that deletes or rewrites a committed record. Undo is a new commit that

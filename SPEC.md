@@ -7,7 +7,9 @@
 > §8 "Architecture ↔ spike conflicts").
 >
 > Trust the code where any prose here disagrees. Q1/Q2 are resolved in-code; the open
-> questions carried forward are in §7.
+> questions carried forward are in §7. The original spike's correlation-only join
+> is superseded by the exact native run/call identity contract in §8; historical
+> spike measurements are not evidence of exact per-call attribution.
 
 ---
 
@@ -44,11 +46,11 @@ Two failure modes motivate the layer, each demonstrated by a spike:
   ≤ α (`spikes/x2-fdr/a2-batch-bh-wrong.test.ts:48-114`). vizfootprint answers with **online**
   FDR (LORD++ / alpha-investing).
 
-- **"Why is this number what it is?"** across a viz → agent → backend stack. x3 shows a single
-  `correlationId` threading all three tiers lets `why(rowCount)` return the **minimal** commit
-  set by *joining slicers that already exist* — footprintjs `sliceForKey` on the kernel log +
-  the agent tool-call frame + the viz cause-log commit — with decoys excluded
-  (`spikes/x3-why-join/x3.test.ts`).
+- **"Why is this number what it is?"** across a viz → agent → backend stack. The original x3
+  spike joined existing slicers using a correlation label. The current contract uses
+  footprintjs `sliceForKey` on the kernel log, the declaring viz commit, and that commit's
+  persisted native `(runId, toolCallId)` for an exact, unique agent-frame match. A shared
+  `correlationId` groups calls but cannot prove which call made a value (see §8).
 
 And a performance constraint that makes the log adoptable: the commit log must **never** enter
 Mosaic's 60 Hz interaction hot path. x4 proves it — a real headless-Chromium 3 s/60 Hz brush
@@ -206,7 +208,8 @@ cause-tagged clause, applies it to the `Selection`, and appends the record.
 - **R13** commit-on-intent — one commit per gesture (the session's single write at gesture end);
   proven in x4 (`bench/x4/x4.test.ts:64-81`).
 - **R15** the log stays out of the 60 Hz hot path — x4 (see §6).
-- Supports **R10** — first-class `CommitRecord.correlationId` cross-tier join key (`src/log/log.ts:45-55`).
+- Supports **R10** — first-class turn/gesture `correlationId` plus optional native
+  `agentCall` provenance (`src/log/log.ts`); exact call attribution requires both runtime run and call ids.
 
 ### Acceptance tests
 - **Self-exclusion identical pre/post replay** (A1): view A never sees its own clause but does
@@ -502,10 +505,10 @@ const TEST_ANALOG_FIELD = 'pValue';  // fromLog.ts:43 — the L1-native "this IS
   branching log**: `buildBrushStream`'s `branchOf` path forks two lineages off a shared non-test
   `'root'` commit (`scenario.ts:87-123`), and `branchIdFromLog` **derives** each commit's branchId
   from that real parent-chain (`fromLog.ts:74-100`) — no test stamps a branch label directly.
-- **R10-support** — `hypothesisId` prefers `CommitRecord.correlationId` (L1's first-class
-  cross-tier join key) over the commit's own `id`, so a declared analysis threaded across
-  viz/agent/kernel tiers (the L6 `why()` rail) keeps ONE id as its `hypothesisId` too
-  (`fromLog.ts:120`; `fromLog.test.ts:37-54`).
+- **R10-support** — the legacy `hypothesisId` label preference remains
+  `CommitRecord.correlationId` before commit `id` (`fromLog.ts:120`; `fromLog.test.ts:37-54`).
+  This is a ledger-label convention, not evidence of a unique agent call. The L6
+  attribution join instead requires the recorded native `(runId, toolCallId)`.
 
 ### Acceptance tests (all shipped)
 - **A1 "reviewer number"** — p\*=0.03 (significant uncorrected) is **not** a discovery online among
@@ -727,51 +730,50 @@ is the R12 firewall (strict key allowlist, rejects `__proto__`; a raw `AnalysisD
 
 ---
 
-## 8. L6 — why (`vizfootprint/why`) · SPIKE → PROMOTE
+## 8. L6 — why (`src/why`) · current attribution contract
 
 `why(x)` traverses **viz → agent → backend** and returns the **minimal** commit set `x` depends
 on, as a **machine-shaped** answer (ids + tier tags, never prose). It is **not a new algorithm** —
-it is a **join over slicers that already exist** (`spikes/x3-why-join/whyJoin.ts:2-18`): footprintjs
-`sliceForKey` on the kernel commit log + the agent tool-call frame + the viz cause-log commit,
-stitched by one `correlationId`.
+it is a **join over slicers that already exist**: footprintjs `sliceForKey` on the kernel
+commit log, caller-harvested native agent frames, and the viz cause-log commit. The agent
+join is anchored by the target's persisted `agentCall: {runId, toolCallId}`, not by
+`correlationId`. A call id can repeat across runs and several calls can share one runtime
+stage. A unique match of both ids is required; zero matches is unlinked, multiple exact
+matches is `ambiguous-join` with candidates, and neither case credits an agent call.
 
-### Public API (promote `spikes/x3-why-join/whyJoin.ts` + `chain.ts`)
+### Public API (the source types are authoritative)
 
 ```ts
-// The wire join type. Spike name: JoinRecord (chain.ts:33). Promoted name: CorrelationEnvelope.
-interface CorrelationEnvelope {                          // ⇐ chain.ts:33-46 (renamed)
-  readonly correlationId: string;
-  readonly viz:   { readonly commitId: string; readonly viewId: string; readonly cause: Cause };
-  readonly agent: { readonly toolCallId: string; readonly iteration: number;
-                    readonly runId: string; readonly runtimeStageId: string };  // unique addr = (runId, runtimeStageId)
-  readonly kernel: KernelResult;   // footprintjs RuntimeSnapshot + rowCount + committedCorrelationId
-}
-
-// The composed answer (spike: CrossTierSlice — whyJoin.ts:33).
-interface CrossTierSlice {
-  readonly correlationId: string; readonly key: string;
-  readonly threaded: boolean;                            // did the join key survive into COMMITTED kernel state?
-  readonly kernel: { writerId: string; commitIds: string[]; stageIds: string[] };  // R9 minimal set
-  readonly agent:  { toolCallId: string; runtimeStageId: string; runId: string };
-  readonly viz:    { commitId: string };
-  readonly commits: TierCommit[];                        // flat { tier:'viz'|'agent'|'kernel'; id; stageId? }[]
-}
-interface CrossTierMiss { correlationId; key; missing: 'no-join-key' | 'no-viz-commit'; }  // whyJoin.ts:53
-
-function why(correlationId: string, envelopes: CorrelationEnvelope[] , /* joinTable+vizRecords */):
-  CrossTierSlice | CrossTierMiss;   // ⇐ whyRowCount(correlationId, chain) — whyJoin.ts:63, generalized off 'rowCount'
+const port = vizAsTools(session, { agentEventLog: () => nativeFrames });
+// In the host runtime's execute(args, ctx), not in model-authored arguments:
+await port.call('viz.dispatch', args, {
+  toolCallId: ctx.toolCallId,
+  runId: ctx.runId,
+});
+const result = await port.call('viz.why', {
+  target: { kind: 'selection', viewId: 'bar' },
+});
+// result.threaded is true only for an exact, unique recorded native call.
 ```
+
+`nativeFrames` is collected during actual tool-start events, from payload `toolCallId`
+and metadata `runId` / `runtimeStageId`. The standard `why` tool reads the host's live
+event-log getter, or its per-call context evidence. Model-supplied ids are ignored.
+The session's `why(target, {agentEventLog})` and the composing `why(target, sources)`
+use the same resolver. Legacy correlation-only records still parse but remain unlinked;
+a compatibility correlation lookup that substitutes another declaring record cannot
+prove this target's call. See `src/why/types.ts`, `src/why/resolvers.ts`,
+`src/agent/exactAttribution.test.ts` and `demo-agent/src/analyst.exact-attribution.test.ts`.
 
 ### R# satisfied
 - **R9** minimal, machine-shaped — `sliceForKey` yields the exact dependency chain; the answer is
   ids + tier tags with **no** free-text (proven: no `cause.intent`, no agent answer, no stage
   *name* leaks — `x3.test.ts:124-143`).
-- **R10** viz → agent → backend traversal via the envelope — `why()` resolves the viz commit by its
-  first-class `correlationId` **field** (not id-overload), the agent frame by `toolCallId`, and the
-  kernel slice by `sliceForKey` (`whyJoin.ts:63-108`); decoys (2 viz + 1 agent + 1 kernel stage)
-  excluded (`x3.test.ts:84-122`).
+- **R10** viz → agent → backend traversal — the declaring viz commit anchors the exact
+  native run/call join, and the kernel slice uses `sliceForKey`. A turn/gesture label
+  is not an agent-call address; ambiguous or missing evidence is a typed miss.
 
-### Acceptance tests (all shipped, in `spikes/x3-why-join/x3.test.ts`)
+### Original spike acceptance tests (historical; current exact-call tests are above)
 - **A1 composed == hand-computed minimal set**: threaded end-to-end; kernel set is *exactly*
   `{load, filter, count}` anchored at `count#…`; agent frame is `call-corr-amt-1`; viz commit
   resolved by its `correlationId` field with `id !== correlationId` (`x3.test.ts:29-82`).
@@ -803,7 +805,8 @@ function why(correlationId: string, envelopes: CorrelationEnvelope[] , /* joinTa
 interface CommitRecord {
   id: string;                       // stable commit id, unique within a log
   parent: string | null;           // parent commit id, or null for a root — enables branching (R8)
-  correlationId?: string;          // FIRST-CLASS cross-tier join key (R10). NOT the id. Absent when unused.
+  correlationId?: string;          // optional turn/gesture grouping label, NOT a unique call id
+  agentCall?: { toolCallId: string; runId?: string }; // host provenance; both ids required for exact attribution
   viewId: string;                  // registry key → clause source identity on replay
   actorMeta: ActorMeta;            // { actor: Actor; label?: string } — rebuilds the source in a fresh registry
   kind: 'point' | 'interval';      // which clause factory to reconstruct with
@@ -834,26 +837,26 @@ Companion audit row `FdrStep` (`types.ts:36-57`) and run fold `FdrRun` (`types.t
 full trail the papers' guarantees are stated over (`alphaThreshold`, `reject`, `wealthBefore/After`,
 `firstRejection`; `procedure/alpha/w0/audit/discoveries/finalWealth`).
 
-### 9.3 `CorrelationEnvelope` (L6 — **reconstructed** from `spikes/x3-why-join/chain.ts:33-46`)
+### 9.3 `CorrelationEnvelope` (historical spike envelope; not the exact-call join contract)
 
-The spike's live type is **`JoinRecord`**; "CorrelationEnvelope" is the P3 promotion name (the type
-does **not** yet exist under that name — see §10 conflict C2):
+The spike's type was **`JoinRecord`**; the current `CorrelationEnvelope` is an optional
+turn envelope (`src/why/types.ts`). The original sketch below is retained as historical
+context, not a complete current API declaration or proof of exact attribution:
 
 ```ts
 interface CorrelationEnvelope {                    // = JoinRecord, renamed on promotion
-  readonly correlationId: string;                  // the ONE key threading all three tiers
+  readonly correlationId: string;                  // historical turn label, not a per-call address
   readonly viz:    { readonly commitId: string; readonly viewId: string; readonly cause: Cause };
   readonly agent:  { readonly toolCallId: string; readonly iteration: number;
                      readonly runId: string; readonly runtimeStageId: string };
   readonly kernel: KernelResult;                   // RuntimeSnapshot + rowCount + committedCorrelationId
 }
 ```
-**Load-bearing honesty gate** (`whyJoin.ts:84-90`): the agent-tier unique address is
-`(runId, runtimeStageId)` **or** `toolCallId` — `runtimeStageId` alone **collides across independent
-agent runs** (each fresh executor over the same chart reuses execution indices, e.g.
-`tool-calls#22`). The envelope therefore stores `runId` alongside `runtimeStageId`. `threaded`
-(from `CrossTierSlice`) records whether `correlationId` survived into the kernel's *committed*
-state; if not, the answer is honest (`threaded:false`), never faked (`whyJoin.ts:12-16,85`).
+**Current honesty gate:** neither `runtimeStageId`, `toolCallId` alone, nor a turn
+`correlationId` uniquely names a call. The target anchor must persist `(runId, toolCallId)`
+and exactly one native frame must match it. `threaded` describes that agent attribution,
+not whether a correlation label survived a kernel run. Runtime stage and kernel slice
+addresses remain useful evidence, but are not substitutes for the call's identity.
 
 ### 9.4 `Cause` (L0 — `src/cause/cause.ts:25-40`, verbatim) — see §2.
 
@@ -927,12 +930,12 @@ the gap distribution is the completeness signal — a task that cannot be expres
   (only re-parse in the same Mosaic). Open: is `field`/`value` enough, or does a commit need a
   data-space **scale/encoding** descriptor to be library-portable? *Seam:* `CommitRecord.{field,value}`
   (`log.ts:46-49`).
-- **Q8 `[reconstructed]` — agent-tier addressing under collision.** x3 pins that `runtimeStageId`
-  collides across runs; the unique address is `(runId, runtimeStageId)` or `toolCallId`
-  (`whyJoin.ts:87-90`; `x3.test.ts:104-107`). Open: does L6's `CorrelationEnvelope` standardize on
-  `toolCallId` (unambiguous but agentfootprint-specific) or the `(runId, runtimeStageId)` pair
-  (portable but two-part)? Related: adopt the now-available `AgentRunOptions.correlationId` path
-  (see §11 C4). *Seam:* `whyJoin.ts:84-98`.
+- **Q8 `[reconstructed]` — agent-tier addressing under collision — ANSWERED by §8.**
+  Native `(runId, toolCallId)` is the exact address. A stage can be shared by several calls,
+  call ids can repeat across runs, and a turn correlation labels several calls. The
+  host records the native pair before execution; the resolver never substitutes a
+  stage/turn label or infers a missing run from a frame. Current proofs are
+  `src/agent/exactAttribution.test.ts` and the native bridge regressions.
 - **Q13 `[reconstructed, renumbered from Q11]` — analysis output re-entry (R11) — ANSWERED by §5.**
   R11 says outputs (e.g. `cluster_id`) "filter through ordinary predicates with zero new verbs." This
   question predates L3's promotion (P3-L3, prior to this packet), when "No L3 code exists to prove a
@@ -949,10 +952,9 @@ the gap distribution is the completeness signal — a task that cannot be expres
 
 ## 11. Architecture ↔ spike conflicts (flag, do not silently resolve)
 
-- **C1 — `CorrelationEnvelope` does not exist under that name.** The decided L6 names the join type
-  `CorrelationEnvelope`; the spike's real type is `JoinRecord` (`chain.ts:33`) and its composed
-  answer is `CrossTierSlice` (`whyJoin.ts:33`). Promotion must introduce `CorrelationEnvelope` (I
-  mapped it to `JoinRecord` in §9.3). **No behavioral conflict — a naming/promotion gap.**
+- **C1 — historical envelope promotion gap — resolved in `src/why/types.ts`.**
+  `CorrelationEnvelope` now exists as an optional turn envelope. Its correlation label
+  alone does not establish a unique agent-call join; the current exact-call contract is §8.
 - **C2 — `why()` is hard-coded to the key `rowCount`.** The spike function is `whyRowCount(...)`
   with `key: 'rowCount'` literals throughout (`whyJoin.ts:63,104`; `x3.test.ts`). The decided L6
   `why(target)` must generalize the anchor key. Straightforward (parameterize the `sliceForKey` key),
@@ -970,7 +972,10 @@ the gap distribution is the completeness signal — a task that cannot be expres
   `EventMeta.correlationId` (`agentfootprint/src/bridge/eventMeta.ts:83`). **Decision for P3:** L6
   should adopt the sanctioned `AgentRunOptions.correlationId → EventMeta.correlationId` path and
   **retire the tool-args workaround** in `chain.ts:98-160`. Flagged because it changes the L5→L6
-  seam from what the committed spike does.
+  seam from what the committed spike does. **Current distinction:** this sanctioned carrier
+  transports a turn label, not an exact call address. §8 uses host execution context and
+  actual native tool-start evidence for `(runId, toolCallId)`; no identity is read from
+  model-authored arguments.
 - **C5 — R13/R15 proof depends on a synthetic hot path.** x4's per-update work is an *in-page
   synthetic row scan*, **not** a real DuckDB round-trip (`bench/x4` commit `6ff7a4e` caveat; the
   bench stubs `@duckdb/duckdb-wasm` — `runner.mjs:44-57`). The 0-long-task / 0.00 ms-TBT result

@@ -106,7 +106,7 @@ landed — a change to what the dashboard is showing, with no commit behind it,
 which is the exact thing this folder exists to make impossible.
 
 **And in that ORDER.** `commit()` runs in two phases: everything that can throw
-(the cause gate, the registry lookups, the clause, the data stamp,
+(the native identity snapshot, the cause gate, the registry lookups, the clause, the data stamp,
 `predicateSQL`, the deep freeze) happens while nothing has moved; then the
 record is pushed. The selection update comes LAST, because it is the one
 OUTBOUND step — it emits to every listener a host attached (and an engine may
@@ -135,6 +135,11 @@ non-empty `toolCallId` and optional non-empty `runId`. It is copied and frozen
 with the record, shape-checked on import and preserved by both replay doors.
 `correlationId` remains a turn/gesture grouping label, not exact call evidence.
 Old records with no `agentCall` remain valid; replay never fabricates one.
+`agentCall.ts` owns the validation/copy rule for both writers and imports.
+The higher-level port and session doors ask that same rule before any domain
+work, returning typed guard gaps rather than discovering a bad identity after
+FDR budget was spent. A bare low-level log still throws a malformed identity,
+but does so before source registration or clause creation.
 
 `deserializeLog` used to check `Array.isArray` and hand the result back cast as
 history. It now runs `parseCommitLog`, which judges five things in order and
