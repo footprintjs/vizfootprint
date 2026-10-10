@@ -21,6 +21,8 @@ one list twice: [`PACKAGING.md`](PACKAGING.md).
 Node.js 22 or newer is required. Analyses run on `footprintjs` (`^9.11.0 ||
 ^10.0.0`); record readers come from `foottrace` (`^1.0.0`). Both are direct
 dependencies, with no copied readers or re-exported Foottrace names.
+The checkout's lockfile uses footprintjs 9.48.3, including the published 9.x
+copying and nested-write security fixes; the supported version range is unchanged.
 
 Pull requests and `main` run the same build, public-package boundary, type and
 100%-coverage checks on Node 22 and 24. CI checks out Storydeck at the exact
