@@ -53,6 +53,7 @@ import { CATEGORIES, categoryColor, el, replaceChildren } from '../../demo/src/c
 import { loadRows, type DemoRow } from './rows.js';
 import { DEMO_GEO, REGIONS } from './geo.js';
 import { ProposedChartCell } from './ProposedChartCell.js';
+import { createDeferredFocus } from './deferredFocus.js';
 
 // ── the chat/activity slice of /api/state — NOT part of vizfootprint-ui's
 // adapter contract (agent tool-call activity is this demo's own chrome, not a
@@ -678,14 +679,16 @@ function wireChatAndDebugger(view: SessionView): void {
   const chatpanel = document.getElementById('chatpanel') as HTMLElement;
   const chatclose = document.getElementById('chatclose') as HTMLButtonElement;
   const chatreset = document.getElementById('chatreset') as HTMLButtonElement;
+  const composerFocus = createDeferredFocus(chatpanel, input);
 
   function openChat(): void {
     chatpanel.hidden = false;
     fab.hidden = true;
-    window.setTimeout(() => input.focus(), 40);
+    window.setTimeout(composerFocus.claim(), 40);
     transcript.scrollTop = transcript.scrollHeight;
   }
   function closeChat(): void {
+    composerFocus.cancel();
     chatpanel.hidden = true;
     fab.hidden = false;
   }
@@ -694,6 +697,7 @@ function wireChatAndDebugger(view: SessionView): void {
 
   // Start fresh: rebuild the session + analyst server-side, clear the transcript.
   chatreset.addEventListener('click', () => {
+    composerFocus.cancel();
     void (async () => {
       chatreset.disabled = true;
       await post('/api/reset', {});
@@ -737,6 +741,7 @@ function wireChatAndDebugger(view: SessionView): void {
   async function sendMessage(text: string): Promise<void> {
     const message = text.trim();
     if (!message || sendBtn.disabled) return;
+    const returnFocus = composerFocus.claim();
     input.value = '';
     sendBtn.disabled = true;
     input.disabled = true;
@@ -761,14 +766,19 @@ function wireChatAndDebugger(view: SessionView): void {
       transcript.appendChild(dbg);
     } finally {
       window.clearInterval(live);
-      sendBtn.disabled = false;
-      input.disabled = false;
-      working.textContent = '';
-      transcript.scrollTop = transcript.scrollHeight;
-      await view.refresh();
-      const finalState = await getChatState();
-      if (finalState) renderActivity(finalState);
-      input.focus();
+      try {
+        transcript.scrollTop = transcript.scrollHeight;
+        await view.refresh();
+        const finalState = await getChatState();
+        if (finalState) renderActivity(finalState);
+      } finally {
+        // A turn is complete only after its final refreshes. Do not allow a
+        // second send to overlap them, or reclaim focus from a newer action.
+        sendBtn.disabled = false;
+        input.disabled = false;
+        working.textContent = '';
+        returnFocus();
+      }
     }
   }
 

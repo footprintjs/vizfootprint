@@ -906,11 +906,128 @@ describe('chat popup — open/close', () => {
     expect((document.getElementById('chatpanel') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('fab') as HTMLElement).hidden).toBe(false);
   });
+
+  it('a delayed open cannot take focus from a newer report', async () => {
+    await click(document.getElementById('fab'));
+    await openReport('ledger');
+    const close = within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' });
+    await advance(40);
+    expect(document.activeElement).toBe(close);
+  });
+
+  it.each(['chatclose', 'chatreset'])('%s revokes the delayed open', async (action) => {
+    await click(document.getElementById('fab'));
+    await click(document.getElementById(action));
+    const focus = vi.spyOn(document.querySelector('.composer input') as HTMLInputElement, 'focus');
+    await advance(40);
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('closing and reopening starts a new focus claim, not the old delayed open', async () => {
+    await click(document.getElementById('fab'));
+    await advance(20);
+    await click(document.getElementById('chatclose'));
+    await click(document.getElementById('fab'));
+    const focus = vi.spyOn(document.querySelector('.composer input') as HTMLInputElement, 'focus');
+    await advance(20); // old open's deadline, not the newer one's
+    expect(focus).not.toHaveBeenCalled();
+    await advance(20);
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('chat popup — sending', () => {
   beforeEach(async () => {
     await boot(STATE_A);
+  });
+
+  it('keeps the composer disabled until final refresh settles, preventing an overlapping send', async () => {
+    await click(document.getElementById('fab'));
+    await advance(40);
+    const chat = deferred<{ text: string }>();
+    const refreshed = deferred<void>();
+    api.chatQueue.push(chat.promise);
+    const input = document.querySelector('.composer input') as HTMLInputElement;
+    const sendBtn = document.querySelector('.composer .btn') as HTMLButtonElement;
+    input.value = 'first';
+    await click(sendBtn);
+    vi.spyOn(vizAgent().view, 'refresh').mockReturnValueOnce(refreshed.promise);
+    chat.resolve({ text: 'reply' });
+    await tick();
+    try {
+      expect(input.disabled).toBe(true);
+      expect(sendBtn.disabled).toBe(true);
+      await click(document.querySelector('.suggest button'));
+      expect(api.callsTo('/api/chat')).toHaveLength(1);
+    } finally {
+      refreshed.resolve();
+      await tick();
+    }
+    expect(input.disabled).toBe(false);
+    expect(sendBtn.disabled).toBe(false);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('does not steal ledger focus when final refresh completes after the dialog opens', async () => {
+    await click(document.getElementById('fab'));
+    await advance(40);
+    const chat = deferred<{ text: string }>();
+    const refreshed = deferred<void>();
+    api.chatQueue.push(chat.promise);
+    const input = document.querySelector('.composer input') as HTMLInputElement;
+    input.value = 'go';
+    await click(document.querySelector('.composer .btn'));
+    vi.spyOn(vizAgent().view, 'refresh').mockReturnValueOnce(refreshed.promise);
+    chat.resolve({ text: 'reply' });
+    await tick();
+    await openReport('ledger');
+    const dialog = screen.getByRole('dialog');
+    const close = within(dialog).getByRole('button', { name: 'Close' });
+    expect(document.activeElement).toBe(close);
+    refreshed.resolve();
+    await tick();
+    expect(input.disabled).toBe(false);
+    expect(document.activeElement).toBe(close);
+  });
+
+  it.each(['focus', 'pointer', 'hidden', 'reset'] as const)('a turn completion respects newer %s ownership', async (action) => {
+    await click(document.getElementById('fab'));
+    await advance(40);
+    const chat = deferred<{ text: string }>();
+    api.chatQueue.push(chat.promise);
+    const input = document.querySelector('.composer input') as HTMLInputElement;
+    input.value = 'go';
+    await click(document.querySelector('.composer .btn'));
+    const focus = vi.spyOn(input, 'focus');
+    const report = document.querySelector('[data-report="ledger"]') as HTMLButtonElement;
+    if (action === 'focus') report.focus();
+    if (action === 'pointer') fireEvent.pointerDown(cockpit());
+    if (action === 'hidden') await click(document.getElementById('chatclose'));
+    if (action === 'reset') await click(document.getElementById('chatreset'));
+    chat.resolve({ text: 'done' });
+    await tick();
+    expect(input.disabled).toBe(false);
+    expect(focus).not.toHaveBeenCalled();
+    if (action === 'focus') expect(document.activeElement).toBe(report);
+  });
+
+  it('a handled final state-fetch failure still re-enables and cleans up the focus claim', async () => {
+    await click(document.getElementById('fab'));
+    await advance(40);
+    const chat = deferred<{ text: string }>();
+    api.chatQueue.push(chat.promise);
+    const input = document.querySelector('.composer input') as HTMLInputElement;
+    input.value = 'go';
+    const remove = vi.spyOn(document, 'removeEventListener');
+    await click(document.querySelector('.composer .btn'));
+    remove.mockClear();
+    api.stateFailPlan = { mode: 'throw', skip: 0 }; // real polling refresh handles the failed fetch
+    chat.resolve({ text: 'done' });
+    await tick();
+    expect(input.disabled).toBe(false);
+    expect(document.activeElement).toBe(input);
+    expect(remove.mock.calls.filter(([name]) => name === 'focusin')).toHaveLength(1);
+    expect(remove.mock.calls.filter(([name]) => name === 'pointerdown')).toHaveLength(1);
   });
 
   it('clicking a suggestion (not disabled) sends it, posts /api/chat, and appends both bubbles', async () => {
