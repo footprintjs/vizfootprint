@@ -87,6 +87,53 @@ async function closeModal(page: Page, modalName: string): Promise<void> {
   await page.waitForSelector(`[data-vzf-modal="${modalName}"]`, { state: 'detached' });
 }
 
+/** A gallery drag must land the requested order, not merely some unrelated chart commit. */
+async function dragChart(page: Page, dragged: string, target: string, expectedOrder: readonly string[]): Promise<void> {
+  // FLIP changes the hit-tested geometry. Wait for the actual cell animations,
+  // not a wall-clock guess; an unfinished morph can turn a drag into a brush.
+  await page.waitForFunction(() => {
+    const cells = Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]'));
+    return cells.length > 0 && cells.every((cell) => cell.getAnimations().every((animation) =>
+      !animation.pending && (animation.playState === 'finished' || animation.playState === 'idle')));
+  }, undefined, { timeout: 8000 });
+  const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
+  const grip = (await page.locator(`[data-chart="${dragged}"] [data-vzf="drag-handle"]`).boundingBox())!;
+  const start = { x: grip.x + grip.width / 2, y: grip.y + grip.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  expect(await page.evaluate(({ x, y, dragged }) => {
+    const hit = document.elementFromPoint(x, y);
+    return hit?.closest('[data-vzf="drag-handle"]')?.closest('[data-chart]')?.getAttribute('data-chart') === dragged;
+  }, { ...start, dragged }), 'the pointer must hit the requested drag handle').toBe(true);
+  await page.mouse.down();
+  try {
+    await page.waitForSelector(`[data-chart="${dragged}"].vzf-dragging`, { timeout: 8000 });
+    const targetBox = (await page.locator(`[data-chart="${target}"]`).boundingBox())!;
+    const end = { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height / 2 };
+    await page.mouse.move(end.x, end.y, { steps: 6 });
+    await page.waitForSelector(`[data-chart="${target}"].vzf-drop-target`, { timeout: 8000 });
+    expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('[data-chart]')?.getAttribute('data-chart'), end)).toBe(target);
+  } finally {
+    await page.mouse.up();
+  }
+  await page.waitForFunction(
+    (order) => JSON.stringify(Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]'), (cell) => cell.getAttribute('data-chart'))) === JSON.stringify(order),
+    [...expectedOrder],
+    { timeout: 8000 },
+  );
+  expect(Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent())).toBe(commitsBefore + 1);
+  await page.locator('[data-report="commits"]').click();
+  try {
+    await page.waitForSelector('[data-vzf-modal="report-commits"] [data-vzf="commit-log"]');
+    const receipt = page.locator('[data-vzf-modal="report-commits"] .vzf-chip[data-commit]').last();
+    expect(await receipt.getAttribute('data-actor')).toBe('user');
+    expect(await receipt.locator('.vzf-family').textContent()).toBe('design');
+    expect(await receipt.locator('.vzf-chip-body').textContent()).toBe(`order = ${expectedOrder.join(',')}`);
+    expect(await receipt.locator('.vzf-cause').textContent()).toBe(`layout order: ${expectedOrder.join(', ')}`);
+  } finally {
+    await closeModal(page, 'report-commits');
+  }
+}
+
 /** Zero page/shell scroll — the cockpit invariant, asserted at any viewport. */
 async function expectNoPageOrShellScroll(page: Page): Promise<void> {
   const m = await page.evaluate(() => {
@@ -1163,52 +1210,80 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('vizfootprint-ui ga
     // back to Flow so the drag reads on the plain band
     await page.locator('[data-preset-option="flow"]').click();
     await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
-    await page.waitForTimeout(400); // settle the FLIP morph — cells (and their grips) are mid-transform until it lands
     const orderBefore = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')).map((el) => el.getAttribute('data-chart')),
+      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')).map((el) => el.getAttribute('data-chart')!),
     );
     expect(orderBefore[0]).toBe('scatter');
 
-    // drag the scatter's grip onto the line cell (pointer-based, real mouse)
-    const commitsBefore = Number(await page.locator('[data-report="commits"] .vzf-report-badge').textContent());
-    const grip = (await page.locator('[data-chart="scatter"] [data-vzf="drag-handle"]').boundingBox())!;
-    const lineBox = (await page.locator('[data-chart="line"]').boundingBox())!;
-    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(lineBox.x + lineBox.width / 2, lineBox.y + lineBox.height / 2, { steps: 6 });
-    await page.mouse.up();
-    await page.waitForFunction(
-      (n) => Number(document.querySelector('[data-report="commits"] .vzf-report-badge')?.textContent) > n,
-      commitsBefore,
-      { timeout: 8000 },
-    );
-    const orderAfter = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')).map((el) => el.getAttribute('data-chart')),
-    );
-    expect(orderAfter.slice(0, 2)).toEqual(['line', 'scatter']); // the drop landed and rendered back from the fold
+    await dragChart(page, 'scatter', 'line', ['line', 'scatter', ...orderBefore.slice(2)]);
     await expectNoPageOrShellScroll(page);
   }, 30_000);
 
+  it('LY-1: a drag waits for a still-moving layout and records order rather than a chart brush', async () => {
+    const slow = await browser.newPage({ viewport: { width: 1180, height: 640 } });
+    slow.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+    slow.on('pageerror', (error) => pageErrors.push(String(error)));
+    try {
+      await slow.addInitScript(() => {
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function (...args: Parameters<Element['animate']>): Animation {
+          const animation = animate.apply(this, args);
+          // Real compositor animation, deliberately longer than the old 400ms guess.
+          if (this.hasAttribute('data-chart')) animation.updatePlaybackRate(0.1);
+          return animation;
+        };
+      });
+      await slow.goto(handle.url);
+      await slow.waitForSelector('svg.vzf-scatter');
+      await slow.locator('[data-preset-option="grid"]').click();
+      await slow.waitForSelector('[data-vzf="cockpit-charts"][data-preset="grid"]');
+      await slow.locator('[data-preset-option="focus"]').click();
+      await slow.waitForSelector('[data-vzf="cockpit-charts"][data-preset="focus"]');
+      await slow.locator('[data-chart="bar"] [data-vzf="focus-thumb"]').click();
+      await slow.waitForSelector('[data-chart="bar"][data-focused="true"]');
+      await slow.locator('[data-preset-option="flow"]').click();
+      await slow.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
+      expect(await slow.locator('[data-vzf="cockpit-charts"]').evaluate((band) => band.getAnimations({ subtree: true }).some((animation) => animation.playState === 'running'))).toBe(true);
+      const order = await slow.locator('[data-vzf="cockpit-charts"] [data-chart]').evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-chart')!));
+      await dragChart(slow, 'scatter', 'line', ['line', 'scatter', ...order.slice(2)]);
+      await expectNoPageOrShellScroll(slow);
+    } finally {
+      await slow.close();
+    }
+  }, 30_000);
+
   it('LY-1: time-travel restores the arrangement — the layout is fold-carried view-state', async () => {
-    // we are on flow with a custom order + focus/grid notes behind us
-    expect(await page.locator('[data-vzf="cockpit-charts"]').getAttribute('data-preset')).toBe('flow');
-    // seek to the very FIRST commit — before any layout note existed
-    await page.locator('[data-vzf="timeline"] [data-commit]').first().click();
-    await page.waitForSelector('[data-vzf="return-now"]'); // viewing past now
-    await page.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
-    const pastOrder = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')).map((el) => el.getAttribute('data-chart')),
-    );
-    expect(pastOrder[0]).toBe('scatter'); // the saved order is gone in the past — consumer order rules
-    // return to now WITHOUT acting (no fork): the drag order + flow preset come back
-    await page.locator('[data-vzf="return-now"]').click();
-    await page.waitForFunction(
-      () => document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]')[0]?.getAttribute('data-chart') === 'line',
-      undefined,
-      { timeout: 8000 },
-    );
-    expect(await page.locator('[data-vzf="cockpit-charts"]').getAttribute('data-preset')).toBe('flow');
-    await expectNoPageOrShellScroll(page);
+    // Establish this test's own recorded arrangement, independent of the prior drag test.
+    const travel = await browser.newPage({ viewport: { width: 1180, height: 640 } });
+    travel.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+    travel.on('pageerror', (error) => pageErrors.push(String(error)));
+    try {
+      await travel.goto(handle.url);
+      await travel.waitForSelector('svg.vzf-scatter');
+      await travel.locator('[data-preset-option="grid"]').click();
+      await travel.waitForSelector('[data-vzf="cockpit-charts"][data-preset="grid"]');
+      await travel.locator('[data-preset-option="flow"]').click();
+      await travel.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
+      const originalOrder = await travel.locator('[data-vzf="cockpit-charts"] [data-chart]').evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-chart')!));
+      const savedOrder = ['line', 'scatter', ...originalOrder.slice(2)];
+      await dragChart(travel, 'scatter', 'line', savedOrder);
+      // Seek before any layout note existed: consumer order rules in the past.
+      await travel.locator('[data-vzf="timeline"] [data-commit]').first().click();
+      await travel.waitForSelector('[data-vzf="return-now"]');
+      await travel.waitForSelector('[data-vzf="cockpit-charts"][data-preset="flow"]');
+      expect(await travel.locator('[data-vzf="cockpit-charts"] [data-chart]').evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-chart')))).toEqual(originalOrder);
+      // Return WITHOUT acting (no fork): the complete saved order comes back.
+      await travel.locator('[data-vzf="return-now"]').click();
+      await travel.waitForFunction(
+        (order) => JSON.stringify(Array.from(document.querySelectorAll('[data-vzf="cockpit-charts"] [data-chart]'), (cell) => cell.getAttribute('data-chart'))) === JSON.stringify(order),
+        savedOrder,
+        { timeout: 8000 },
+      );
+      expect(await travel.locator('[data-vzf="cockpit-charts"]').getAttribute('data-preset')).toBe('flow');
+      await expectNoPageOrShellScroll(travel);
+    } finally {
+      await travel.close();
+    }
   }, 30_000);
 
   it('FIX-FILL: after a preset morph every chart still FILLS its cell at a TALL viewport (Flow, Grid, Focus)', async () => {
