@@ -22,6 +22,17 @@ Node.js 22 or newer is required. Analyses run on `footprintjs` (`^9.11.0 ||
 ^10.0.0`); record readers come from `foottrace` (`^1.0.0`). Both are direct
 dependencies, with no copied readers or re-exported Foottrace names.
 
+Pull requests and `main` run the same build, public-package boundary, type and
+100%-coverage checks on Node 22 and 24. CI checks out Storydeck at the exact
+revision named in `.github/workflows/checks.yml` beside this repository, so the
+existing sibling `file:` links remain intact; both installs use their committed
+lockfiles. CI installs Playwright's matching Chromium headless shell and its
+Linux system dependencies for the real-browser tests. Updating the Storydeck
+revision requires re-running the full checks. The workflow does not publish any
+package and checks that every workspace stays
+private. The separately tested unpublished engine candidate is not substituted
+into this locked public-dependency check.
+
 ## Data analysis without a dashboard
 
 `profileData` and `profileGroups`, exported from `vizfootprint/data`, calculate
