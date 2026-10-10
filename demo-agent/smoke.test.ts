@@ -487,6 +487,73 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('RP-3: agent PROPOS
   });
 });
 
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('chat completion respects newer keyboard focus', () => {
+  it.each(['Enter', 'Send', 'Suggestion'])('returns focus to the composer after an ordinary %s submission', async (action) => {
+    const handle = await startServer({ port: 0, mock: true });
+    const browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
+      await page.goto(handle.url);
+      await page.waitForSelector('svg.vzf-scatter');
+      await page.locator('#fab').click();
+      const input = page.locator('#chatpanel .composer input');
+      await input.fill('Analyze price and rating.');
+      if (action === 'Enter') await input.press('Enter');
+      else if (action === 'Send') await page.locator('#chatpanel .composer .btn').click();
+      else await page.locator('#chatpanel .suggest button').first().click();
+      await page.waitForSelector('#chatpanel .bubble.analyst');
+      await page.waitForFunction(() => !document.querySelector<HTMLInputElement>('#chatpanel .composer input')!.disabled);
+      expect(await page.evaluate(() => document.activeElement === document.querySelector('#chatpanel .composer input'))).toBe(true);
+    } finally {
+      await browser.close();
+      await handle.close();
+    }
+  }, 45_000);
+
+  it('keeps focus in a ledger opened while the agent reply is pending, so Escape closes it', async () => {
+    const handle = await startServer({ port: 0, mock: true, provider: scriptedProposeChartMock() });
+    const browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
+    let releaseReply!: () => void;
+    const replyGate = new Promise<void>((resolve) => { releaseReply = resolve; });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(String(error)));
+      page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+      // Let the real mock-provider turn create its chart. Hold only delivery
+      // of the reply: live polling still displays the chart and ledger row.
+      await page.route('**/api/chat', async (route) => {
+        const response = await route.fetch();
+        await replyGate;
+        await route.fulfill({ response });
+      });
+      await page.goto(handle.url);
+      await page.waitForSelector('svg.vzf-scatter');
+      await page.locator('#fab').click();
+      const input = page.locator('#chatpanel .composer input');
+      await input.fill('Propose a chart of price vs rating colored by category.');
+      await input.press('Enter');
+      await page.waitForSelector('[data-chart="chart:price-rating"] svg', { timeout: 20_000 });
+      expect(await input.isDisabled()).toBe(true);
+      await openReport(page, 'ledger');
+      await page.waitForFunction(() => Boolean(document.activeElement?.closest('[data-vzf-modal="report-ledger"]')));
+      releaseReply();
+      // Enabled now means the entire turn, including its final refresh, is
+      // finished. Its completion must not take focus from the newer dialog.
+      await page.waitForFunction(() => !document.querySelector<HTMLInputElement>('#chatpanel .composer input')!.disabled);
+      expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[data-vzf-modal="report-ledger"]')))).toBe(true);
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-vzf-modal="report-ledger"]', { state: 'detached' });
+      expect(await page.evaluate(() => document.activeElement === document.querySelector('[data-report="ledger"]'))).toBe(true);
+      expect(errors).toEqual([]);
+    } finally {
+      releaseReply();
+      await browser.close();
+      await handle.close();
+    }
+  }, 45_000);
+});
+
 describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('RP-3: a REJECTED proposal (a host-owned transform) renders nothing and shows in Gaps', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
