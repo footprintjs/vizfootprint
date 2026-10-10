@@ -3,13 +3,10 @@
  * `why()` (in `./why.ts`) composes them. None of them post-processes a trace —
  * they read structure gathered during the run.
  *
- * Cited footprintjs APIs (installed 9.11.0):
+ * Record readers come from foottrace's public root:
  *   - `sliceForKey(commitLog, key, keysRead, opts?)` → `VariableSlice`
- *     (`node_modules/footprintjs/dist/esm/lib/slice/sliceForKey.d.ts:47`).
  *   - `keysReadFromExecutionTree(tree)` → `KeysReadSource`
- *     (`.../slice/keysReadSources.d.ts:40`).
  *   - `sliceToJSON(slice)` → `SliceJSON` ({ writerId?, nodes?, missing?, … })
- *     (`.../slice/serialize.d.ts:25`, `.../slice/types.d.ts:211-240`).
  *   C4/HONEST-GAP CLOSED: `RuntimeSnapshot.runId: string`
  *     (`.../runner/ExecutionRuntime.d.ts:39`, shipped footprintjs 9.11.0,
  *     source fba2886) — `getSnapshot()` now stamps the run's id on every
@@ -21,7 +18,7 @@
  *     fallback, never a crash.
  */
 
-import { keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'footprintjs/trace';
+import { keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'foottrace';
 import type { AgentCallIdentity, CommitRecord } from '../log/index.js';
 import type { AgentEventFrame, CrossTierMiss, RuntimeSnapshot } from './types.js';
 
@@ -91,7 +88,7 @@ export interface KernelResolution {
 }
 
 /**
- * KERNEL tier — footprintjs `sliceForKey` over the analysis flowchart's commit
+ * KERNEL tier — foottrace `sliceForKey` over the analysis flowchart's commit
  * log gives the R9 minimal dependency chain for the anchor `key`. An empty /
  * never-written slice is a `kernel-key-unresolved` miss (honest, never faked).
  */

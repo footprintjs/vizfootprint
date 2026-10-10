@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { sliceForKey, keysReadFromExecutionTree, sliceToJSON } from 'footprintjs/trace';
+import { sliceForKey, keysReadFromExecutionTree, sliceToJSON } from 'foottrace';
 import {
   clusteringAnalysis,
   correlationAnalysis,

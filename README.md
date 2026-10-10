@@ -18,6 +18,10 @@ crosses out of this package. Which symbol belongs on a barrel, which earns a
 subpath, and why the two resolutions (`dist/` outside, `src/` in a test run) are
 one list twice: [`PACKAGING.md`](PACKAGING.md).
 
+Node.js 22 or newer is required. Analyses run on `footprintjs` (`^9.11.0 ||
+^10.0.0`); record readers come from `foottrace` (`^1.0.0`). Both are direct
+dependencies, with no copied readers or re-exported Foottrace names.
+
 ## Data analysis without a dashboard
 
 `profileData` and `profileGroups`, exported from `vizfootprint/data`, calculate

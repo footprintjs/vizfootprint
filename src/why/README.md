@@ -1,6 +1,6 @@
 # why — one join, five questions
 
-`why(target)` answers *"why is this what it is?"* as a **machine-shaped commit set** — flat `{tier, id, kind}` records plus typed per-tier misses, never prose. It is not an algorithm of its own: it joins footprintjs `sliceForKey` (kernel), a caller-harvested native frame log (agent), and the cause-tagged commit log (viz). The agent join uses the anchor record's exact host-runtime `agentCall: { runId, toolCallId }`, never a shared turn label.
+`why(target)` answers *"why is this what it is?"* as a **machine-shaped commit set** — flat `{tier, id, kind}` records plus typed per-tier misses, never prose. It is not an algorithm of its own: it joins foottrace `sliceForKey` over the footprintjs run (kernel), a caller-harvested native frame log (agent), and the cause-tagged commit log (viz). The agent join uses the anchor record's exact host-runtime `agentCall: { runId, toolCallId }`, never a shared turn label.
 
 Exactly one native frame must carry that pair. None means `no-agent-frame`;
 more than one means `ambiguous-join`, listing every candidate and crediting

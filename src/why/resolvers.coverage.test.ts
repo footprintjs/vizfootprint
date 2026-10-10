@@ -110,22 +110,22 @@ describe('resolveKernelTier — key===undefined is a DISTINCT miss reason from a
 
 describe('resolveKernelTier — writerId defensive fallback (`json.writerId ?? \'\'`)', () => {
   afterEach(() => {
-    vi.doUnmock('footprintjs/trace');
+    vi.doUnmock('foottrace');
     vi.resetModules();
   });
 
   it('a resolved slice whose JSON projection omits writerId still resolves, falling back to \'\'', async () => {
-    // The installed footprintjs `sliceToJSON` always sets `writerId` whenever
+    // The installed foottrace `sliceToJSON` always sets `writerId` whenever
     // `slice.root` exists (source: dist/esm/lib/slice/serialize.js) — so this
     // defensive fallback is genuinely unreachable through any real slice. It
     // guards a hypothetical future `SliceJSON` shape (the field is documented
     // "Absent when missing" — i.e. a caller must not assume it always rides
     // along with a non-empty `nodes` set). Reached here by mocking the
-    // `footprintjs/trace` BOUNDARY (not our own code) to strip `writerId`
+    // `foottrace` BOUNDARY (not our own code) to strip `writerId`
     // from an otherwise-real, otherwise-resolved slice.
     vi.resetModules();
-    vi.doMock('footprintjs/trace', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('footprintjs/trace')>();
+    vi.doMock('foottrace', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('foottrace')>();
       return {
         ...actual,
         sliceToJSON: (slice: unknown) => {
