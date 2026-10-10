@@ -86,11 +86,20 @@ const settled = async (container: HTMLElement): Promise<void> => {
   });
 };
 
-/** The reader scrolled a beat past the viewport centre — storydeck's own signal. */
+/**
+ * The reader scrolled a beat past the viewport centre — storydeck's own signal.
+ * Leaving the reading DOM state does not mean the observer's passive effect
+ * has run. Wait for the requested target to be observed before emitting it.
+ */
 const goBeat = async (index: number): Promise<void> => {
-  const io = FakeIO.all[FakeIO.all.length - 1]!;
+  const { io, target } = await waitFor(() => {
+    const io = FakeIO.all[FakeIO.all.length - 1];
+    const target = io?.els[index];
+    if (io === undefined || target === undefined) throw new Error(`Story scroll target ${index} has not been observed yet`);
+    return { io, target };
+  });
   await act(async () => {
-    io.cb([{ isIntersecting: true, target: io.els[index]! }]);
+    io.cb([{ isIntersecting: true, target }]);
   });
 };
 
@@ -144,6 +153,17 @@ describe('StoryPage — three states, and only one of them is a story', () => {
 });
 
 describe('StoryPage — the door on every beat', () => {
+  it('waits for a registered scroll target while the real payload is still booting', async () => {
+    await plant(await published());
+    const { container } = mount();
+    // Gzip boot and the scroll observer's passive effect are separate from
+    // rendering. Requesting the beat here deterministically precedes both.
+    expect(container.querySelector('[data-vzf="story-page-reading"]')).not.toBeNull();
+    expect(FakeIO.all).toHaveLength(0);
+    await goBeat(1);
+    expect(container.querySelector<HTMLButtonElement>('[data-vzf="story-explore"]')?.title).toContain('The middle');
+  });
+
   it('forks a NEW path at the beat the reader is on, and switches to the cockpit', async () => {
     await plant(await published());
     const { container } = mount();

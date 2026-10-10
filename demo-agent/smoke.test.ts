@@ -1,6 +1,6 @@
 /**
  * Playwright smoke for the mixed-principal demo — real headless Chromium (the
- * pinned chrome-headless-shell 1208 the repo's demo also uses), the scripted
+ * matching shell installed by Playwright, or VZF_CHROME), the scripted
  * MOCK provider (no API calls). UX-2: the dashboard is now the FLAGSHIP
  * `<VizCockpit>` (`.vzf`-scoped markup) driven by one `createSessionView` poll
  * store — a single viewport, zero page scroll, report chips opening large
@@ -37,7 +37,7 @@ import {
 } from './src/analyst.js';
 
 const CHROME =
-  '/Users/sanjay/Library/Caches/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-mac-arm64/chrome-headless-shell';
+  process.env['VZF_CHROME']; // unset ⇒ Playwright launches its matching installed headless shell
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHOTS = path.join(__dirname, 'screenshots');
 
@@ -108,7 +108,7 @@ async function revealArchived(page: Page): Promise<void> {
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
 }
 
-describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, mock provider) — the cockpit', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('demo-agent smoke (real headless Chromium, mock provider) — the cockpit', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -118,7 +118,7 @@ describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, 
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -241,7 +241,7 @@ describe.skipIf(!existsSync(CHROME))('demo-agent smoke (real headless Chromium, 
  * Then: naming a bookmark via the ⚑ modal, and present mode (bookmark-only
  * traversal, the shell dims + blocks acting).
  */
-describe.skipIf(!existsSync(CHROME))('UX-2: axis click -> EncodingPicker -> reencode; ⚑ bookmark modal; present mode', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('UX-2: axis click -> EncodingPicker -> reencode; ⚑ bookmark modal; present mode', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -251,7 +251,7 @@ describe.skipIf(!existsSync(CHROME))('UX-2: axis click -> EncodingPicker -> reen
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1150 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -343,7 +343,7 @@ describe.skipIf(!existsSync(CHROME))('UX-2: axis click -> EncodingPicker -> reen
  * the landed row's cause badge is the AGENT principal (amber —
  * `.vzf-badge.vzf-agent`, `--vzf-agent-deep` on `--vzf-agent-tint`).
  */
-describe.skipIf(!existsSync(CHROME))('UX-2: agent-driven reencode via chat (LLM stubbed)', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('UX-2: agent-driven reencode via chat (LLM stubbed)', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -353,7 +353,7 @@ describe.skipIf(!existsSync(CHROME))('UX-2: agent-driven reencode via chat (LLM 
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true, provider: scriptedReencodeMock() });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -423,7 +423,7 @@ describe.skipIf(!existsSync(CHROME))('UX-2: agent-driven reencode via chat (LLM 
   });
 });
 
-describe.skipIf(!existsSync(CHROME))('RP-3: agent PROPOSES a chart via chat (LLM stubbed) — ledgered VL cell + honest reject', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('RP-3: agent PROPOSES a chart via chat (LLM stubbed) — ledgered VL cell + honest reject', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -433,7 +433,7 @@ describe.skipIf(!existsSync(CHROME))('RP-3: agent PROPOSES a chart via chat (LLM
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true, provider: scriptedProposeChartMock() });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -487,14 +487,14 @@ describe.skipIf(!existsSync(CHROME))('RP-3: agent PROPOSES a chart via chat (LLM
   });
 });
 
-describe.skipIf(!existsSync(CHROME))('RP-3: a REJECTED proposal (a host-owned transform) renders nothing and shows in Gaps', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('RP-3: a REJECTED proposal (a host-owned transform) renders nothing and shows in Gaps', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
 
   beforeAll(async () => {
     handle = await startServer({ port: 0, mock: true, provider: scriptedRejectedChartMock() });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
     await page.goto(handle.url);
     await page.waitForSelector('svg.vzf-scatter');
@@ -535,7 +535,7 @@ describe.skipIf(!existsSync(CHROME))('RP-3: a REJECTED proposal (a host-owned tr
  * default, restoring on return-to-now — the arrangement is session state,
  * not page state.
  */
-describe.skipIf(!existsSync(CHROME))('LY-2: cockpit layout — switcher/focus land recorded commits; time-travel restores the arrangement', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('LY-2: cockpit layout — switcher/focus land recorded commits; time-travel restores the arrangement', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -545,7 +545,7 @@ describe.skipIf(!existsSync(CHROME))('LY-2: cockpit layout — switcher/focus la
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -678,7 +678,7 @@ describe.skipIf(!existsSync(CHROME))('LY-2: cockpit layout — switcher/focus la
  * `src/agent/vizAsTools.ts`, no demo-side shim) works end to end in the
  * browser, not just at the unit level.
  */
-describe.skipIf(!existsSync(CHROME))('LY-2: agent-driven layout via chat (LLM stubbed) — "Focus the scatter, then present the story so far."', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('LY-2: agent-driven layout via chat (LLM stubbed) — "Focus the scatter, then present the story so far."', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -688,7 +688,7 @@ describe.skipIf(!existsSync(CHROME))('LY-2: agent-driven layout via chat (LLM st
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true, provider: scriptedLayoutFocusMock() });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -747,7 +747,7 @@ describe.skipIf(!existsSync(CHROME))('LY-2: agent-driven layout via chat (LLM st
  * chips stay reachable inside their own ≤2-row band; the page still never
  * scrolls. Also proven at 390×740 (the popup becomes a full-width sheet).
  */
-describe.skipIf(!existsSync(CHROME))('FIX-POPUP: long transcript — one internal scroll region, nothing overlaps', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('FIX-POPUP: long transcript — one internal scroll region, nothing overlaps', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -800,7 +800,7 @@ describe.skipIf(!existsSync(CHROME))('FIX-POPUP: long transcript — one interna
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -877,7 +877,7 @@ describe.skipIf(!existsSync(CHROME))('FIX-POPUP: long transcript — one interna
  *     (inside the FDR ledger chip's modal);
  *   - ZERO console errors. Screenshots the visible fork.
  */
-describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, mock provider)', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('time-travel bar (real headless Chromium, mock provider)', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -887,7 +887,7 @@ describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, m
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1150 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -1001,7 +1001,7 @@ describe.skipIf(!existsSync(CHROME))('time-travel bar (real headless Chromium, m
  * bookmark modal's own arrow-key text-cursor movement.
  * ZERO console errors. Screenshots the bar.
  */
-describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyboard', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyboard', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -1011,7 +1011,7 @@ describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyb
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1150 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -1106,7 +1106,7 @@ describe.skipIf(!existsSync(CHROME))('step navigation — ⟵/⟶ buttons + keyb
  * still ZERO page/shell scroll, the same cockpit invariant as desktop. The
  * time strip stays pinned top and the chip strip pinned bottom.
  */
-describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart carousel, still zero page scroll', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('mobile viewport — scroll-snap chart carousel, still zero page scroll', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -1116,7 +1116,7 @@ describe.skipIf(!existsSync(CHROME))('mobile viewport — scroll-snap chart caro
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 390, height: 740 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -1281,7 +1281,7 @@ function parseSelectedCount(text: string | null): number {
  *     row lands a point-selection commit.
  * ZERO console errors throughout. Screenshots each interaction.
  */
-describe.skipIf(!existsSync(CHROME))('the new charts — line date-brush, map region click, table sort + row-select', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('the new charts — line date-brush, map region click, table sort + row-select', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -1291,7 +1291,7 @@ describe.skipIf(!existsSync(CHROME))('the new charts — line date-brush, map re
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1400, height: 1150 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -1391,7 +1391,7 @@ describe.skipIf(!existsSync(CHROME))('the new charts — line date-brush, map re
  * current" opens a real (settled, non-stuck) structured diff. ZERO page/shell
  * scroll and ZERO console errors preserved throughout.
  */
-describe.skipIf(!existsSync(CHROME))('BR-3: named branching — fork toast + pill, PathsModal switch, bring-over provenance tag, compare diff', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('BR-3: named branching — fork toast + pill, PathsModal switch, bring-over provenance tag, compare diff', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -1401,7 +1401,7 @@ describe.skipIf(!existsSync(CHROME))('BR-3: named branching — fork toast + pil
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1150 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());
@@ -1521,7 +1521,7 @@ describe.skipIf(!existsSync(CHROME))('BR-3: named branching — fork toast + pil
  *       verbatim), confirming rewinds the path, and the dropped future turns up
  *       in the archived list, restorable — a full round trip.
  */
-describe.skipIf(!existsSync(CHROME))('TL-1: the trail lifecycle — the agent archives dead ends, the human discards a future', () => {
+describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('TL-1: the trail lifecycle — the agent archives dead ends, the human discards a future', () => {
   let handle: Awaited<ReturnType<typeof startServer>>;
   let browser: Browser;
   let page: Page;
@@ -1538,7 +1538,7 @@ describe.skipIf(!existsSync(CHROME))('TL-1: the trail lifecycle — the agent ar
   beforeAll(async () => {
     mkdirSync(SHOTS, { recursive: true });
     handle = await startServer({ port: 0, mock: true, provider: scriptedCleanupMock() });
-    browser = await chromium.launch({ executablePath: CHROME, headless: true });
+    browser = await chromium.launch({ ...(CHROME !== undefined ? { executablePath: CHROME } : {}), headless: true });
     page = await browser.newPage({ viewport: { width: 1320, height: 1000 } });
     page.on('console', (m) => {
       if (m.type() === 'error') consoleErrors.push(m.text());

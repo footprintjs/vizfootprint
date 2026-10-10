@@ -1,0 +1,67 @@
+name: Viz checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: viz-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    defaults:
+      run:
+        working-directory: vizfootprint
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: vizfootprint
+          persist-credentials: false
+      # Preserve the authored sibling file links and test a reproducible source
+      # revision, not a moving branch or a different published package name.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: footprintjs/storydeck
+          ref: 5a424b6c61bfb8e07c5c8e7c203ae417e2e05607
+          path: storydeck
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      # Match the family's strict resolver; npm 10 can fail on Vitest 4's
+      # optional peer graph before any test runs.
+      - run: npm install --global npm@11.19.0
+      - name: Install the linked Storydeck runtime dependencies
+        run: npm ci
+        working-directory: storydeck
+      - run: npm ci
+      - name: Install the matching real-browser test runtime
+        run: npx --no-install playwright-core install --with-deps chromium-headless-shell
+      - name: Verify the installed record and engine graph
+        run: npm ls agentfootprint footprintjs foottrace --all
+      - name: Keep every workspace private
+        run: |
+          node --input-type=module -e "import {readFileSync} from 'node:fs'; for (const file of ['package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json']) { if (JSON.parse(readFileSync(file, 'utf8')).private !== true) throw new Error(file + ' must stay private'); }"
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run build:ui
+      - run: npm run typecheck:ui
+      - run: npm run typecheck:vega-lite
+      - run: npm run typecheck:demo
+      - run: npm run typecheck:demo-agent
+      - run: npm run check:profile-package
+      - name: Run all tests with the existing 100% coverage thresholds
+        run: npm run test:coverage

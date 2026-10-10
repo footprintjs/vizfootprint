@@ -5,6 +5,9 @@
   "description": "Causal/agent provenance layer for coordinated interactive visualization \u2014 cause-tagged clauses on a selection port (built-in, or Mosaic behind an optional adapter), append-only branching provenance, declared analyses with online FDR. Part of the footprintjs family.",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "types": "./dist/agent/index.d.ts",
   "module": "./dist/agent/index.js",
   "main": "./dist/agent/index.js",
@@ -138,7 +141,8 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "footprintjs": "^9.11.0"
+    "footprintjs": "^9.11.0 || ^10.0.0",
+    "foottrace": "^1.0.0"
   },
   "peerDependencies": {
     "@duckdb/duckdb-wasm": ">=1.29.0 || >=1.33.1-dev",

@@ -13,7 +13,7 @@
  *              native `(runId, toolCallId)` identity. The resolver
  *              consumes a typed RECORD SHAPE ({@link AgentEventFrame}), never
  *              the agentfootprint package — af stays a devDep;
- *   - kernel : footprintjs `sliceForKey` over the analysis flowchart's commit
+ *   - kernel : foottrace `sliceForKey` over the analysis flowchart's commit
  *              log — the R9 minimal dependency chain for the anchor key.
  *
  * Generalised off the spike's hard-coded `'rowCount'` (adjudication C2): a
