@@ -131,7 +131,7 @@
     "@uwdata/mosaic-spec": "^0.28.1",
     "@uwdata/mosaic-sql": "^0.28.1",
     "@vitest/coverage-v8": "^4.1.10",
-    "agentfootprint": "^9.82.0",
+    "agentfootprint": "^10.1.0",
     "agentthinkingui": "^0.23.0",
     "esbuild": "^0.28.1",
     "playwright-core": "^1.58.2",
