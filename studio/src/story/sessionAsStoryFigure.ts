@@ -1,8 +1,8 @@
 /**
- * A LIVE SESSION AS A STORY FIGURE — the stage's clock, with no framework and
- * no StoryDeck in it.
+ * A LIVE SESSION AS A STORY FIGURE — the stage's clock, with no framework in
+ * it, and nothing of StoryDeck's but the contract's two types.
  *
- * The scroll lens drives a `StoryFigure` (`./storyFigure.ts`): it mounts it,
+ * The scroll lens drives a `StoryFigure` (StoryDeck's contract): it mounts it,
  * asks it to seek on every beat, and prints the sentence a seek answers with.
  * This turns a session into one. `mount` hands the element to the host's
  * `charts` (the app draws its real charts there, once); `seek` moves the
@@ -36,7 +36,7 @@
 import type { DescribeOutcome } from 'vizfootprint-ui';
 import { landRef, refName, refusalOf, replayPath, sectionIndexOf } from 'vizfootprint-ui/story';
 import type { StoryPost, StoryRef, StoryRefAt } from 'vizfootprint-ui/story';
-import type { StoryFigure, StoryFigureBeat } from './storyFigure.js';
+import type { StoryFigure, StoryFigureBeat } from 'storydeck';
 
 /**
  * The session a story is told over — narrowed to what the figure uses, which is

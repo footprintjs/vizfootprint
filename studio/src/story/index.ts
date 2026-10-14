@@ -15,4 +15,3 @@ export { StoryPage } from './StoryPage.js';
 export type { StoryPageProps, StoryLens, StoryLensName } from './StoryPage.js';
 export { sessionAsStoryFigure, SEEK_UNREACHED } from './sessionAsStoryFigure.js';
 export type { SessionStoryFigure, StoryCharts, StoryFigureNow, StoryStageSession, StoryTelling } from './sessionAsStoryFigure.js';
-export type { StoryFigure, StoryFigureBeat } from './storyFigure.js';

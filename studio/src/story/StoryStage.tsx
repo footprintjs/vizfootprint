@@ -9,7 +9,7 @@
  *
  * It is the JOIN, and the only place the two meet. StoryDeck (the scroll lens)
  * and vizfootprint (the session) never import each other: they meet through
- * StoryDeck's framework-neutral `StoryFigure` (`./storyFigure.ts`). The session
+ * StoryDeck's framework-neutral `StoryFigure`. The session
  * side is `sessionAsStoryFigure` (`./sessionAsStoryFigure.ts`) — the stage's
  * clock, its laws written there: `seek` is the only door, the session judges
  * and the figure carries the answer, only the latest move speaks. This file
@@ -36,8 +36,7 @@ import { firstBeatIndexes, refName, sectionIndexOf, storyDroppedNote } from 'viz
 import type { StoryBookmark, StoryPost, StoryRef, StoryRefAt, StorySection } from 'vizfootprint-ui/story';
 import { sessionAsStoryFigure } from './sessionAsStoryFigure.js';
 import type { StoryStageSession } from './sessionAsStoryFigure.js';
-import { asScrollyFigure } from './scrollyFigure.js';
-import type { StoryFigureBeat } from './storyFigure.js';
+import type { StoryFigureBeat } from 'storydeck';
 
 /** Enter and Space are the only keys that ACT; Tab, the arrows and Escape must keep working or the stage is a keyboard trap. */
 const ACTIVATION_KEYS = new Set([' ', 'Enter']);
@@ -126,8 +125,7 @@ export function StoryStage({ post, session, children, dwellMs = DEFAULT_DWELL_MS
   );
 
   // every section carries the SAME figure, so the lens mounts it once for the whole scroll
-  const live = useMemo(() => asScrollyFigure(figure), [figure]);
-  const sections: Section[] = useMemo(() => assembled.sections.map((section) => ({ ...section, figure: live })), [assembled, live]);
+  const sections: Section[] = useMemo(() => assembled.sections.map((section) => ({ ...section, figure })), [assembled, figure]);
 
   if (sections.length === 0) {
     return (

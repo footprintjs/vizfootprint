@@ -36,7 +36,6 @@ interface StoryFigure {
 | `sessionAsStoryFigure.ts` | a session as a `StoryFigure` — the stage's clock (replay, jump, citation moves). No React, no StoryDeck |
 | `StoryStage.tsx` | the join: StoryDeck's lens + that figure + the charts and the strip, drawn once into the figure's element (a portal, so they keep the host's context) |
 | `StoryPage.tsx` | the one-file page: the stage and the cockpit over one session, with a door between |
-| `storyFigure.ts` · `scrollyFigure.tsx` | the contract and StoryDeck's thin host for it, for as long as the installed StoryDeck (0.5.0) predates `StoryFigure`; delete both when it does not |
 
 ```ts
 const figure = sessionAsStoryFigure(view, (el) => drawCharts(el), { post, firstBeats, dwellMs: 420 });
