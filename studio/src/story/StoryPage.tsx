@@ -39,12 +39,11 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useSessionView } from '../../adapter/useSessionView.js';
-import type { StoryOptions, StoryBookmark } from '../toStory.js';
-import { StoryStage } from '../stage/StoryStage.js';
-import { bootStory, type PageLens, type StoryBoot, type StoryFront, type StoryPageOpen } from './boot.js';
-import { frontMatterLine } from './front.js';
-import { readStoryPayload } from './payload.js';
+import { useSessionView } from 'vizfootprint-ui';
+import type { StoryOptions, StoryBookmark } from 'vizfootprint-ui/story';
+import { bootStory, frontMatterLine, type PageLens, type StoryBoot, type StoryFront, type StoryPageOpen } from 'vizfootprint-ui/story/page';
+import { readStoryPayload } from 'vizfootprint-ui/story/payload';
+import { StoryStage } from './StoryStage.js';
 
 /** Which lens the reader is looking through. */
 export type StoryLensName = 'story' | 'explore';

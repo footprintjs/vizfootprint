@@ -12,7 +12,7 @@
  * Nothing here reaches a session, a DOM node or a clock. Given a post, the
  * answers are the same every time.
  */
-import type { StoryBookmark, StoryPost, StoryRef, StoryRefAt } from '../toStory.js';
+import type { StoryBookmark, StoryPost, StoryRef, StoryRefAt } from './toStory.js';
 
 /** Which section of the post carries this key, or -1 — the join `toStory` guarantees is unique on the spine. */
 export function sectionIndexOf(post: StoryPost, sectionKey: string): number {

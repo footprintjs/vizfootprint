@@ -97,10 +97,11 @@ Two things follow that are easy to miss:
 | `vizfootprint-studio/desk` | `Desk`, `DeskFigure`, the contract types, the tokens |
 | `vizfootprint-studio/make` | `Make`, the wizard — and the pure step logic under it |
 | `vizfootprint-studio/cards` | `DemoGallery`, `DemoCard` — what a demo covers, read off the demo |
+| `vizfootprint-studio/story` | `StoryStage`, `StoryPage`, `sessionAsStoryFigure` — a story over a live session in StoryDeck's scroll lens (`src/story/README.md`) |
 | `vizfootprint-studio/package.json` | the convention |
 
 **There is no `.` root export, on purpose.** A root would have to be one of the
-three programs wearing the package's name, or a barrel that carries all of them —
+programs wearing the package's name, or a barrel that carries all of them —
 and each has a different dependency footprint. Three names, each saying what it
 is.
 
@@ -109,7 +110,8 @@ already written; `make` helps a person write one; `cards` says what one covers,
 for a gallery that lists several. A host that only mounts a desk should not
 bundle an authoring flow, and a host that only lists demos should not have to
 know what a `DeskProjection` is — so they are three entries, three bundles,
-three names.
+three names. `story` is the fourth for the same reason: it is the one door that
+carries StoryDeck, and a host that never tells a story never loads it.
 
 ## What the desk owns, and what it asks you for
 
@@ -209,7 +211,11 @@ No UMD bundle, and no stylesheet — both are decisions rather than omissions, a
 both are argued at the top of `build.mjs`.
 
 `storydeck` is an **optional peer** and reaches this package only through
-`vizfootprint-ui/story/stage`, which the Story tab mounts. A host that passes
+`src/story/` (`vizfootprint-studio/story`), which the Story tab mounts. It is the
+one place StoryDeck and vizfootprint meet: `vizfootprint-ui` imports no StoryDeck
+(a test fails if it does), StoryDeck imports no vizfootprint, and they meet through
+StoryDeck's framework-neutral `StoryFigure` — `sessionAsStoryFigure` is the
+session's side of it (`src/story/README.md`). A host that passes
 `story` needs it installed; a host that does not, does not use the tab — but the
 import is static, so today it must still resolve at build time. That is the one
 place this package asks for more than it uses, and it is written down here rather

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 // The doors resolve to SOURCE in a test run and to dist everywhere else —
 // vitest.alias.mjs says why, and is the one list all three configs share.
 import { vizfootprintAliases } from './vitest.alias.mjs';
@@ -19,15 +19,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const own = (...globs: readonly string[]): string[] => globs.map((g) => path.join(HERE, g));
 
 export default defineConfig({
-  // `dedupe`: this run globs the ui suite too, and the story stage renders storydeck — a LINKED
-  // package that keeps its own React for its own tests. One copy of React or the hooks break; see
-  // the same line in ui/vitest.config.ts.
+  // `dedupe`: this run globs the ui suite too; React is a peer, and one copy is the contract.
   resolve: { alias: vizfootprintAliases, dedupe: ['react', 'react-dom'] },
   test: {
-    // storydeck ships its React components as SOURCE (.jsx, extensionless imports) for the
-    // consumer's bundler to compile. Node cannot load that, so a test run must transform it
-    // like our own source instead of externalising it from node_modules.
-    server: { deps: { inline: ['storydeck'] } },
+    // `studio/` is the APP layer and runs under its own config (`npm run test:studio`): it resolves
+    // `vizfootprint-ui` to the built package, joins StoryDeck to the session, and keeps its own gate.
+    exclude: [...configDefaults.exclude, 'studio/**'],
     // Q11 (docs/RESEARCH_STATE.md): the 10k-seeded-sim FDR tests
     // (spikes/x2-fdr/a2-batch-bh-wrong.test.ts) sit close enough to the 5s
     // vitest default under load to be the repo's one reproducible flake risk.

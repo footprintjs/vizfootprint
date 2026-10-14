@@ -6,6 +6,8 @@
  *                      that only mounts a desk should not bundle an authoring flow
  *   dist/cards.js      the demo card and its filter — a gallery's program, and
  *                      neither a desk nor an authoring flow
+ *   dist/story.js      a story over a live session in StoryDeck's scroll lens —
+ *                      the one place StoryDeck and vizfootprint meet
  *   types/**.d.ts      declarations, flat and OURS ONLY (tsc -p tsconfig.build.json)
  * Run:  npm run build
  *
@@ -32,13 +34,13 @@ mkdirSync('dist', { recursive: true });
 // counter, meeting in one page, is the failure that rule exists to prevent).
 const LIBRARY = ['vizfootprint', 'vizfootprint/*', 'vizfootprint-ui', 'vizfootprint-ui/*'];
 const REACT = ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'];
-// storydeck is an OPTIONAL peer and reaches us only through
-// `vizfootprint-ui/story/stage`; external here for the same reason as the rest.
+// storydeck is an OPTIONAL peer and reaches us only through `src/story/` (the
+// Story tab and the story page); external here for the same reason as the rest.
 const OPTIONAL = ['storydeck'];
 
 const base = { bundle: true, jsx: 'automatic', jsxDev: false, minify: true, sourcemap: true, logLevel: 'info' };
 
-for (const door of ['desk', 'make', 'cards']) {
+for (const door of ['desk', 'make', 'cards', 'story']) {
   await esbuild.build({
     ...base,
     entryPoints: [`src/${door}/index.ts`],

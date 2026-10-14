@@ -9,12 +9,12 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
-import { mapPollState } from '../../adapter/sessionView.js';
-import type { RawPollState } from '../../adapter/sessionView.js';
-import type { SessionViewState } from '../../adapter/types.js';
-import { toStory } from '../toStory.js';
-import type { StoryPost } from '../toStory.js';
+import { mapPollState } from 'vizfootprint-ui';
+import type { RawPollState, SessionViewState } from 'vizfootprint-ui';
+import { toStory } from 'vizfootprint-ui/story';
+import type { StoryPost } from 'vizfootprint-ui/story';
 import { StoryStage } from './StoryStage.js';
+import { sessionAsStoryFigure } from './sessionAsStoryFigure.js';
 
 const rec = (id: string, parent: string | null, viewId: string, field: string, value: unknown, intent?: string): RawPollState['records'][number] =>
   ({ id, parent, viewId, kind: 'point', field, value, cause: { requestedBy: 'user', ...(intent !== undefined ? { intent } : {}) } }) as RawPollState['records'][number];
@@ -246,6 +246,59 @@ describe('StoryStage — the session judges, the stage carries the answer', () =
     expect(screen.getByText('the seek did not reach the session')).toBeTruthy();
   });
 
+  it('says so when the session throws instead of answering', async () => {
+    const session = {
+      getState: () => ({ commits: [{ id: '2' }] }),
+      seek: vi.fn(() => {
+        throw new Error('offline');
+      }),
+    };
+    render(
+      <StoryStage post={postOf()} session={session}>
+        {charts}
+      </StoryStage>,
+    );
+    await settle();
+    expect(screen.getByText('the seek did not reach the session')).toBeTruthy();
+  });
+
+  it('moves the same figure when the host hands over a new session object — no remount, the newest session is asked', async () => {
+    const first = fakeSession();
+    const second = fakeSession();
+    const { rerender, container } = render(
+      <StoryStage post={postOf()} session={first} dwellMs={0}>
+        {charts}
+      </StoryStage>,
+    );
+    await settle();
+    const drawn = container.querySelector('[data-testid="charts"]');
+    rerender(
+      <StoryStage post={postOf()} session={second} dwellMs={0}>
+        {charts}
+      </StoryStage>,
+    );
+    await goBeat(2);
+    expect(container.querySelector('[data-testid="charts"]')).toBe(drawn); // the charts were never remounted
+    expect(first.seek.mock.calls.flat()).toEqual(['2']);
+    expect(second.seek.mock.calls.flat()).toEqual(['8']);
+  });
+
+  it('settles a move whose session never answers once a newer move begins — nobody waits forever', async () => {
+    const session = {
+      getState: () => ({ commits: stateOf().commits.map((c) => ({ id: c.id })) }),
+      seek: vi.fn((commitId: string) => (commitId === '2' ? new Promise<never>(() => undefined) : { ok: true as const })),
+    };
+    const post = postOf();
+    const figure = sessionAsStoryFigure(session, () => () => undefined, { post, firstBeats: [0, 1, 2], dwellMs: 0 });
+    const beat = (index: number) => ({ key: `${post.sections[index]!.key}-0`, index, sectionKey: post.sections[index]!.key, step: 0 });
+    const hung = figure.seek(beat(0)); // the session never answers this one
+    await expect(figure.seek(beat(1))).resolves.toBeUndefined(); // the newer move lands
+    await expect(hung).resolves.toBeUndefined(); // and the hung one was settled with nothing
+    const lastHung = figure.seek(beat(0));
+    figure.dispose();
+    await expect(lastHung).resolves.toBeUndefined(); // dispose settles it too
+  });
+
   it('never lets an older move\'s answer write over a newer one', async () => {
     const pending: { resolve: (o: unknown) => void; reject: (e: unknown) => void }[] = [];
     const session = {
@@ -323,6 +376,32 @@ describe('StoryStage — the citation strip', () => {
     await act(async () => fireEvent.click(container.querySelectorAll('.vzf-story-anchor')[0]!));
     expect(session.seek.mock.calls.flat()).toEqual(['4']);
     expect(screen.getByText('no commit "4" to seek to')).toBeTruthy();
+  });
+
+  it('a newer beat takes a citation\'s refusal off the strip — only the latest move speaks', async () => {
+    const { container } = await atSecondBeat(postOf(), ['4']);
+    await act(async () => fireEvent.click(container.querySelectorAll('.vzf-story-anchor')[0]!));
+    expect(screen.getByText('no commit "4" to seek to')).toBeTruthy();
+    await goBeat(2);
+    expect(screen.queryByText('no commit "4" to seek to')).toBeNull();
+  });
+
+  it('a citation cut short by a newer move says nothing at all', async () => {
+    const pending: ((outcome: unknown) => void)[] = [];
+    const session = {
+      getState: () => ({ commits: stateOf().commits.map((c) => ({ id: c.id })) }),
+      seek: vi.fn(() => new Promise<unknown>((resolve) => pending.push(resolve))),
+    };
+    const { container } = render(
+      <StoryStage post={postOf()} session={session as never} dwellMs={0}>
+        {charts}
+      </StoryStage>,
+    );
+    await goBeat(1);
+    await act(async () => fireEvent.click(container.querySelectorAll('.vzf-story-anchor')[0]!)); // the citation's seek, in flight
+    await goBeat(2); // a newer move
+    await act(async () => pending[2]!({ ok: false, sentence: 'stale citation' }));
+    expect(screen.queryByText('stale citation')).toBeNull();
   });
 
   it('refuses a citation that points at a section this post does not carry', async () => {
@@ -444,7 +523,8 @@ describe('StoryStage — the door on a beat', () => {
     expect(screen.getAllByTestId('door')).toHaveLength(1); // the first beat has its bookmark
     await goBeat(1);
     expect(screen.queryByTestId('door')).toBeNull();
-    expect(container.querySelector('.vzf-story-refusal')?.textContent).toContain('the story does not tell');
+    // a beat's answer is the lens's to print, under the figure (StoryDeck's `StoryFigure` seam)
+    expect(container.querySelector('.scrolly-figure-said')?.textContent).toContain('the story does not tell');
   });
 
   it('shows no strip at all when there is nothing to say and no door to offer', async () => {

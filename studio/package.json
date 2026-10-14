@@ -21,6 +21,11 @@
       "import": "./dist/cards.js",
       "default": "./dist/cards.js"
     },
+    "./story": {
+      "types": "./types/story/index.d.ts",
+      "import": "./dist/story.js",
+      "default": "./dist/story.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -4,8 +4,9 @@
  * This module is the door `vizfootprint-ui/story/payload`, and it is its own
  * door for one reason: a BUILD writes what a PAGE reads, so both need this
  * code, and only one of them can load a renderer. `vizfootprint-ui/story/page`
- * pulls React and storydeck; a Vite config runs in plain Node, where storydeck's
- * bundler-only ESM does not even resolve. Splitting the codec off is the same
+ * pulls React (and the story page built on it, `vizfootprint-studio/story`, a
+ * scroll lens); a Vite config runs in plain Node and must load neither.
+ * Splitting the codec off is the same
  * rule the library states for its node carrier: a subpath is for a symbol whose
  * presence on the barrel would change what the barrel costs to load.
  *

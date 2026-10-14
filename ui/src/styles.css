@@ -2791,7 +2791,7 @@
 :where(.vzf) .vzf-workbook-panel { flex: 1; min-height: 0; overflow: auto; }
 :where(.vzf) .vzf-workbook-panel:focus-visible { outline: none; box-shadow: inset var(--vzf-focus); }
 
-/* ── the STORY STAGE: the scroll lens over a live session ──
+/* ── the STORY STAGE: the scroll lens over a live session (the stage itself is the app's, studio/src/story) ──
    storydeck owns the scroll mechanics (`.scrolly*`, from `storydeck/storydeck.css`) and reads a
    CSS-variable token contract rather than hard-coding colours, so the bridge below is the whole
    theming job: OUR tokens, under THEIR names, scoped to the stage. Nothing leaks either way. */
@@ -2834,7 +2834,7 @@
    The front matter is the page's own honesty strip (where its data came from, what it cost, how
    many acts replayed) and the lens toggle; the door under each figure is the way out of the story
    into a path of the reader's own. Nothing here dims or disables — the read-only guarantee is in
-   the code (`story/stage/README.md`), and a stylesheet that implied it would be the wrong place. */
+   the code (`studio/src/story/README.md`), and a stylesheet that implied it would be the wrong place. */
 :where(.vzf) .vzf-story-page { display: flex; flex-direction: column; min-height: 100%; color: var(--vzf-ink); background: var(--vzf-paper); }
 :where(.vzf) .vzf-story-page-status,
 :where(.vzf) .vzf-story-page-refusal { margin: 0; padding: var(--vzf-space-4); font-size: 13.5px; line-height: 1.5; }

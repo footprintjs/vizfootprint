@@ -15,10 +15,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup, act } from '@testing-library/react';
 import { buildDashboard } from 'vizfootprint/def';
-import { makeDashboardDef, SAMPLE_ROWS } from '../../../../src/session/dashboard.fixture.js';
-import { createSessionView, sessionSource } from '../../adapter/sessionView.js';
-import { VizScatter } from '../../charts/VizScatter.js';
-import { toStory } from '../toStory.js';
+import { makeDashboardDef, SAMPLE_ROWS } from '../../../src/session/dashboard.fixture.js';
+import { createSessionView, sessionSource, VizScatter } from 'vizfootprint-ui';
+import { toStory } from 'vizfootprint-ui/story';
 import { StoryStage } from './StoryStage.js';
 
 const cause = { requestedBy: 'user', computedBy: 'user' } as const;

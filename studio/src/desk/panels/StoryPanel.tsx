@@ -14,7 +14,7 @@
 import { useMemo, type ReactNode } from 'react';
 import type { SessionViewState } from 'vizfootprint-ui';
 import { toStory, type StoryPost } from 'vizfootprint-ui/story';
-import { StoryStage } from 'vizfootprint-ui/story/stage';
+import { StoryStage } from '../../story/StoryStage.js';
 import { FigureGrid, pickFigureCells } from '../figure.js';
 import type { DeskChart, DeskStory } from '../types.js';
 

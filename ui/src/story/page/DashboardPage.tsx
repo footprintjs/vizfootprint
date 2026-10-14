@@ -1,7 +1,8 @@
 /**
  * THE DASHBOARD PAGE — one HTML file, one lens, and a desk inside it.
  *
- * This is {@link StoryPage}'s sibling and deliberately its smaller half. Both
+ * This is `StoryPage`'s sibling (the app's, `vizfootprint-studio/story`) and
+ * deliberately its smaller half. Both
  * open the same way — the payload block, the host's `open`, then the ONE boot
  * sequence in `boot.ts` (pictures, log, bookmarks) — and both have the same
  * three honest states. They differ in exactly two things:
