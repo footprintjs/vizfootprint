@@ -1,7 +1,8 @@
 # story/page — the whole desk, its story and its data, as ONE file
 
-`toStory` writes a post. [`stage/`](../stage/README.md) mounts that post over a live session inside a
-running cockpit. This is the third thing: a host runs a build and gets **one HTML file** a person can
+`toStory` writes a post. The stage (`vizfootprint-studio/story` · `StoryStage`, the app's — this
+library imports no StoryDeck) mounts that post over a live session inside a running cockpit. This is
+the third thing: a host runs a build and gets **one HTML file** a person can
 send or drop on a static host. It opens from `file://` with no server, and it carries the definition,
 the serialized log, the bookmarks, the saved pictures, the story, the engine, the charts, storydeck's
 scroll lens and the data.
@@ -12,7 +13,7 @@ the reader's own acts land on their own branch and never on the author's.
 
 ```tsx
 // the host's page entry — file one of the recipe
-import { StoryPage } from 'vizfootprint-ui/story/page';
+import { StoryPage } from 'vizfootprint-studio/story';   // the story-shaped page is the app's; this door is its boot + payload
 
 <StoryPage
   open={(payload) => buildDashboard(myDef(tablesFrom(payload.data))).createSession()}
@@ -70,7 +71,7 @@ beat the story does not tell, and a reader is owed the reason.
 
 ## Two lenses, one session, and the door between them
 
-The story lens is the [stage](../stage/README.md): the reader scrolls, the session seeks, the charts
+The story lens is the stage (`studio/src/story/README.md`): the reader scrolls, the session seeks, the charts
 move, and every gesture on those charts is swallowed in the capture phase. The explore lens is the
 host's cockpit over the *same* session, where gestures land.
 
@@ -150,12 +151,12 @@ anything to say about.
 
 | door | what it is | who loads it |
 |---|---|---|
-| `vizfootprint-ui/story/page` | `StoryPage`, `DashboardPage`, `bootStory` / `bootSession`, and the ports they drive | the browser |
+| `vizfootprint-ui/story/page` | `DashboardPage`, `bootStory` / `bootSession`, and the ports they drive (`StoryPage`, built on them, is `vizfootprint-studio/story`'s) | the browser |
 | `vizfootprint-ui/story/payload` | the codec: `encodeStoryPayload` / `decodeStoryPayload` / `storyPayloadScript` / `readStoryPayload` | the BUILD, in plain Node — and the page |
 
 The build writes what the page reads, so both need the codec and only one of them can load a
-renderer. `story/page` pulls React and storydeck; a Vite config runs in plain Node, where storydeck's
-bundler-only ESM does not even resolve. So the codec is split off — the same rule the library states
+renderer. `story/page` pulls React (and the story page built on it, a scroll lens); a Vite config runs
+in plain Node and must load neither. So the codec is split off — the same rule the library states
 for its node carrier (`PACKAGING.md`, law 3): *a subpath is for a symbol whose presence on the barrel
 would change what the barrel costs to load.* One module, two doors onto it, split by which runtime is
 asking; nothing is duplicated, so the id the build writes and the id the page looks for cannot drift.
@@ -171,7 +172,7 @@ on Vite** — the recipe is documentation, and the demo is its test.
 ```tsx
 import { createRoot } from 'react-dom/client';
 import { buildDashboard } from 'vizfootprint/agent';
-import { StoryPage } from 'vizfootprint-ui/story/page';
+import { StoryPage } from 'vizfootprint-studio/story';
 import 'vizfootprint-ui/styles.css';
 import 'storydeck/storydeck.css';
 import { myDef, DECLARED } from '../../src/def.js';

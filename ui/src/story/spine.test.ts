@@ -4,7 +4,7 @@
  * the reader scrolls through.
  */
 import { describe, expect, it } from 'vitest';
-import type { StoryBookmark, StoryPost } from '../toStory.js';
+import type { StoryBookmark, StoryPost } from './toStory.js';
 import { firstBeatIndexes, landRef, refName, refusalOf, replayPath, sectionIndexOf } from './spine.js';
 
 const step = (commitId: string) => ({ commitId, sentence: `act ${commitId}`, actor: 'user' as const, viewId: 'bar' });

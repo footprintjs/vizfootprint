@@ -1,11 +1,11 @@
-# story/stage — the figures are live because they are replayed
+# story — the figures are live because they are replayed
 
-`toStory` tells one lineage of a session as a storydeck post, and its figures are HTML strings: a
+`toStory` tells one lineage of a session as a StoryDeck post, and its figures are HTML strings: a
 picture of what the dashboard showed. This mounts the dashboard itself in their place. One session,
 the host's real charts bound to it, and the reader's scroll moving the session from beat to beat.
 
 ```tsx
-import { StoryStage } from 'vizfootprint-ui/story/stage';
+import { StoryStage } from 'vizfootprint-studio/story';
 import { toStory } from 'vizfootprint-ui/story';
 import 'storydeck/storydeck.css';
 
@@ -15,6 +15,37 @@ const post = toStory(state, { declared, author: 'the desk', date: today });
   <MyDashboard />        {/* the same charts, bound to the same session */}
 </StoryStage>
 ```
+
+## Where StoryDeck and vizfootprint meet — here, and only here
+
+The component library (`vizfootprint-ui`) imports nothing from StoryDeck, and StoryDeck imports
+nothing from vizfootprint (`ui/src/storydeckBoundary.test.ts` fails the build if the first ever
+changes). They meet in this folder, through StoryDeck's framework-neutral **`StoryFigure`**:
+
+```ts
+interface StoryFigure {
+  mount(el: HTMLElement): void;                         // draw into this element
+  seek(beat: StoryFigureBeat): Promise<string | void>;  // move there; a string is a refusal sentence
+  dispose(): void;
+}
+// StoryFigureBeat = { key, index, sectionKey, step }
+```
+
+| file | its one job |
+|---|---|
+| `sessionAsStoryFigure.ts` | a session as a `StoryFigure` — the stage's clock (replay, jump, citation moves). No React, no StoryDeck |
+| `StoryStage.tsx` | the join: StoryDeck's lens + that figure + the charts and the strip, drawn once into the figure's element (a portal, so they keep the host's context) |
+| `StoryPage.tsx` | the one-file page: the stage and the cockpit over one session, with a door between |
+| `storyFigure.ts` · `scrollyFigure.tsx` | the contract and StoryDeck's thin host for it, for as long as the installed StoryDeck (0.5.0) predates `StoryFigure`; delete both when it does not |
+
+```ts
+const figure = sessionAsStoryFigure(view, (el) => drawCharts(el), { post, firstBeats, dwellMs: 420 });
+await figure.seek({ key: 'bookmark-2-the-spike-0', index: 1, sectionKey: 'bookmark-2-the-spike', step: 0 });
+// → undefined when the session moved; 'no commit "17" to seek to' when it refused, and nothing moved
+```
+
+A BEAT's answer is the lens's to print (the seek resolves to it). A citation clicked inside the
+figure is the figure's own move, so its answer is drawn in the figure's strip (`now().said`).
 
 ## Why a transition needs no animation
 
@@ -39,8 +70,8 @@ The stage does not check that beforehand, and the difference matters. `seek` jud
 and moves nothing when it refuses (`src/session/README.md`, law 1); the adapter carries that answer
 out (`SessionView.seek` returns the shared `{ ok } | { ok, sentence }` shape over both sources). A
 check performed *here* would be a second implementation of a rule the library already owns, and the
-two would drift — which is exactly the scar `../../adapter/README.md`'s law 3 was written on. So
-the only judgement in this module is the one the session made, printed as it was said.
+two would drift — which is exactly the scar `ui/src/adapter/README.md`'s law 3 was written on. So
+the only judgement here is the one the session made, printed as it was said.
 
 Two sentences are still the stage's own, and both are facts about the **post** rather than the
 session: a beat naming a section this story does not tell, and a citation landing in a part of the
@@ -123,7 +154,8 @@ already settled it).
 ## The door on a beat
 
 `beatDoor` is the host's own way OUT of the story at the beat the reader is standing on — the
-single-file page ([`../page/README.md`](../page/README.md)) draws **explore from here** with it, and
+single-file page (`StoryPage`; its payload and boot are `vizfootprint-ui/story/page`'s, see
+`ui/src/story/page/README.md`) draws **explore from here** with it, and
 forks a path of the reader's own at that moment.
 
 It sits in the strip, beside the citations, and **outside the read-only guard**. The two are not in
@@ -138,5 +170,5 @@ citation that landed nowhere.
 No story editing, no bookmark authoring, and no charts. The stage draws the strip and the refusal;
 the charts are the host's, through the renderer contract it already uses, because a component
 library that guessed what a dashboard looks like would be guessing about the one thing the host
-actually knows. And no Read or Watch lens: storydeck owns those, and they show the post's HTML
+actually knows. And no Read or Watch lens: StoryDeck owns those, and they show the post's HTML
 figures — the snapshot of the same beats.

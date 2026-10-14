@@ -96,35 +96,23 @@ await esbuild.build({
   external: [...REACT, ...LIBRARY],
 });
 
-// The STAGE — the scroll lens over a live session — is its own entry and not part of
-// `./story` on purpose: `./story` is pure data, and the stage is React plus storydeck.
-// Folding it in would make every host that exports a post pay for both. storydeck is an
-// OPTIONAL peer, so it is external here for the same reason the library is: the app
-// resolves one copy, and a host that never mounts the stage never installs it.
-await esbuild.build({
-  ...base,
-  entryPoints: ['src/story/stage/index.ts'],
-  format: 'esm',
-  outfile: 'dist/story-stage.js',
-  external: [...REACT, ...LIBRARY, 'storydeck'],
-});
-
-// The PAGE — the whole dashboard, its story and its data as one HTML file — is its
-// own entry for the same reason again: it carries a boot sequence and a payload
-// codec that a host mounting the stage inside a running cockpit never needs.
+// The PAGE — the whole dashboard and its data as one HTML file — is its own entry
+// for the same reason again: it carries a boot sequence and a payload codec that a
+// host exporting a post never needs. (The story-shaped page, with StoryDeck's
+// scroll lens, is the app's: `vizfootprint-studio/story`. This package imports no
+// StoryDeck — src/storydeckBoundary.test.ts.)
 await esbuild.build({
   ...base,
   entryPoints: ['src/story/page/index.ts'],
   format: 'esm',
   outfile: 'dist/story-page.js',
-  external: [...REACT, ...LIBRARY, 'storydeck'],
+  external: [...REACT, ...LIBRARY],
 });
 
 // The PAYLOAD CODEC on its own — the door a BUILD walks through. It is split off
 // the page for the reason `source/file` is split off the library's source barrel:
-// the page entry above pulls React and storydeck, and a Vite config runs in plain
-// Node, where storydeck's bundler-only ESM does not resolve at all. A build tool
-// must be able to write what the page reads without loading a renderer.
+// the page entry above pulls React, and a Vite config runs in plain Node. A build
+// tool must be able to write what the page reads without loading a renderer.
 await esbuild.build({
   ...base,
   entryPoints: ['src/story/page/payload.ts'],

@@ -747,35 +747,16 @@ Every commit belongs to a family derived from its namespace, never a new field: 
 />
 ```
 
-## The story stage — the figures are live because they are replayed
+## The story stage — in the app, not in this library
 
-`toStory` gives you a post whose figures are HTML strings. `vizfootprint-ui/story/stage` mounts the
-real dashboard in their place: one session, the host's own charts bound to it, and the reader's
-scroll moving the session from beat to beat.
-
-```tsx
-import { StoryStage } from 'vizfootprint-ui/story/stage';
-import 'storydeck/storydeck.css';
-
-<StoryStage post={toStory(state, { declared })} session={view}>
-  <MyCharts />                 {/* the same charts, bound to the same session */}
-</StoryStage>
-```
-
-Moving forward one beat seeks through each of that bookmark's commits in order, with a short dwell,
-so the acts land one at a time in front of the reader — **the transition is the record**; there is
-nothing to tween. Backwards, or a jump, is one seek.
-
-A beat this session cannot reach is refused **in the session's own sentence**, under the figure,
-with nothing moved: `seek` judges before it moves and now answers with what it said, so the stage
-prints that rather than checking anything itself. A reader's gesture on the figure lands **no
-commit** — every pointer and activation event is swallowed in the capture phase, before the chart
-sees one, which the cockpit's present mode (CSS plus a click pause) does not guarantee. And under
-the charts sits the beat's **citation strip**: what these words rest on, each one numbered, named
-and clickable — and, in the same strip, what they cited that this story could not show.
-
-`src/story/stage/README.md` has the reasoning; `storydeck` is an optional peer, so a host that never
-mounts the stage never installs it.
+`toStory` gives you a post whose figures are HTML strings. The stage that mounts the real
+dashboard in their place — one session, the host's charts bound to it, the reader's scroll moving
+the session from beat to beat — is the app's: `vizfootprint-studio/story` (`StoryStage`,
+`StoryPage`, `sessionAsStoryFigure`). It is where StoryDeck's scroll lens and the session meet,
+through StoryDeck's framework-neutral `StoryFigure`; this library imports nothing from StoryDeck
+(`src/storydeckBoundary.test.ts` fails if it does), so a host that never tells a story never
+installs a story renderer. What stays here is data: `toStory`, `storyDroppedNote`, and the beat
+coordinates a scroll lens runs on (`firstBeatIndexes`, `landRef`, `replayPath`, … — `src/story/spine.ts`).
 
 ## The prose plane — a view's words, with an author
 
@@ -1206,9 +1187,8 @@ hand-bound run over a real two-table session that proves the loop closes.
 | `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (a run of dates, a run of numbers or a band — the drag emits the clause its own axis can answer), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category), `<VizNetwork>` (a node-link: TWO tables on one frame — nodes over the layout act's positions, links over `bringOver`'s endpoints — sharing ONE pair of scales computed over the union of both; hover brightens a neighbourhood and records nothing) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
 | `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (bookmark-ONLY traversal, acting disabled, `onReadOnlyChange` up to the shell) + `<BookmarkModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
-| `story/` | `vizfootprint-ui/story` — `toStory(state)`, one lineage of a session as a [storydeck](https://github.com/footprintjs/storydeck) post, plus `storyDroppedNote` (what a section cited and the story could not show). Pure data, no React |
-| `story/stage/` | `vizfootprint-ui/story/stage` — `<StoryStage>`, that post as a SCROLL LENS over the live session (see below). React + storydeck, which is why it is a door of its own |
-| `story/page/` | `vizfootprint-ui/story/page` — a whole desk, its data and its trace as ONE HTML file that opens from `file://`. `<StoryPage>` is the story-shaped entry (two lenses, a door on every beat); `<DashboardPage>` is the dashboard-shaped one (one lens, and no requirement that anybody has named a moment yet — an authoring wizard publishes through it). Both walk `bootSession`, the one ordered boot, and print the same measured front matter (`frontMatterLine`) |
+| `story/` | `vizfootprint-ui/story` — `toStory(state)`, one lineage of a session as a [storydeck](https://github.com/footprintjs/storydeck) post, plus `storyDroppedNote` (what a section cited and the story could not show) and the beat coordinates a scroll lens runs on (`spine.ts`). Pure data, no React, and no StoryDeck import — the stage that renders it is the app's (`vizfootprint-studio/story`) |
+| `story/page/` | `vizfootprint-ui/story/page` — a whole desk, its data and its trace as ONE HTML file that opens from `file://`. `<DashboardPage>` is the dashboard-shaped entry (one lens, and no requirement that anybody has named a moment yet — an authoring wizard publishes through it); the story-shaped one (`StoryPage`, two lenses, a door on every beat) is the app's, `vizfootprint-studio/story`. Both walk `bootSession`, the one ordered boot, and print the same measured front matter (`frontMatterLine`) |
 | `story/payload/` | `vizfootprint-ui/story/payload` — the codec the BUILD and the PAGE share: `encodeStoryPayload` / `decodeStoryPayload` / `storyPayloadScript` / `readStoryPayload`, gzip then base64, with the ten-megabyte ceiling that REFUSES rather than emitting a file nobody can open. Its own door because a build tool must write what the page reads without loading a renderer |
 
 ## Quick start

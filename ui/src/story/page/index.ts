@@ -1,25 +1,23 @@
 /**
- * vizfootprint-ui/story/page — a whole dashboard, its story and its data, as ONE HTML file.
+ * vizfootprint-ui/story/page — a whole dashboard and its data as ONE HTML file.
  *
- * Its own door, and not part of `vizfootprint-ui/story` or `/story/stage`, for
- * the reason those two are apart: `/story` is pure data, `/story/stage` is the
- * scroll lens over a live session, and THIS is the page that builds a session
- * out of a file and offers both lenses over it. A host that only exports a post
- * should not bundle a boot sequence, and one that only mounts the stage inside
- * a running cockpit should not bundle a payload decoder.
+ * Its own door, and not part of `vizfootprint-ui/story`: `/story` is pure data,
+ * and THIS is the page that builds a session out of a file and shows it. A host
+ * that only exports a post should not bundle a boot sequence.
  *
  * It is a BUILD, not a button. Everything in a definition is data except the
  * analysis modules, which are code with a `run()` — so the def cannot be
  * serialized into the file; it is imported by a host-authored page entry and
- * bundled with the engine, the charts and storydeck. That is why the recipe in
+ * bundled with the engine and the charts. That is why the recipe in
  * ./README.md is two files the host writes and not a function this package
  * exports.
+ *
+ * The STORY-shaped page (two lenses, the scroll lens over the live session) is
+ * the app's: `vizfootprint-studio/story` · `StoryPage`, built on this door's
+ * boot and payload. This library imports no story renderer.
  */
-export { StoryPage } from './StoryPage.js';
-export type { StoryPageProps, StoryLens, StoryLensName } from './StoryPage.js';
-
-// The DASHBOARD-shaped entry beside the story-shaped one: the same payload, the
-// same boot, the same three states — one lens instead of two, and no
+// The DASHBOARD-shaped entry (the story-shaped one, `vizfootprint-studio/story`,
+// shares its payload, its boot and its three states): one lens, and no
 // requirement that anybody has named a moment yet. An authoring wizard
 // publishes through this one (`vizfootprint-studio/make`).
 export { DashboardPage } from './DashboardPage.js';
@@ -42,8 +40,7 @@ export type { PageLens, SessionBoot, SessionBootOptions, StoryBoot, StoryBootOpt
 //
 // The CODEC is not here. It lives on `vizfootprint-ui/story/payload`, which is
 // the door a BUILD walks through, and the reason is Law 3's exactly: this entry
-// pulls React and storydeck, and a build tool must be able to write what the
-// page reads without loading a renderer it cannot even resolve (storydeck's ESM
-// is bundler-only; plain Node refuses it). One codec, two doors onto it, split
-// by which runtime is asking.
+// pulls React, and a build tool must be able to write what the page reads
+// without loading a renderer. One codec, two doors onto it, split by which
+// runtime is asking.
 export type { StoryPayload, StoryPayloadMeta, StoryDataNote } from './payload.js';

@@ -9,11 +9,10 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
-import { mapPollState } from '../../adapter/sessionView.js';
-import type { RawPollState } from '../../adapter/sessionView.js';
-import type { SessionViewState } from '../../adapter/types.js';
-import { toStory } from '../toStory.js';
-import type { StoryPost } from '../toStory.js';
+import { mapPollState } from 'vizfootprint-ui';
+import type { RawPollState, SessionViewState } from 'vizfootprint-ui';
+import { toStory } from 'vizfootprint-ui/story';
+import type { StoryPost } from 'vizfootprint-ui/story';
 import { StoryStage } from './StoryStage.js';
 
 const rec = (id: string, parent: string | null, viewId: string, field: string, value: unknown, intent?: string): RawPollState['records'][number] =>
@@ -325,6 +324,32 @@ describe('StoryStage — the citation strip', () => {
     expect(screen.getByText('no commit "4" to seek to')).toBeTruthy();
   });
 
+  it('a newer beat takes a citation\'s refusal off the strip — only the latest move speaks', async () => {
+    const { container } = await atSecondBeat(postOf(), ['4']);
+    await act(async () => fireEvent.click(container.querySelectorAll('.vzf-story-anchor')[0]!));
+    expect(screen.getByText('no commit "4" to seek to')).toBeTruthy();
+    await goBeat(2);
+    expect(screen.queryByText('no commit "4" to seek to')).toBeNull();
+  });
+
+  it('a citation cut short by a newer move says nothing at all', async () => {
+    const pending: ((outcome: unknown) => void)[] = [];
+    const session = {
+      getState: () => ({ commits: stateOf().commits.map((c) => ({ id: c.id })) }),
+      seek: vi.fn(() => new Promise<unknown>((resolve) => pending.push(resolve))),
+    };
+    const { container } = render(
+      <StoryStage post={postOf()} session={session as never} dwellMs={0}>
+        {charts}
+      </StoryStage>,
+    );
+    await goBeat(1);
+    await act(async () => fireEvent.click(container.querySelectorAll('.vzf-story-anchor')[0]!)); // the citation's seek, in flight
+    await goBeat(2); // a newer move
+    await act(async () => pending[2]!({ ok: false, sentence: 'stale citation' }));
+    expect(screen.queryByText('stale citation')).toBeNull();
+  });
+
   it('refuses a citation that points at a section this post does not carry', async () => {
     const post = postOf();
     const ghosted = {
@@ -444,7 +469,8 @@ describe('StoryStage — the door on a beat', () => {
     expect(screen.getAllByTestId('door')).toHaveLength(1); // the first beat has its bookmark
     await goBeat(1);
     expect(screen.queryByTestId('door')).toBeNull();
-    expect(container.querySelector('.vzf-story-refusal')?.textContent).toContain('the story does not tell');
+    // a beat's answer is the lens's to print, under the figure (StoryDeck's `StoryFigure` seam)
+    expect(container.querySelector('.scrolly-figure-said')?.textContent).toContain('the story does not tell');
   });
 
   it('shows no strip at all when there is nothing to say and no door to offer', async () => {

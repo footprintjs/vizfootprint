@@ -25,9 +25,11 @@ export default defineConfig({
   // React or the hooks break — the classic two-copies failure.
   resolve: { alias: vizfootprintAliases, dedupe: ['react', 'react-dom'] },
   test: {
-    // storydeck ships its React components as SOURCE (.jsx, extensionless imports) for the
+    // StoryDeck 0.5.0 ships its React components as SOURCE (.jsx, extensionless imports) for the
     // consumer's bundler to compile. Node cannot load that, so a test run must transform it
-    // like our own source instead of externalising it from node_modules.
+    // like our own source instead of externalising it from node_modules. This workspace is the
+    // only one that imports StoryDeck (src/story/), so it is the only config that says so.
+    // StoryDeck's next release ships compiled JavaScript: delete this line when it is installed.
     server: { deps: { inline: ['storydeck'] } },
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],

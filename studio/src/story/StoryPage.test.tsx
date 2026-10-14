@@ -14,11 +14,11 @@ import { render, screen, cleanup, act, fireEvent, waitFor } from '@testing-libra
 import { buildDashboard } from 'vizfootprint/def';
 import type { Dashboard } from 'vizfootprint/def';
 import type { CommitRecord } from 'vizfootprint/log';
-import { makeDashboardDef, SAMPLE_ROWS } from '../../../../src/session/dashboard.fixture.js';
+import { makeDashboardDef, SAMPLE_ROWS } from '../../../src/session/dashboard.fixture.js';
 import { StoryPage } from './StoryPage.js';
 import type { StoryLens } from './StoryPage.js';
-import type { StoryPageSession } from './boot.js';
-import { encodeStoryPayload, storyPayloadScript, type StoryPayload } from './payload.js';
+import type { StoryPageSession } from 'vizfootprint-ui/story/page';
+import { encodeStoryPayload, storyPayloadScript, type StoryPayload } from 'vizfootprint-ui/story/payload';
 
 const cause = { requestedBy: 'user', computedBy: 'user' } as const;
 const freshDashboard = (): Dashboard => buildDashboard({ ...makeDashboardDef(), data: { data: { source: { format: 'rows', via: 'inline', at: SAMPLE_ROWS } } } });

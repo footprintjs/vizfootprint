@@ -111,6 +111,7 @@
     "demo:agent:data": "node demo-agent/gen-data.mjs",
     "build:ui": "npm run build -w vizfootprint-ui",
     "test:ui": "npm run test -w vizfootprint-ui",
+    "test:studio": "npm run test:coverage -w vizfootprint-studio",
     "typecheck:ui": "npm run typecheck -w vizfootprint-ui",
     "typecheck:vega-lite": "npm run typecheck -w vizfootprint-vega-lite",
     "test:vega-lite": "npm run test -w vizfootprint-vega-lite",

@@ -65,3 +65,7 @@ jobs:
       - run: npm run check:profile-package
       - name: Run all tests with the existing 100% coverage thresholds
         run: npm run test:coverage
+      # The app layer runs under its own config (it resolves the BUILT ui package and is the one
+      # workspace that imports StoryDeck) and keeps its own 100% gate.
+      - name: Run the studio tests with their own 100% coverage thresholds
+        run: npm run test:studio
