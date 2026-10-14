@@ -104,7 +104,7 @@ export function sessionAsStoryFigure(session: StoryStageSession, charts: StoryCh
   let timer: ReturnType<typeof setTimeout> | null = null;
   /** Which move is current. */
   let move = 0;
-  /** The settle of a move still replaying — a move cut short answers nothing, so nobody waits for it forever. */
+  /** Settles the move in flight with nothing — a move cut short answers nothing, so nobody waits for it forever. */
   let cutShort: (() => void) | null = null;
 
   const stop = (): void => {
@@ -124,18 +124,29 @@ export function sessionAsStoryFigure(session: StoryStageSession, charts: StoryCh
     stop();
     const mine = ++move;
     return new Promise((resolve) => {
-      cutShort = () => resolve(undefined);
+      // a newer move (or dispose) settles this one with nothing, even while its last seek is still
+      // unanswered — a session that never answers must not leave a caller waiting forever
+      const cut = (): void => resolve(undefined);
+      cutShort = cut;
+      const settle = (said: string | null | undefined): void => {
+        resolve(said); // a no-op when `cut` already settled it
+        if (cutShort === cut) cutShort = null;
+      };
       const hop = (i: number): void => {
-        const answer = session.seek(plan[i]!);
+        let answer: ReturnType<StoryStageSession['seek']> | Promise<never>;
+        try {
+          answer = session.seek(plan[i]!);
+        } catch (thrown) {
+          answer = Promise.reject(thrown); // a seek that throws is a seek that did not reach the session
+        }
         if (i + 1 < plan.length) {
           timer = setTimeout(() => hop(i + 1), told.dwellMs);
           return;
         }
         timer = null;
-        cutShort = null;
         void Promise.resolve(answer).then(
-          (said) => resolve(move === mine ? refusalOf(said) : undefined),
-          () => resolve(move === mine ? SEEK_UNREACHED : undefined),
+          (said) => settle(move === mine ? refusalOf(said) : undefined),
+          () => settle(move === mine ? SEEK_UNREACHED : undefined),
         );
       };
       hop(0);

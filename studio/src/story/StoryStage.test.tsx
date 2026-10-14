@@ -14,6 +14,7 @@ import type { RawPollState, SessionViewState } from 'vizfootprint-ui';
 import { toStory } from 'vizfootprint-ui/story';
 import type { StoryPost } from 'vizfootprint-ui/story';
 import { StoryStage } from './StoryStage.js';
+import { sessionAsStoryFigure } from './sessionAsStoryFigure.js';
 
 const rec = (id: string, parent: string | null, viewId: string, field: string, value: unknown, intent?: string): RawPollState['records'][number] =>
   ({ id, parent, viewId, kind: 'point', field, value, cause: { requestedBy: 'user', ...(intent !== undefined ? { intent } : {}) } }) as RawPollState['records'][number];
@@ -243,6 +244,59 @@ describe('StoryStage — the session judges, the stage carries the answer', () =
     );
     await settle();
     expect(screen.getByText('the seek did not reach the session')).toBeTruthy();
+  });
+
+  it('says so when the session throws instead of answering', async () => {
+    const session = {
+      getState: () => ({ commits: [{ id: '2' }] }),
+      seek: vi.fn(() => {
+        throw new Error('offline');
+      }),
+    };
+    render(
+      <StoryStage post={postOf()} session={session}>
+        {charts}
+      </StoryStage>,
+    );
+    await settle();
+    expect(screen.getByText('the seek did not reach the session')).toBeTruthy();
+  });
+
+  it('moves the same figure when the host hands over a new session object — no remount, the newest session is asked', async () => {
+    const first = fakeSession();
+    const second = fakeSession();
+    const { rerender, container } = render(
+      <StoryStage post={postOf()} session={first} dwellMs={0}>
+        {charts}
+      </StoryStage>,
+    );
+    await settle();
+    const drawn = container.querySelector('[data-testid="charts"]');
+    rerender(
+      <StoryStage post={postOf()} session={second} dwellMs={0}>
+        {charts}
+      </StoryStage>,
+    );
+    await goBeat(2);
+    expect(container.querySelector('[data-testid="charts"]')).toBe(drawn); // the charts were never remounted
+    expect(first.seek.mock.calls.flat()).toEqual(['2']);
+    expect(second.seek.mock.calls.flat()).toEqual(['8']);
+  });
+
+  it('settles a move whose session never answers once a newer move begins — nobody waits forever', async () => {
+    const session = {
+      getState: () => ({ commits: stateOf().commits.map((c) => ({ id: c.id })) }),
+      seek: vi.fn((commitId: string) => (commitId === '2' ? new Promise<never>(() => undefined) : { ok: true as const })),
+    };
+    const post = postOf();
+    const figure = sessionAsStoryFigure(session, () => () => undefined, { post, firstBeats: [0, 1, 2], dwellMs: 0 });
+    const beat = (index: number) => ({ key: `${post.sections[index]!.key}-0`, index, sectionKey: post.sections[index]!.key, step: 0 });
+    const hung = figure.seek(beat(0)); // the session never answers this one
+    await expect(figure.seek(beat(1))).resolves.toBeUndefined(); // the newer move lands
+    await expect(hung).resolves.toBeUndefined(); // and the hung one was settled with nothing
+    const lastHung = figure.seek(beat(0));
+    figure.dispose();
+    await expect(lastHung).resolves.toBeUndefined(); // dispose settles it too
   });
 
   it('never lets an older move\'s answer write over a newer one', async () => {

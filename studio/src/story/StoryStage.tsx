@@ -86,11 +86,15 @@ export function StoryStage({ post, session, children, dwellMs = DEFAULT_DWELL_MS
   const root = useRef<HTMLDivElement | null>(null);
   /** The element the lens mounted the figure into — where the charts are drawn, once. */
   const [host, setHost] = useState<HTMLElement | null>(null);
-  // ONE figure per session: a re-render retells it (the latest post and dwell), it never rebuilds it.
+  // ONE figure for the stage's life: a re-render retells it (the latest post and dwell) and it reads
+  // the LATEST session through `current`, so a host that hands over a new session object (a poll that
+  // rebuilds its view) moves the same figure rather than remounting the charts and losing the replay.
+  const current = useRef(session);
+  current.current = session;
   const figure = useMemo(
     () =>
       sessionAsStoryFigure(
-        session,
+        { getState: () => current.current.getState(), seek: (commitId) => current.current.seek(commitId) },
         (el) => {
           setHost(el);
           return () => setHost(null);
@@ -98,7 +102,7 @@ export function StoryStage({ post, session, children, dwellMs = DEFAULT_DWELL_MS
         { post, firstBeats, dwellMs },
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the telling is retold below on every render
-    [session],
+    [],
   );
   figure.retell({ post, firstBeats, dwellMs });
   const now = useSyncExternalStore(figure.subscribe, figure.now);
