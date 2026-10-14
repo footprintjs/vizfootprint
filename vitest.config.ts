@@ -24,6 +24,10 @@ export default defineConfig({
   // the same line in ui/vitest.config.ts.
   resolve: { alias: vizfootprintAliases, dedupe: ['react', 'react-dom'] },
   test: {
+    // storydeck ships its React components as SOURCE (.jsx, extensionless imports) for the
+    // consumer's bundler to compile. Node cannot load that, so a test run must transform it
+    // like our own source instead of externalising it from node_modules.
+    server: { deps: { inline: ['storydeck'] } },
     // Q11 (docs/RESEARCH_STATE.md): the 10k-seeded-sim FDR tests
     // (spikes/x2-fdr/a2-batch-bh-wrong.test.ts) sit close enough to the 5s
     // vitest default under load to be the repo's one reproducible flake risk.
