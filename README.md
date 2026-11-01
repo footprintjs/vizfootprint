@@ -1,4 +1,6 @@
-# vizfootprint (pre-alpha, X1'/X2 spikes in progress)
+# vizfootprint — Beta (experimental)
+
+**Beta — source checkout only; not published on npm.** APIs and integrations remain experimental; X1'/X2 spikes are still in progress. The package retains `private: true`, which prevents npm publication. Use the checkout's build and compatibility instructions below.
 
 ## Importing it
 
