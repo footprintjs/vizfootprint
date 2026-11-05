@@ -57,8 +57,11 @@ describe('a real server — the three declarations, and what a report may say ab
       if (url === '/chunked') {
         // no declaration at all: node frames it `transfer-encoding: chunked`
         res.writeHead(200, { 'content-type': 'chemical/x-pdb' });
+        // Both writes can be ready before the client reads. Cork them explicitly
+        // to reproduce that legal schedule instead of hoping a timer separates them.
+        res.cork();
         res.write(PLAIN.slice(0, 1000));
-        setTimeout(() => res.end(PLAIN.slice(1000)), 5);
+        res.end(PLAIN.slice(1000));
         return;
       }
       if (url === '/declared') {
