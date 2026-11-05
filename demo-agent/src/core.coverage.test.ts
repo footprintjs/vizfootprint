@@ -395,7 +395,7 @@ describe('the per-turn activity ring buffer caps at 60 entries (core.ts:120-123)
     // 70 iterations = 70 real tool round-trips into the one buffer.
     const analyst = createAnalyst({ csv: CSV, provider: foreverToolCalls, maxIterations: 70 });
     const first = analyst.chat('turn 1');
-    await expect(analyst.chat('turn 2, overlapping')).rejects.toThrow(/already running/);
+    await expect(analyst.chat('turn 2, overlapping')).rejects.toMatchObject({ code: 'ERR_RUN_IN_FLIGHT' });
     await first;
 
     expect(calls).toBeGreaterThanOrEqual(70); // proves at least 70 real tool round-trips happened (the refused overlap may cost one)
