@@ -61,7 +61,9 @@ describe('a real server — the three declarations, and what a report may say ab
         // to reproduce that legal schedule instead of hoping a timer separates them.
         res.cork();
         res.write(PLAIN.slice(0, 1000));
-        res.end(PLAIN.slice(1000));
+        res.write(PLAIN.slice(1000));
+        res.uncork();
+        res.end();
         return;
       }
       if (url === '/declared') {
