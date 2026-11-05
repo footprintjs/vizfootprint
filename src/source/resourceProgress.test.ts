@@ -51,14 +51,30 @@ const GZIPPED = gzipSync(Buffer.from(PLAIN));
 describe('a real server — the three declarations, and what a report may say about each', () => {
   let server: Server;
   let base = '';
+  /** The progressive test releases the tail only after it observes the prefix. */
+  let release: (() => void) | undefined;
   beforeAll(async () => {
     server = createServer((req, res) => {
       const url = req.url ?? '/';
+      if (url === '/held') {
+        res.writeHead(200, { 'content-type': 'chemical/x-pdb' });
+        release = () => {
+          release = undefined;
+          res.end(PLAIN.slice(1000));
+        };
+        res.write(PLAIN.slice(0, 1000));
+        return;
+      }
       if (url === '/chunked') {
         // no declaration at all: node frames it `transfer-encoding: chunked`
         res.writeHead(200, { 'content-type': 'chemical/x-pdb' });
+        // Both writes can be ready before the client reads. Cork them explicitly
+        // to reproduce that legal schedule instead of hoping a timer separates them.
+        res.cork();
         res.write(PLAIN.slice(0, 1000));
-        setTimeout(() => res.end(PLAIN.slice(1000)), 5);
+        res.write(PLAIN.slice(1000));
+        res.uncork();
+        res.end();
         return;
       }
       if (url === '/declared') {
@@ -98,18 +114,56 @@ describe('a real server — the three declarations, and what a report may say ab
   };
 
   it('NO DECLARATION: every report carries the bytes so far, "unknown total" is the ABSENCE of a total, and there is no fraction to show', async () => {
-    const { snap, reports } = await read('text', '/chunked');
-    const body = await snap;
-    expect(body.body).toBe(PLAIN);
-    expect(reports.length).toBeGreaterThan(1); // it arrived in pieces, and each one was reported
-    // bytes so far: a fact, always — monotonic, and the last one is the whole body
-    expect(reports.map((p) => p.bytes)).toEqual([...reports.map((p) => p.bytes)].sort((a, b) => a - b));
-    expect(reports.at(-1)!.bytes).toBe(Buffer.byteLength(PLAIN));
-    for (const p of reports) {
-      expect('total' in p).toBe(false); // NOT a zero: the key is not there
-      expect(progressFraction(p)).toBeUndefined(); // …and no bar may be drawn from it
-      expect(p.resource).toBe('structure');
+    const reports: ResourceProgress[] = [];
+    const abort = new AbortController();
+    let prefixArrived!: (p: ResourceProgress) => void;
+    const prefix = new Promise<ResourceProgress>((resolve) => {
+      prefixArrived = resolve;
+    });
+    const handle = await httpSource().openResource!({ format: 'text', via: 'http', at: `${base}/held` }, { resource: 'structure' });
+    const snap = handle.snapshot({
+      signal: abort.signal,
+      onProgress: (p) => {
+        reports.push(p);
+        if (p.bytes === 1000) prefixArrived(p);
+      },
+    });
+    try {
+      // A completed or refused read cannot leave this wait hanging. A missing
+      // intermediate report fails at the carrier's existing finite HTTP deadline.
+      const first = await Promise.race([
+        prefix,
+        snap.then(() => {
+          throw new Error('the read finished before reporting its held prefix');
+        }),
+      ]);
+      // Assert outside the observer: the carrier deliberately swallows observer errors.
+      expect(first).toEqual({ resource: 'structure', bytes: 1000 });
+      expect(release).toBeTypeOf('function');
+      release!();
+      expect((await snap).body).toBe(PLAIN);
+      expect(reports.length).toBeGreaterThan(1); // the tail could not arrive before the prefix was reported
+      // bytes so far: a fact, always — monotonic, and the last one is the whole body
+      expect(reports.map((p) => p.bytes)).toEqual([...reports.map((p) => p.bytes)].sort((a, b) => a - b));
+      expect(reports.at(-1)!.bytes).toBe(Buffer.byteLength(PLAIN));
+      for (const p of reports) {
+        expect('total' in p).toBe(false); // NOT a zero: the key is not there
+        expect(progressFraction(p)).toBeUndefined(); // …and no bar may be drawn from it
+        expect(p.resource).toBe('structure');
+      }
+    } finally {
+      release?.();
+      abort.abort();
+      await snap.catch(() => undefined);
     }
+  });
+
+  it('COALESCED WRITES: the same complete body is reported without inventing a total or a transport chunk count', async () => {
+    const { snap, reports } = await read('text', '/chunked');
+    expect((await snap).body).toBe(PLAIN);
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports.at(-1)).toEqual({ resource: 'structure', bytes: Buffer.byteLength(PLAIN) });
+    for (const p of reports) expect(progressFraction(p)).toBeUndefined();
   });
 
   it('A TRUSTWORTHY DECLARATION: the total rides every report, the fraction is honest, and the last one is 1', async () => {
