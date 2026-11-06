@@ -1,0 +1,72 @@
+name: Private runtime capture
+
+on:
+  push:
+    branches: [codex/private-runtime-capture-20261105]
+    paths:
+      - .github/workflows/private-runtime-capture.yml
+      - scripts/private-runtime-capture/**
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Check out the producer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: producer
+          persist-credentials: false
+      - name: Check out the exact reviewed library source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: c070662e349567a97658770863c6ec152a108905
+          path: vizfootprint
+          persist-credentials: false
+      - name: Preserve the native locked sibling install profile
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: footprintjs/storydeck
+          ref: 5a424b6c61bfb8e07c5c8e7c203ae417e2e05607
+          path: storydeck
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm install --global npm@11.19.0
+      - name: Check the archive contract with synthetic fixtures
+        working-directory: producer
+        run: python3 -m unittest discover -s scripts/private-runtime-capture -p '*_test.py' -v
+      - run: npm ci --strict-peer-deps
+        working-directory: storydeck
+      - name: Native strict locked install (includes prepare)
+        run: npm ci --strict-peer-deps
+        working-directory: vizfootprint
+      - name: Verify the installed dependency graph
+        run: npm ls agentfootprint footprintjs foottrace --all
+        working-directory: vizfootprint
+      - run: npm run build
+        working-directory: vizfootprint
+      - run: npm run build:ui
+        working-directory: vizfootprint
+      - name: Retain and inspect the exact runtime pair
+        run: python3 producer/scripts/private-runtime-capture/capture.py --source vizfootprint --output runtime-capture
+      - name: Exercise the retained package doors and shared owners
+        run: node producer/scripts/private-runtime-capture/probe.mjs vizfootprint runtime-capture
+      - name: Confirm both source checkouts stayed clean
+        run: |
+          test -z "$(git -C producer status --porcelain)"
+          test -z "$(git -C vizfootprint status --porcelain)"
+      - name: Retain the private pair and receipts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: private-runtime-c070662e-${{ github.sha }}
+          path: runtime-capture/
+          if-no-files-found: error
+          retention-days: 30

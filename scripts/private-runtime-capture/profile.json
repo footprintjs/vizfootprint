@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/footprintjs/vizfootprint",
+  "revision": "c070662e349567a97658770863c6ec152a108905",
+  "tree": "d51efece79fffc033491f090997ab396c32c2155",
+  "lockSha256": "240bd02638015b5eb98d7689b6afcc55ea3e94d60d8cf8d2b2137e0dc3aec636",
+  "npm": "11.19.0",
+  "reviewedHead": "729a8e8b9c8dac01ab358d1cf28f5e983ad818d7",
+  "completedLibraryGates": {
+    "run": 42123580807,
+    "attempt": 1,
+    "node22Job": 127582305360,
+    "node24Job": 127582305756
+  }
+}
