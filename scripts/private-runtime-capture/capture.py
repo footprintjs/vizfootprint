@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 import stat
 import subprocess
 import tarfile
+import zlib
 
 
 PACKAGES = (
@@ -116,7 +117,10 @@ def inspect_archive(data, expected):
     """Read back independently; refuse omitted, extra, duplicate or altered members."""
     require(data[:3] == b"\x1f\x8b\x08" and data[3] == 0 and data[4:8] == b"\0" * 4
             and data[8] == 2, "Unexpected deterministic gzip header")
-    raw = gzip.decompress(data)
+    decoder = zlib.decompressobj(wbits=31)
+    raw = decoder.decompress(data) + decoder.flush()
+    require(decoder.eof and not decoder.unused_data and not decoder.unconsumed_tail,
+            "Expected a single complete gzip member")
     offset = 0
     while raw[offset:offset + 512] != b"\0" * 512:
         header = raw[offset:offset + 512]
@@ -124,6 +128,9 @@ def inspect_archive(data, expected):
                 and header[156:157] in (b"0", b"\0"), "Expected regular ustar header")
         size = int(header[124:136].rstrip(b"\0 ") or b"0", 8)
         offset += 512 + ((size + 511) // 512) * 512
+    padding = raw[offset:]
+    require(len(raw) % tarfile.RECORDSIZE == 0 and len(padding) >= 1024
+            and padding == b"\0" * len(padding), "Unexpected tar end or trailing data")
     inventory = []
     seen = set()
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:

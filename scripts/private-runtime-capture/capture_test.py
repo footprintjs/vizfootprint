@@ -122,6 +122,16 @@ class RuntimeCaptureTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unexpected archive metadata"):
             inspect_archive(self.archive(entries), self.core())
 
+    def test_trailing_tar_data_is_refused(self):
+        raw = gzip.decompress(serialize_archive(self.core())) + b"hidden trailing data"
+        with self.assertRaisesRegex(ValueError, "tar end"):
+            inspect_archive(gzip.compress(raw, compresslevel=9, mtime=0), self.core())
+
+    def test_concatenated_gzip_member_is_refused(self):
+        data = serialize_archive(self.core()) + gzip.compress(b"hidden second member", mtime=0)
+        with self.assertRaisesRegex(ValueError, "single complete gzip"):
+            inspect_archive(data, self.core())
+
 
 if __name__ == "__main__":
     unittest.main()
