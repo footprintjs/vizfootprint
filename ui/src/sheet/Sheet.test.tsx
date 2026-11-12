@@ -220,7 +220,8 @@ describe('<Sheet> — the window on screen', () => {
   it('scrolling asks for the next window once, and the same window again is served from the block already held', async () => {
     const { data, asked } = fakeData({ count: 90_300 });
     const { container } = render(<Sheet data={data} table="cells" viewId="sheet" height={HEIGHT} version="v1" cursor="c1" blockRows={100} maxBlocks={4} />);
-    await waitFor(() => expect(asked).toHaveLength(1));
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0)); // the ask having gone out is not the rows being on screen: a scroll before they are is clamped to a table of no rows
+    expect(asked).toHaveLength(1);
     const m = metricsFor(90_300);
     const body = bodyOf(container);
     fireEvent.scroll(body, { target: { scrollTop: scrollForRow(30, m) } });
@@ -443,7 +444,8 @@ describe('<Sheet> — sorting is an ACT the host lands', () => {
     const { data, asked } = fakeData({ count: 8 });
     const landed: (readonly SortSpec[] | undefined)[] = [];
     const { container } = render(<Hosted data={data} landed={landed} />);
-    await waitFor(() => expect(asked).toHaveLength(1));
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0)); // the header paints with the window, not with the ask for it
+    expect(asked).toHaveLength(1);
     const button = container.querySelector('[data-column="cases"] button')!;
     expect(button.getAttribute('aria-label')).toBe('sort by cases');
     fireEvent.click(button);
@@ -514,7 +516,8 @@ describe('<Sheet> — sorting is an ACT the host lands', () => {
     const { data, asked } = fakeData({ count: 4 });
     // the door is wired, and present mode closes it anyway: reading never rearranges
     const { container } = render(<Sheet data={data} height={HEIGHT} readOnly sort={[{ field: 'cases', dir: 'desc' }]} onSort={() => undefined} />);
-    await waitFor(() => expect(asked).toHaveLength(1));
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0)); // the readout names the order once the window is painted, not once it is asked for
+    expect(asked).toHaveLength(1);
     expect(asked[0]!.sort).toEqual([{ field: 'cases', dir: 'desc' }]);
     expect(readout(container)).toContain('sorted by cases ↓');
     expect(container.querySelector('[role="columnheader"] button')).toBeNull();
@@ -526,7 +529,8 @@ describe('<Sheet> — sorting is an ACT the host lands', () => {
   it('an engine that cannot sort at all gets no toggle — the header carries its refusal as readable text', async () => {
     const { data, asked } = fakeData({ count: 4, sort: false });
     const { container } = render(<Sheet data={data} height={HEIGHT} onSort={() => undefined} />);
-    await waitFor(() => expect(asked).toHaveLength(1));
+    await waitFor(() => expect(rowsIn(container).length).toBeGreaterThan(0)); // the refusal is printed with the painted window, not with the ask for it
+    expect(asked).toHaveLength(1);
     expect(container.querySelector('[role="columnheader"] button')).toBeNull();
     expect(container.querySelector('.vzf-sheet-cannot')!.textContent).toBe('the wasm engine cannot sort');
   });
@@ -781,7 +785,8 @@ describe('<Sheet> — the keyboard', () => {
     release!();
     await waitFor(() => expect(container.querySelector('[data-vzf-focused="true"]')).not.toBeNull());
     const cell = container.querySelector('[data-vzf-focused="true"]')!;
-    expect(document.activeElement).toBe(cell); // the intent was kept, not consumed on the render that could not honour it
+    // the focus is taken by an effect AFTER the commit that paints the row, so it is waited for, not read at once
+    await waitFor(() => expect(document.activeElement).toBe(cell)); // the intent was kept, not consumed on the render that could not honour it
     expect(cell.closest('[role="row"]')!.getAttribute('data-row')).toBe('32');
   });
 });
@@ -847,7 +852,7 @@ describe('<Sheet> — a keyboard move never outlives its own ask', () => {
     fireEvent.focusOut(grid, { relatedTarget: container.querySelector('[role="gridcell"]') });
     release!();
     await waitFor(() => expect(container.querySelector('[data-row="32"]')).not.toBeNull());
-    expect(document.activeElement).toBe(container.querySelector('[data-vzf-focused="true"]'));
+    await waitFor(() => expect(document.activeElement).toBe(container.querySelector('[data-vzf-focused="true"]'))); // an effect takes the focus AFTER the commit that paints the row
     // now leave the grid for real while another move waits
     slow = true;
     release = null;
@@ -1040,7 +1045,7 @@ describe('<Sheet> — find', () => {
     expect(searched.at(-1)).toEqual({ text: 'area-1', from: 9, direction: 'backward' });
     fireEvent.click(container.querySelector('.vzf-sheet-findprev')!);
     await waitFor(() => expect(said(container)).toContain('wrapped to the bottom')); // nothing before row 1: round to the end
-    expect(focusedRow(container)).toBe('19');
+    await waitFor(() => expect(focusedRow(container)).toBe('19')); // the note is said at once; the row is painted when the window that holds it lands
   });
 
   it('a walk that runs out asks ONCE more from the other end, and SAYS it wrapped', async () => {
@@ -1058,7 +1063,7 @@ describe('<Sheet> — find', () => {
     fireEvent.keyDown(findInput(container), { key: 'Enter' });
     await waitFor(() => expect(said(container)).toContain('wrapped to the top'));
     expect(said(container)).toContain('match 1 of 11 · row 3');
-    expect(focusedRow(container)).toBe('2');
+    await waitFor(() => expect(focusedRow(container)).toBe('2')); // the note is said at once; the row is painted when the window that holds it lands
     expect(searched.length - asks).toBe(2); // the miss, then ONE ask from the top — never a loop
     expect(searched.at(-1)!.from).toBe(0);
   });
