@@ -132,7 +132,7 @@
     "@uwdata/mosaic-spec": "^0.28.1",
     "@uwdata/mosaic-sql": "^0.28.1",
     "@vitest/coverage-v8": "^4.1.10",
-    "agentfootprint": "14.0.0",
+    "agentfootprint": "14.4.0",
     "agentthinkingui": "^0.23.0",
     "esbuild": "^0.28.1",
     "playwright-core": "^1.58.2",
@@ -142,7 +142,7 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "footprintjs": "^11.0.0",
+    "footprintjs": "^11.0.0 || ^12.0.0",
     "foottrace": "^1.0.0"
   },
   "peerDependencies": {
