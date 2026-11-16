@@ -20,18 +20,40 @@ crosses out of this package. Which symbol belongs on a barrel, which earns a
 subpath, and why the two resolutions (`dist/` outside, `src/` in a test run) are
 one list twice: [`PACKAGING.md`](PACKAGING.md).
 
-Node.js 22 or newer is required. Analyses run on `footprintjs` (`^11.0.0 || ^12.0.0`);
-record readers come from `foottrace` (`^1.0.0`). Both are direct
-dependencies, with no copied readers or re-exported Foottrace names.
-The checkout's lockfile selects footprintjs 12.0.0 and foottrace 1.11.1.
-Agent checks are pinned to agentfootprint 14.4.0. Studio uses
-`footprint-storydeck` (`^0.13.1`) under the `storydeck` alias.
+Node.js 22 or newer is required. This draft targets `footprintjs ^13.0.0-rc.0`
+and `foottrace ^2.0.0-rc.0` together. Both are direct dependencies, with no copied
+readers or re-exported Foottrace names. Agent integration targets the proposed
+`agentfootprint@15.0.0-rc.0` source candidate and the same prerelease peer range.
+These are intended cohort inputs, not claims that the engine or agent candidates
+have been published or that compatibility has passed.
+
+### Migration: the engine 13 and Foottrace 2 cohort
+
+The earlier engine 11/12, Foottrace 1 and AgentFootprint 14 ranges are no longer
+the declared target. All four workspaces remain private. The committed lockfile
+still records the real prior published cohort: footprintjs 12.0.0, Foottrace
+1.11.1 and AgentFootprint 14.4.0. It is retained as that baseline, not rewritten
+with invented registry locations or integrity for unpublished candidates.
+Plain `npm ci` therefore does not yet match this draft's manifests.
+
+Paired validation must materialize the exact reviewed engine and agent source
+archives, the published Foottrace 2 RC, and a temporary lock before strict
+installation. Every original build, type and runtime check must run against one
+physical Foottrace copy before this cohort is accepted. The ordinary committed
+lock must then be regenerated against actual published candidates before the
+normal source-checkout checks can establish install readiness.
+
+Studio still declares its existing `storydeck` alias for
+`footprint-storydeck ^0.13.1`. That package's optional engine peer admits 11/12;
+the complete paired install graph and a compatible Storydeck input remain
+unresolved. The alias is neither removed nor overridden to bypass that boundary.
 
 Pull requests and `main` run the same build, public-package boundary, type and
 100%-coverage checks on Node 22 and 24. CI checks out Storydeck at the exact
 revision named in `.github/workflows/checks.yml` beside this repository, so the
-existing sibling `file:` links remain intact; both installs use their committed
-lockfiles. CI installs Playwright's matching Chromium headless shell and its
+existing sibling `file:` links remain intact; its public-dependency setup uses
+the committed lockfiles and is not yet a validation of the draft cohort above.
+CI installs Playwright's matching Chromium headless shell and its
 Linux system dependencies for the real-browser tests. Updating the Storydeck
 revision requires re-running the full checks. The workflow does not publish any
 package and checks that every workspace stays
