@@ -12,14 +12,18 @@ function specimen() {
     ...(path === 'package.json' ? { workspaces: workspacePaths } : {}),
   }) + '\n')]));
 }
-test('native setup changes two dependency slots, preserving every original and other field', () => {
+test('native setup fixes the exact registry cohort and two source archives, preserving originals', () => {
   const original = specimen();
   const before = structuredClone(original);
   const setup = projectManifests(original, archives);
   for (const path of manifestPaths) {
     assert.deepEqual(original[path], Buffer.from(before[path]));
     const expected = JSON.parse(original[path]);
-    if (path === 'package.json') expected.devDependencies.agentfootprint = 'file:' + archives.agentfootprint;
+    if (path === 'package.json') {
+      expected.dependencies.footprintjs = '13.0.0';
+      expected.dependencies.foottrace = '2.0.0';
+      expected.devDependencies.agentfootprint = 'file:' + archives.agentfootprint;
+    }
     if (path === 'studio/package.json') expected.devDependencies.storydeck = 'file:' + archives.storydeck;
     assert.deepEqual(JSON.parse(setup[path]), expected);
     if (path !== 'package.json' && path !== 'studio/package.json') assert.deepEqual(setup[path], original[path]);

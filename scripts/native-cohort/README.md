@@ -4,11 +4,13 @@ This private CI library prepares existing workspace gates from two admitted orig
 The Node22/24 workflow now uses those fixed source-only inputs. Actual fresh gate results and review
 are still required; producer admission is not consumer compatibility or registry readiness.
 
-`manifests.mjs` owns exactly two temporary dependency-slot projections: AF's root development request and
-Studio's existing `storydeck` key. The latter explicitly replaces alias resolution during native setup;
-it does not rename the original `footprint-storydeck` archive. Stable engine13/Foottrace2 requests, other
-fields, workspace privacy and original input bytes are preserved. The owning setup workflow must retain
-and restore the exact authored bytes even when installation fails.
+`manifests.mjs` owns exactly four temporary dependency-slot projections: root engine13.0.0 and
+Foottrace2.0.0 exact requests, AF's root development request and Studio's existing `storydeck` key.
+The exact registry requests prevent a newer release admitted by the authored caret ranges from entering
+this fixed validation cohort. The Storydeck projection explicitly replaces alias resolution during
+native setup; it does not rename the original `footprint-storydeck` archive. Other fields, workspace
+privacy and original input bytes are preserved. The owning setup workflow must retain and restore the
+exact authored caret ranges and all original bytes/modes, including after installation failure.
 
 ```mermaid
 flowchart LR
@@ -23,7 +25,7 @@ flowchart LR
 
 `admission.mjs` owns fixed provider/receipt semantics; `zip_input.py` owns the original-ZIP boundary;
 `transport.mjs` owns read-only provider/data capture and saved-data re-admission; `manifests.mjs` owns
-the two projections; `installed.mjs` owns physical/member/lock/compiler observations; `setup.mjs` owns
+the four projections; `installed.mjs` owns physical/member/lock/compiler observations; `setup.mjs` owns
 the fixed setup/restoration transaction. Only `scripts/native-cohort.mjs` may wire these private units.
 No downloaded package or helper runs during FETCH. The shared pinned ci1ca inspector owns tar parsing.
 Its existing AF roots include CAPABILITIES.md and canonical-notes.json; Storydeck keeps its own profile.

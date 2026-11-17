@@ -12,7 +12,7 @@ export function requireWorkspaceDeclarations(manifest) {
   assert.deepEqual([...manifest.workspaces].sort(), [...workspacePaths].sort(), 'unsupported workspace declarations');
 }
 
-/** Only two setup slots change. Callers retain and restore the original bytes. */
+/** Four closed setup slots change. Callers retain and restore the original bytes. */
 export function projectManifests(originals, archives) {
   assert.deepEqual(Object.keys(originals).sort(), [...manifestPaths].sort());
   assert.deepEqual(Object.keys(archives).sort(), ['agentfootprint', 'storydeck']);
@@ -27,6 +27,8 @@ export function projectManifests(originals, archives) {
   assert.equal(root.devDependencies.agentfootprint, '15.0.0-rc.0');
   const studio = parsed['studio/package.json'];
   assert.equal(studio.devDependencies.storydeck, 'npm:footprint-storydeck@^0.13.1');
+  root.dependencies.footprintjs = '13.0.0';
+  root.dependencies.foottrace = '2.0.0';
   root.devDependencies.agentfootprint = 'file:' + archives.agentfootprint;
   studio.devDependencies.storydeck = 'file:' + archives.storydeck;
   return Object.fromEntries(manifestPaths.map(path => [path,
