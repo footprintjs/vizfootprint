@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { manifestPaths, projectManifests } from './manifests.mjs';
+import { manifestPaths, workspacePaths, projectManifests } from './manifests.mjs';
 
 const archives = { agentfootprint: '/tmp/inputs/agentfootprint-15.0.0-rc.0.tgz',
   storydeck: '/tmp/inputs/footprint-storydeck-0.13.3.tgz' };
@@ -9,6 +9,7 @@ function specimen() {
     private: true, name: path, dependencies: { footprintjs: '^13.0.0', foottrace: '^2.0.0' },
     devDependencies: { agentfootprint: '15.0.0-rc.0', storydeck: 'npm:footprint-storydeck@^0.13.1' },
     scripts: { prepare: 'the-original-prepare' }, unknownField: ['preserve', { nested: true }],
+    ...(path === 'package.json' ? { workspaces: workspacePaths } : {}),
   }) + '\n')]));
 }
 test('native setup changes two dependency slots, preserving every original and other field', () => {
@@ -31,6 +32,7 @@ test('stale authored graph, changed alias, public workspace and unknown setup se
     ['package.json', value => { value.devDependencies.agentfootprint = '14.4.0'; }],
     ['studio/package.json', value => { value.devDependencies.storydeck = 'footprint-storydeck'; }],
     ['ui/package.json', value => { value.private = false; }],
+    ['package.json', value => { value.workspaces = [...workspacePaths, 'unadmitted']; }],
   ];
   for (const [path, mutate] of mutations) {
     const original = specimen(), value = JSON.parse(original[path]);

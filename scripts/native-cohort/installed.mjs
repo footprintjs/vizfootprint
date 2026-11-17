@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { hash } from './admission.mjs';
 import { regular } from './transport.mjs';
-import { manifestPaths } from './manifests.mjs';
+import { manifestPaths, requireWorkspaceDeclarations } from './manifests.mjs';
 
 const family = new Set(['agentfootprint', 'footprintjs', 'foottrace', 'footprint-storydeck', 'contextfootprint']);
 const childPath = (root, path) => path === root || path.startsWith(root + '/');
@@ -57,11 +57,19 @@ function owner(entry, name, parse) {
 
 export function physicalCensus(root, parse) {
   root = realpathSync(root);
+  requireWorkspaceDeclarations(parse(regular(join(root, 'package.json'), 1024 * 1024)));
   const workspaceRoots = manifestPaths.map(path => dirname(join(root, path)));
+  for (const workspace of workspaceRoots) assert.equal(realpathSync(workspace), workspace, 'aliased workspace root');
+  const dependencyRoots = workspaceRoots.map(path => join(path, 'node_modules'));
   const allowedWorkspace = new Set(workspaceRoots), packages = [], links = [], hiddenLocks = [];
+  const seenDirectories = new Set();
   let visits = 0;
   function walk(path, depth) {
     assert(depth <= 80);
+    const canonical = realpathSync(path);
+    assert.equal(canonical, resolve(path), 'aliased dependency directory');
+    if (seenDirectories.has(canonical)) return;
+    seenDirectories.add(canonical);
     for (const name of readdirSync(path).sort()) {
       assert(++visits <= 250000, 'installed census bound exceeded');
       const file = join(path, name), stat = lstatSync(file);
@@ -69,7 +77,7 @@ export function physicalCensus(root, parse) {
         const target = realpathSync(file), targetStat = lstatSync(target);
         if (targetStat.isDirectory()) assert(allowedWorkspace.has(target), 'unexpected linked package or directory');
         else {
-          assert(targetStat.isFile() && childPath(join(root, 'node_modules'), target), 'unexpected file link');
+          assert(targetStat.isFile() && dependencyRoots.some(path => childPath(path, target)), 'unexpected file link');
           assert.equal(dirname(file).split('/').at(-1), '.bin', 'linked non-bin package file');
           const packageRoot = ownerManifest(target);
           const manifest = parse(regular(join(packageRoot, 'package.json')));
@@ -89,8 +97,15 @@ export function physicalCensus(root, parse) {
       }
     }
   }
-  walk(join(root, 'node_modules'), 0); // Includes hidden directories and aliased-name manifests.
-  return { packages, links, workspaceRoots, hiddenLocks };
+  for (const path of dependencyRoots) {
+    let stat;
+    try { stat = lstatSync(path); }
+    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+    assert(stat.isDirectory() && !stat.isSymbolicLink(), 'linked or non-directory dependency namespace');
+    walk(path, 0); // Hidden aliases and locks in EVERY declared dependency namespace, once.
+  }
+  return { packages, links, workspaceRoots, hiddenLocks,
+    dependencyNamespaces: dependencyRoots.map(path => relative(root, path)) };
 }
 
 function ownerManifest(file) {
@@ -162,6 +177,7 @@ export function inspectInstalled({ root, originals, nativeLock, admitted, archiv
   const compilerEntry = resolve(compilerRoot, compilerManifest.bin.tsc);
   assert(childPath(compilerRoot, compilerEntry));
   return { packages: census.packages, links: census.links, ownerRoots: owners, sourceMembers, vendorImage,
+    dependencyNamespaces: census.dependencyNamespaces,
     familyImages: census.packages.map(p => ({ root: p.root, name: p.name,
       censusSha256: hash(JSON.stringify(inventory(p.root, { dependencies: true }).files)) })),
     hiddenLocks: census.hiddenLocks.map(({ path, sha256 }) => ({ path, sha256 })),

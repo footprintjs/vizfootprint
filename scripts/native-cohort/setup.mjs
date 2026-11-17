@@ -165,7 +165,7 @@ export function prepare({ root, out, inspectorRoot, inputs, env = process.env })
   writeFileSync(join(out,'setup-receipt.json'),jsonBytes({consumer,sourceHeads:Object.fromEntries(Object.entries(inputs).map(([role,input])=>[role,input.source.head])),
     originalHashes:state.originalHashes,originalModes,projectedHashes:state.projectedHashes,
     checkpointSha256:hash(jsonBytes(state)),nativeLockSha256:state.nativeLockSha256,
-    observed:{packages:initial.packages,ownerRoots:initial.ownerRoots,sourceMembers:initial.sourceMembers,
+    observed:{packages:initial.packages,ownerRoots:initial.ownerRoots,dependencyNamespaces:initial.dependencyNamespaces,sourceMembers:initial.sourceMembers,
       compiler:initial.compiler,hiddenLocks:initial.hiddenLocks,linkCount:initial.links.length,linksSha256:hash(JSON.stringify(initial.links))},
     qualification:'Setup and installed-byte observations only; original consumer gates still required'}),{flag:'wx',mode:0o600});
   return { status: 'SOURCE_SETUP_COMPLETE', consumer, checkpointSha256:hash(jsonBytes(state)),nativeLockSha256: state.nativeLockSha256,

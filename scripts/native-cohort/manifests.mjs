@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import { isAbsolute } from 'node:path';
+import { dirname } from 'node:path';
 
 export const manifestPaths = Object.freeze([
   'package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json',
 ]);
+export const workspacePaths = Object.freeze(manifestPaths.slice(1).map(path => dirname(path)));
+
+export function requireWorkspaceDeclarations(manifest) {
+  assert(Array.isArray(manifest.workspaces), 'literal workspace declarations required');
+  assert.deepEqual([...manifest.workspaces].sort(), [...workspacePaths].sort(), 'unsupported workspace declarations');
+}
 
 /** Only two setup slots change. Callers retain and restore the original bytes. */
 export function projectManifests(originals, archives) {
@@ -14,6 +21,7 @@ export function projectManifests(originals, archives) {
   const parsed = Object.fromEntries(manifestPaths.map(path => [path, JSON.parse(originals[path])]));
   for (const value of Object.values(parsed)) assert.equal(value.private, true);
   const root = parsed['package.json'];
+  requireWorkspaceDeclarations(root);
   assert.equal(root.dependencies.footprintjs, '^13.0.0');
   assert.equal(root.dependencies.foottrace, '^2.0.0');
   assert.equal(root.devDependencies.agentfootprint, '15.0.0-rc.0');

@@ -36,6 +36,11 @@ Both context0.1.0 and AF's context0.1.1 are observed. Hidden directories, alias 
 and workspace links are inspected; installed dependency namespaces are separately recorded, not shipped
 archive members. Installed source-package members equal their original archives; other family/compiler
 images are fingerprinted after normal strict installation and must remain unchanged through the gates.
+The literal workspace declarations must match this closed four-manifest cohort. Every root/workspace
+`node_modules` scope is examined independently; absent scopes are empty, and every present canonical
+directory is visited once. Workspace symlinks do not replace those scans. Hidden aliases/locks in any
+scope participate, and declared local bin links may target any admitted dependency scope. Unknown
+workspace declarations or linked dependency namespaces refuse rather than imply a complete census.
 Every phase and the CLI first require `GITHUB_ACTIONS=true` and the exact
 `GITHUB_REPOSITORY=footprintjs/vizfootprint`; desktop and foreign-repository invocations refuse before I/O.
 

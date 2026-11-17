@@ -8,7 +8,7 @@ import test from 'node:test';
 import { hash } from './admission.mjs';
 import { physicalCensus, requireFamilyCensus, requireMembers, inspectInstalled } from './installed.mjs';
 import { fetchInputs,prepare, verify,restoreDocuments,requireOutside,readCheckpoint,requireOriginalDocuments } from './setup.mjs';
-import { manifestPaths } from './manifests.mjs';
+import { manifestPaths, workspacePaths } from './manifests.mjs';
 import { installedFixture } from './installed-fixture.mjs';
 
 function fixture() { return realpathSync(mkdtempSync(join(tmpdir(), 'viz-native-data-'))); }
@@ -56,6 +56,8 @@ test('complete installed fixture binds native/hidden locks, vendor image, all ow
 });
 
 function packages(root) {
+  for (const path of manifestPaths) put(root,path,JSON.stringify({private:true,
+    ...(path==='package.json'?{workspaces:workspacePaths}:{})}));
   const rows = [['footprintjs', 'footprintjs', '13.0.0'], ['foottrace', 'foottrace', '2.0.0'],
     ['agentfootprint', 'agentfootprint', '15.0.0-rc.0'], ['storydeck', 'footprint-storydeck', '0.13.3'],
     ['contextfootprint', 'contextfootprint', '0.1.0'],

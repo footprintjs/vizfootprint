@@ -4,12 +4,13 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { archive } from './byte-fixture.mjs';
 import { hash } from './admission.mjs';
-import { manifestPaths } from './manifests.mjs';
+import { manifestPaths, workspacePaths } from './manifests.mjs';
 
 export function installedFixture(root) {
   const put = (path, bytes) => { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), bytes); };
   const json = data => Buffer.from(JSON.stringify(data));
-  const originals = Object.fromEntries(manifestPaths.map(path => [path, json({ name: 'viz-fixture', private: true, type: 'module' })]));
+  const originals = Object.fromEntries(manifestPaths.map(path => [path, json({ name: 'viz-fixture', private: true, type: 'module',
+    ...(path === 'package.json' ? { workspaces: workspacePaths } : {}) })]));
   for (const [path, bytes] of Object.entries(originals)) put(path, bytes);
   const packages = {}, images = {};
   const rows = [['footprintjs', 'footprintjs', '13.0.0'], ['foottrace', 'foottrace', '2.0.0'],
