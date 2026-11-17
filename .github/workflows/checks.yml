@@ -17,6 +17,9 @@ jobs:
     name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -29,13 +32,12 @@ jobs:
         with:
           path: vizfootprint
           persist-credentials: false
-      # Preserve the authored sibling file links and test a reproducible source
-      # revision, not a moving branch or a different published package name.
+      # The shared data inspector is fixed source, never a producer rebuild.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: footprintjs/storydeck
-          ref: 5a424b6c61bfb8e07c5c8e7c203ae417e2e05607
-          path: storydeck
+          repository: footprintjs/ci
+          ref: 1ca5d7de9bde68c205b5d140c94dc475ae3b2520
+          path: .ci-tools
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -44,10 +46,22 @@ jobs:
       # Match the family's strict resolver; npm 10 can fail on Vitest 4's
       # optional peer graph before any test runs.
       - run: npm install --global npm@11.19.0
-      - name: Install the linked Storydeck runtime dependencies
-        run: npm ci
-        working-directory: storydeck
-      - run: npm ci
+      - name: Test source-input refusal boundaries without dependencies
+        env:
+          NATIVE_ARCHIVE_PORT: ${{ github.workspace }}/.ci-tools/src/release-route/archive
+        run: |
+          node --test scripts/native-cohort/*.node-test.mjs
+          python3 -B -m unittest discover -s scripts/native-cohort -p '*_test.py'
+      - name: Fetch accepted original source data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          command -v gh >/dev/null
+          command -v python3 >/dev/null
+          node scripts/native-cohort.mjs fetch
+      - name: Prepare strict native source setup without an API token
+        id: native_setup
+        run: node scripts/native-cohort.mjs prepare
       - name: Install the matching real-browser test runtime
         run: npx --no-install playwright-core install --with-deps chromium-headless-shell
       - name: Verify the installed record and engine graph
@@ -69,3 +83,29 @@ jobs:
       # workspace that imports StoryDeck) and keeps its own 100% gate.
       - name: Run the studio tests with their own 100% coverage thresholds
         run: npm run test:studio
+      - name: Verify original inputs, installed bytes and compiler after every gate
+        env:
+          EXPECTED_NATIVE_CHECKPOINT: ${{ steps.native_setup.outputs.checkpoint_sha256 }}
+        run: node scripts/native-cohort.mjs verify | tee "$RUNNER_TEMP/viz-native-cohort/verify-result.json"
+      - name: Retain only compact native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: viz-native-proof-${{ matrix.node }}-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/viz-native-cohort/agentfootprint/admission.json
+            ${{ runner.temp }}/viz-native-cohort/agentfootprint/provider-summary.json
+            ${{ runner.temp }}/viz-native-cohort/storydeck/admission.json
+            ${{ runner.temp }}/viz-native-cohort/storydeck/provider-summary.json
+            ${{ runner.temp }}/viz-native-cohort/originals.json
+            ${{ runner.temp }}/viz-native-cohort/setup-manifests.json
+            ${{ runner.temp }}/viz-native-cohort/native-package-lock.json
+            ${{ runner.temp }}/viz-native-cohort/setup-receipt.json
+            ${{ runner.temp }}/viz-native-cohort/lock-update.json
+            ${{ runner.temp }}/viz-native-cohort/lock-update.log
+            ${{ runner.temp }}/viz-native-cohort/strict-ci.json
+            ${{ runner.temp }}/viz-native-cohort/strict-ci.log
+            ${{ runner.temp }}/viz-native-cohort/restoration.json
+            ${{ runner.temp }}/viz-native-cohort/verify-result.json

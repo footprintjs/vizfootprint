@@ -142,8 +142,8 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "footprintjs": "^13.0.0-rc.0",
-    "foottrace": "^2.0.0-rc.0"
+    "footprintjs": "^13.0.0",
+    "foottrace": "^2.0.0"
   },
   "peerDependencies": {
     "@duckdb/duckdb-wasm": ">=1.29.0 || >=1.33.1-dev",

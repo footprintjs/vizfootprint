@@ -36,23 +36,27 @@ still records the real prior published cohort: footprintjs 12.0.0, Foottrace
 with invented registry locations or integrity for unpublished candidates.
 Plain `npm ci` therefore does not yet match this draft's manifests.
 
-Paired validation must materialize the exact reviewed engine and agent source
-archives, the published Foottrace 2 RC, and a temporary lock before strict
-installation. Every original build, type and runtime check must run against one
-physical Foottrace copy before this cohort is accepted. The ordinary committed
-lock must then be regenerated against actual published candidates before the
-normal source-checkout checks can establish install readiness.
+Native source validation requires the exact accepted, original AgentFootprint15
+candidate and compatible Storydeck source archives, alongside published engine13
+and Foottrace2. It is not registry readiness or a publication of those candidates.
+The temporary workspace lock starts from the real baseline above, updates only the
+four selected dependency requests, and preserves the reviewed vendored
+ContextFootprint0.1.0 input. AgentFootprint also owns published ContextFootprint0.1.1;
+both owners are checked, with one physical engine13 and Foottrace2 throughout.
 
-Studio still declares its existing `storydeck` alias for
-`footprint-storydeck ^0.13.1`. That package's optional engine peer admits 11/12;
-the complete paired install graph and a compatible Storydeck input remain
-unresolved. The alias is neither removed nor overridden to bypass that boundary.
+Studio retains its authored `storydeck` alias for `footprint-storydeck ^0.13.1`.
+Native validation explicitly substitutes the admitted original tarball at that same
+key, records its original package name/version, and restores the alias afterwards.
+No successful registry-alias resolution to unpublished bytes is claimed. Original
+manifest and public-lock bytes are restored before the public package/profile
+gates; actual native-lock and installed-member evidence are retained separately.
+Plain `npm ci` remains unavailable until a genuine published-cohort lock exists.
 
-Pull requests and `main` run the same build, public-package boundary, type and
-100%-coverage checks on Node 22 and 24. CI checks out Storydeck at the exact
-revision named in `.github/workflows/checks.yml` beside this repository, so the
-existing sibling `file:` links remain intact; its public-dependency setup uses
-the committed lockfiles and is not yet a validation of the draft cohort above.
+CI now uses the two fixed, accepted source-input tuples through a read-only data
+fetch, token-absent native setup and final byte/owner guard. The Node22/24 build,
+public-package boundary, type, browser, root100% and Studio100% coverage gates
+remain unchanged. Their actual result on this source combination is required
+before compatibility is established. A sibling checkout is not installation proof.
 CI installs Playwright's matching Chromium headless shell and its
 Linux system dependencies for the real-browser tests. Updating the Storydeck
 revision requires re-running the full checks. The workflow does not publish any

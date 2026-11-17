@@ -1,0 +1,291 @@
+{
+  "agentfootprint": {
+    "status": "NATIVE_SOURCE_READY",
+    "repository": "footprintjs/agentfootprint",
+    "repositoryId": 1183666171,
+    "source": {
+      "head": "ba51c8894945b89c573b6d2d343072eb252fe0bd",
+      "tree": "d12e5a3d2ea8d0ae1b144daeb49bcd5ac5aa4e69",
+      "manifestSha256": "1c2de798e9ee273f0e12d195712de7f219306410fcdf61fab42ed0fd09304ecc",
+      "lockSha256": "20ea40eb006f1c3a36aa1001c26b1b995c557f1ba6f341ccc59b7a5847fd8e10"
+    },
+    "tested": {
+      "head": "16bfe4133fb59c54a1ed11e84cdcb145215fa63e",
+      "tree": "d12e5a3d2ea8d0ae1b144daeb49bcd5ac5aa4e69"
+    },
+    "sourceProtocol": "agentfootprint.source-candidate.v1",
+    "run": {
+      "id": 44176761778,
+      "run_attempt": 1,
+      "workflow_id": 247073236,
+      "name": "CI",
+      "event": "pull_request",
+      "head_branch": "codex/af-next-major-cohort-preparation-20261116",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    "sourceJob": {
+      "id": 134370072364,
+      "name": "test-package (24)",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "sourceArtifact": {
+      "id": 14370846986,
+      "name": "agentfootprint-source-ba51c8894945b89c573b6d2d343072eb252fe0bd",
+      "size_in_bytes": 10463812,
+      "digest": "sha256:014f27b3a9e5a0da6d41caa8d7f5dd48acea0aecfff4d2e59e0d8f906a5cfe63",
+      "expired": false
+    },
+    "archive": {
+      "filename": "agentfootprint-15.0.0-rc.0.tgz",
+      "package": "agentfootprint",
+      "version": "15.0.0-rc.0",
+      "sha256": "52b4678334bb9cb5c92cd935c2bca57993d63d7d58858ead70a40073a268d448",
+      "shasum": "91a719c3a840eb6818c06cf4df7acb62fc2aed26",
+      "integrity": "sha512-m9Tpm3qhJC2vzc545RaApy6yUr4JWjc40ltvT/ZFPlSHe5tY+nY3Q4QcqD1tyKQ/5+NhBp9qQhqWLZMFXVlixQ==",
+      "bytes": 9887223,
+      "memberCount": 11434,
+      "memberCensusSha256": "2bdf015ae217d86fed2d542e20046c2e96db870b0ccc42371f6065d4c31e0dd5"
+    },
+    "expectedTestedParents": [
+      "34e7a95763370c4fa5bbf376e8afaedf142b583d",
+      "ba51c8894945b89c573b6d2d343072eb252fe0bd"
+    ],
+    "qualifyingJobs": [
+      {
+        "id": 134370071686,
+        "name": "test-shard (24, 1)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370071819,
+        "name": "test-shard (24, 2)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370071936,
+        "name": "test-package (22)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370071948,
+        "name": "test-shard (22, 1)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370071993,
+        "name": "test-shard (22, 2)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072087,
+        "name": "test-examples",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072116,
+        "name": "changes",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072146,
+        "name": "file-size / file-size",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072156,
+        "name": "coverage-shard (4)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072201,
+        "name": "test-shard (22, 4)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072208,
+        "name": "test-shard (24, 3)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072228,
+        "name": "coverage-shard (3)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072257,
+        "name": "test-shard (22, 3)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072271,
+        "name": "lint",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072276,
+        "name": "docs-truth",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072307,
+        "name": "test-shard (24, 4)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072312,
+        "name": "hold / hold",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072339,
+        "name": "coverage-shard (2)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072344,
+        "name": "coverage-shard (1)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072364,
+        "name": "test-package (24)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072385,
+        "name": "generated",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072392,
+        "name": "docs-links",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134370072511,
+        "name": "docs",
+        "status": "completed",
+        "conclusion": "failure"
+      },
+      {
+        "id": 134370072612,
+        "name": "tested-tree",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134373677114,
+        "name": "test (22)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134373677165,
+        "name": "test (24)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134374741989,
+        "name": "coverage",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "allowedDocsFailure": {
+      "id": 134370072511,
+      "name": "docs",
+      "conclusion": "failure"
+    }
+  },
+  "storydeck": {
+    "status": "NATIVE_SOURCE_READY",
+    "repository": "footprintjs/storydeck",
+    "repositoryId": 1285657365,
+    "source": {
+      "head": "b6cced161219486e0faad0f1f0e5c1bde43d3c6d",
+      "tree": "463e5b46831a91cb0ce296c40996a88f64bf787a",
+      "manifestSha256": "b6d391ab856d0f3be0a2f56322e0da69ba01fc02a05d6d15829785e920b3b829",
+      "lockSha256": "44f01d69c5b78d90fd84f3f4168b13f55b598e32bc1b737e1d2da88d88f09356"
+    },
+    "tested": {
+      "head": "aa5901362f675c798a2e7f93d58f06c2216ebe81",
+      "tree": "463e5b46831a91cb0ce296c40996a88f64bf787a"
+    },
+    "expectedTestedParents": [
+      "b05539ac9d303066f0cf6106da42cbfc6ad0a91e",
+      "b6cced161219486e0faad0f1f0e5c1bde43d3c6d"
+    ],
+    "sourceProtocol": "storydeck.source-candidate.v1",
+    "run": {
+      "id": 44182001407,
+      "run_attempt": 1,
+      "workflow_id": 377673535,
+      "name": "CI",
+      "event": "pull_request",
+      "head_branch": "codex/lane-c-storydeck-engine13-peer-20261116",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "sourceJob": {
+      "id": 134388485135,
+      "name": "test",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "sourceArtifact": {
+      "id": 14371948116,
+      "name": "storydeck-source-b6cced161219486e0faad0f1f0e5c1bde43d3c6d",
+      "size_in_bytes": 244482,
+      "digest": "sha256:cf13f90cdd753b7786a7386ecfd3601501e79ad8db83a83be3c2e114c3a63cd0",
+      "expired": false
+    },
+    "archive": {
+      "filename": "footprint-storydeck-0.13.3.tgz",
+      "package": "footprint-storydeck",
+      "version": "0.13.3",
+      "sha256": "741e86b50d4dd0cd8bcd59f83ed80354aabaf55930a7cf6d16ea4e63f3eb8c9e",
+      "shasum": "6517572ccee44265f90c8aa3f64b6f3d12277b8b",
+      "integrity": "sha512-vdNm6JRfpi8IqQLRN13r04CbZsh4x3ftofudd7d95dsVswDGp4km0896oL7PJCIE1BLrdnpQPXwJELb0H/GxTg==",
+      "bytes": 209954,
+      "memberCount": 81,
+      "memberCensusSha256": "6fef257849c88c528e488552ade9fd18fc6062d929b6a6dc01953694cf79e406"
+    },
+    "qualifyingJobs": [
+      {
+        "id": 134388485135,
+        "name": "test",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ],
+    "reviewBinding": {
+      "sha256": "bddd1a231f3b2edd430e4f3a5380faa0ff2a374b382b621cebf3fce36a5e04f6",
+      "scope": "Current producer source/native/original archive only; no downstream carry"
+    }
+  }
+}
