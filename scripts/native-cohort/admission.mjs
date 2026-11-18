@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 export const INSPECTOR_HEAD = '1ca5d7de9bde68c205b5d140c94dc475ae3b2520';
 export const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const archiveProfiles = Object.freeze({
-  // Exact existing ba51 archivePolicy roots/prefixes, not a broadened family profile.
+  // Existing source-candidate package roots/prefixes, not a broadened family profile.
   agentfootprint: ['dist/', 'bin/', 'ai-instructions/', 'AGENTS.md', 'CAPABILITIES.md', 'canonical-notes.json'],
   storydeck: ['dist/', 'plugin/', 'site/public/deck-stage.js', '*.d.ts', '*.css', 'CHANGELOG.md'],
 });

@@ -4,8 +4,8 @@ This private CI library prepares existing workspace gates from two admitted orig
 The Node22/24 workflow now uses those fixed source-only inputs. Actual fresh gate results and review
 are still required; producer admission is not consumer compatibility or registry readiness.
 
-`manifests.mjs` owns exactly four temporary dependency-slot projections: root engine13.0.0 and
-Foottrace2.0.0 exact requests, AF's root development request and Studio's existing `storydeck` key.
+`manifests.mjs` owns exactly four temporary dependency-slot projections: root engine14.0.0-rc.0 and
+Foottrace2.1.0 exact requests, AF's root development request and Studio's existing `storydeck` key.
 The exact registry requests prevent a newer release admitted by the authored caret ranges from entering
 this fixed validation cohort. The Storydeck projection explicitly replaces alias resolution during
 native setup; it does not rename the original `footprint-storydeck` archive. Other fields, workspace
@@ -30,7 +30,7 @@ the fixed setup/restoration transaction. Only `scripts/native-cohort.mjs` may wi
 No downloaded package or helper runs during FETCH. The shared pinned ci1ca inspector owns tar parsing.
 Its existing AF roots include CAPABILITIES.md and canonical-notes.json; Storydeck keeps its own profile.
 
-The future workflow gives `GH_TOKEN` ONLY to FETCH. PREPARE and VERIFY require its absence, re-admit saved
+The workflow gives `GH_TOKEN` ONLY to FETCH. PREPARE and VERIFY require its absence, re-admit saved
 ZIP/receipt/TGZ bytes against fixed `inputs.json`, and never call a GitHub client. PREPARE starts from
 the genuine historical public lock, updates only agentfootprint/storydeck/footprintjs/foottrace requests,
 preserves the vendored context0.1.0/compiler entries, then uses strict ordinary ci and its prepare hook.

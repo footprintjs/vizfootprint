@@ -4,18 +4,22 @@
     "repository": "footprintjs/agentfootprint",
     "repositoryId": 1183666171,
     "source": {
-      "head": "ba51c8894945b89c573b6d2d343072eb252fe0bd",
-      "tree": "d12e5a3d2ea8d0ae1b144daeb49bcd5ac5aa4e69",
-      "manifestSha256": "1c2de798e9ee273f0e12d195712de7f219306410fcdf61fab42ed0fd09304ecc",
-      "lockSha256": "20ea40eb006f1c3a36aa1001c26b1b995c557f1ba6f341ccc59b7a5847fd8e10"
+      "head": "37985a9c4a998a52838905322040a34a63229de8",
+      "tree": "fd33fcad63edc9a9ea750e02feef65355e225832",
+      "manifestSha256": "d6dc726430a4e8e890daf1bc9f513db9ac1aa23f89556b443c51303632bf7c0b",
+      "lockSha256": "c7e65f46a13b92c8417ec27570ae4b64f2a001eb817bff323c00fc4cf324c166"
     },
     "tested": {
-      "head": "16bfe4133fb59c54a1ed11e84cdcb145215fa63e",
-      "tree": "d12e5a3d2ea8d0ae1b144daeb49bcd5ac5aa4e69"
+      "head": "64eba8e10d28f21424985116257484970cc7bdc3",
+      "tree": "fd33fcad63edc9a9ea750e02feef65355e225832"
     },
+    "expectedTestedParents": [
+      "34e7a95763370c4fa5bbf376e8afaedf142b583d",
+      "37985a9c4a998a52838905322040a34a63229de8"
+    ],
     "sourceProtocol": "agentfootprint.source-candidate.v1",
     "run": {
-      "id": 44176761778,
+      "id": 44215477577,
       "run_attempt": 1,
       "workflow_id": 247073236,
       "name": "CI",
@@ -25,201 +29,201 @@
       "conclusion": "failure"
     },
     "sourceJob": {
-      "id": 134370072364,
+      "id": 134504312868,
       "name": "test-package (24)",
       "status": "completed",
       "conclusion": "success"
     },
     "sourceArtifact": {
-      "id": 14370846986,
-      "name": "agentfootprint-source-ba51c8894945b89c573b6d2d343072eb252fe0bd",
-      "size_in_bytes": 10463812,
-      "digest": "sha256:014f27b3a9e5a0da6d41caa8d7f5dd48acea0aecfff4d2e59e0d8f906a5cfe63",
+      "id": 14387843673,
+      "name": "agentfootprint-source-37985a9c4a998a52838905322040a34a63229de8",
+      "size_in_bytes": 10463750,
+      "digest": "sha256:fe47d31a88a9f540abef6c896ca5aa6f9d996cdbd1879dc2690e594b20ccc297",
       "expired": false
     },
     "archive": {
       "filename": "agentfootprint-15.0.0-rc.0.tgz",
       "package": "agentfootprint",
       "version": "15.0.0-rc.0",
-      "sha256": "52b4678334bb9cb5c92cd935c2bca57993d63d7d58858ead70a40073a268d448",
-      "shasum": "91a719c3a840eb6818c06cf4df7acb62fc2aed26",
-      "integrity": "sha512-m9Tpm3qhJC2vzc545RaApy6yUr4JWjc40ltvT/ZFPlSHe5tY+nY3Q4QcqD1tyKQ/5+NhBp9qQhqWLZMFXVlixQ==",
-      "bytes": 9887223,
+      "sha256": "c540187d33440c796c34624d117d026f11921a2c27a7bbda1dd2723128e57cc6",
+      "shasum": "e319da3fd5cf16201c1db1e7cfdcd5b5b356654a",
+      "integrity": "sha512-j1X9y0y4T6u8Gqps3mTl73N6qkbxCe0CB5hjAlOd0fAtQygXIAL3OoEF+ihBZFEcwnpRQ6WfNNgXLrvQsh98+w==",
+      "bytes": 9887236,
       "memberCount": 11434,
-      "memberCensusSha256": "2bdf015ae217d86fed2d542e20046c2e96db870b0ccc42371f6065d4c31e0dd5"
+      "memberCensusSha256": "0f57950538f47be2109c29db06c3192e8a8a83cb26879bc1c825da39794d007e"
     },
-    "expectedTestedParents": [
-      "34e7a95763370c4fa5bbf376e8afaedf142b583d",
-      "ba51c8894945b89c573b6d2d343072eb252fe0bd"
-    ],
     "qualifyingJobs": [
       {
-        "id": 134370071686,
-        "name": "test-shard (24, 1)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370071819,
-        "name": "test-shard (24, 2)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370071936,
-        "name": "test-package (22)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370071948,
-        "name": "test-shard (22, 1)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370071993,
-        "name": "test-shard (22, 2)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072087,
+        "id": 134504312530,
         "name": "test-examples",
         "status": "completed",
         "conclusion": "success"
       },
       {
-        "id": 134370072116,
-        "name": "changes",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072146,
-        "name": "file-size / file-size",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072156,
-        "name": "coverage-shard (4)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072201,
+        "id": 134504312624,
         "name": "test-shard (22, 4)",
         "status": "completed",
         "conclusion": "success"
       },
       {
-        "id": 134370072208,
-        "name": "test-shard (24, 3)",
+        "id": 134504312655,
+        "name": "test-shard (24, 1)",
         "status": "completed",
         "conclusion": "success"
       },
       {
-        "id": 134370072228,
-        "name": "coverage-shard (3)",
+        "id": 134504312696,
+        "name": "test-shard (24, 2)",
         "status": "completed",
         "conclusion": "success"
       },
       {
-        "id": 134370072257,
-        "name": "test-shard (22, 3)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072271,
+        "id": 134504312705,
         "name": "lint",
         "status": "completed",
         "conclusion": "success"
       },
       {
-        "id": 134370072276,
-        "name": "docs-truth",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072307,
+        "id": 134504312753,
         "name": "test-shard (24, 4)",
         "status": "completed",
         "conclusion": "success"
       },
       {
-        "id": 134370072312,
-        "name": "hold / hold",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072339,
-        "name": "coverage-shard (2)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072344,
-        "name": "coverage-shard (1)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072364,
-        "name": "test-package (24)",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072385,
-        "name": "generated",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072392,
-        "name": "docs-links",
-        "status": "completed",
-        "conclusion": "success"
-      },
-      {
-        "id": 134370072511,
+        "id": 134504312782,
         "name": "docs",
         "status": "completed",
         "conclusion": "failure"
       },
       {
-        "id": 134370072612,
+        "id": 134504312797,
+        "name": "coverage-shard (3)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312800,
+        "name": "test-shard (24, 3)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312808,
+        "name": "coverage-shard (2)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312813,
+        "name": "file-size / file-size",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312828,
+        "name": "test-shard (22, 1)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312837,
+        "name": "coverage-shard (1)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312847,
+        "name": "changes",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312852,
+        "name": "generated",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312868,
+        "name": "test-package (24)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312873,
+        "name": "coverage-shard (4)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312911,
         "name": "tested-tree",
         "status": "completed",
         "conclusion": "success"
       },
       {
-        "id": 134373677114,
+        "id": 134504312936,
+        "name": "test-shard (22, 2)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312963,
+        "name": "test-shard (22, 3)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312989,
+        "name": "hold / hold",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504312994,
+        "name": "test-package (22)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504313079,
+        "name": "docs-truth",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134504313228,
+        "name": "docs-links",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 134507106956,
         "name": "test (22)",
         "status": "completed",
         "conclusion": "success"
       },
       {
-        "id": 134373677165,
+        "id": 134507107024,
         "name": "test (24)",
         "status": "completed",
         "conclusion": "success"
       },
       {
-        "id": 134374741989,
+        "id": 134507912946,
         "name": "coverage",
         "status": "completed",
         "conclusion": "success"
       }
     ],
     "allowedDocsFailure": {
-      "id": 134370072511,
+      "id": 134504312782,
       "name": "docs",
       "conclusion": "failure"
+    },
+    "reviewBinding": {
+      "sha256": "3e4a951e6833b2629661d708d6ac65881f7e379f8d88e08515e12d0a3e253ef6",
+      "scope": "Current producer source/native/original archive only; named docs bootstrap hold, no downstream carry"
     }
   },
   "storydeck": {
@@ -227,22 +231,22 @@
     "repository": "footprintjs/storydeck",
     "repositoryId": 1285657365,
     "source": {
-      "head": "b6cced161219486e0faad0f1f0e5c1bde43d3c6d",
-      "tree": "463e5b46831a91cb0ce296c40996a88f64bf787a",
-      "manifestSha256": "b6d391ab856d0f3be0a2f56322e0da69ba01fc02a05d6d15829785e920b3b829",
-      "lockSha256": "44f01d69c5b78d90fd84f3f4168b13f55b598e32bc1b737e1d2da88d88f09356"
+      "head": "62a4954efb957f60d084e0b81561a8288fb76077",
+      "tree": "be22ab79bc4220d3bee787224ad22883d700847a",
+      "manifestSha256": "a7cc73080a6623e3c63b576b8e2d352e9983f08984dbe0ab2c7d83e13230b7cb",
+      "lockSha256": "38cf7eb6ccbb90d6b5daa84cc1bcb892fda575f0e9598bb5c2075fb3291fdd47"
     },
     "tested": {
-      "head": "aa5901362f675c798a2e7f93d58f06c2216ebe81",
-      "tree": "463e5b46831a91cb0ce296c40996a88f64bf787a"
+      "head": "2d3401a59b5a68e9d284cd5556bc55ece027296d",
+      "tree": "be22ab79bc4220d3bee787224ad22883d700847a"
     },
     "expectedTestedParents": [
       "b05539ac9d303066f0cf6106da42cbfc6ad0a91e",
-      "b6cced161219486e0faad0f1f0e5c1bde43d3c6d"
+      "62a4954efb957f60d084e0b81561a8288fb76077"
     ],
     "sourceProtocol": "storydeck.source-candidate.v1",
     "run": {
-      "id": 44182001407,
+      "id": 44215006261,
       "run_attempt": 1,
       "workflow_id": 377673535,
       "name": "CI",
@@ -252,39 +256,39 @@
       "conclusion": "success"
     },
     "sourceJob": {
-      "id": 134388485135,
+      "id": 134502520730,
       "name": "test",
       "status": "completed",
       "conclusion": "success"
     },
     "sourceArtifact": {
-      "id": 14371948116,
-      "name": "storydeck-source-b6cced161219486e0faad0f1f0e5c1bde43d3c6d",
-      "size_in_bytes": 244482,
-      "digest": "sha256:cf13f90cdd753b7786a7386ecfd3601501e79ad8db83a83be3c2e114c3a63cd0",
+      "id": 14388215941,
+      "name": "storydeck-source-62a4954efb957f60d084e0b81561a8288fb76077",
+      "size_in_bytes": 244671,
+      "digest": "sha256:532e5b914da950bd26a32b8bfaf1cbc9aab1ff57f7248cd04507227c89b94079",
       "expired": false
-    },
-    "archive": {
-      "filename": "footprint-storydeck-0.13.3.tgz",
-      "package": "footprint-storydeck",
-      "version": "0.13.3",
-      "sha256": "741e86b50d4dd0cd8bcd59f83ed80354aabaf55930a7cf6d16ea4e63f3eb8c9e",
-      "shasum": "6517572ccee44265f90c8aa3f64b6f3d12277b8b",
-      "integrity": "sha512-vdNm6JRfpi8IqQLRN13r04CbZsh4x3ftofudd7d95dsVswDGp4km0896oL7PJCIE1BLrdnpQPXwJELb0H/GxTg==",
-      "bytes": 209954,
-      "memberCount": 81,
-      "memberCensusSha256": "6fef257849c88c528e488552ade9fd18fc6062d929b6a6dc01953694cf79e406"
     },
     "qualifyingJobs": [
       {
-        "id": 134388485135,
+        "id": 134502520730,
         "name": "test",
         "status": "completed",
         "conclusion": "success"
       }
     ],
+    "archive": {
+      "filename": "footprint-storydeck-0.13.3.tgz",
+      "package": "footprint-storydeck",
+      "version": "0.13.3",
+      "sha256": "072551edb24b1ca7536a5a7bd12f953da84a34d7f2ca2b035c859e216f277bda",
+      "shasum": "ffcc0bd94e1ae9c474790497e549a2dd19178359",
+      "integrity": "sha512-DHrBRtbvIMB96VhwxNjQDhkcG9AZwncwl1QPp2ndyBLh2fnZKLlJFwepaXpPCT2yfHqYl7anj1t3Vc7cI1iOXw==",
+      "bytes": 210109,
+      "memberCount": 81,
+      "memberCensusSha256": "ef9b339f1a4a4533b6a4d16a335b13163b2f83e26deb42168a63632ea49f4ee7"
+    },
     "reviewBinding": {
-      "sha256": "bddd1a231f3b2edd430e4f3a5380faa0ff2a374b382b621cebf3fce36a5e04f6",
+      "sha256": "8df927c3be445ed49ed384911918bf4d95b67e12cdb60170e8295a9d88203f86",
       "scope": "Current producer source/native/original archive only; no downstream carry"
     }
   }

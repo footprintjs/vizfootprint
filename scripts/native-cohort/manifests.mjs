@@ -22,13 +22,13 @@ export function projectManifests(originals, archives) {
   for (const value of Object.values(parsed)) assert.equal(value.private, true);
   const root = parsed['package.json'];
   requireWorkspaceDeclarations(root);
-  assert.equal(root.dependencies.footprintjs, '^13.0.0');
-  assert.equal(root.dependencies.foottrace, '^2.0.0');
+  assert.equal(root.dependencies.footprintjs, '^14.0.0-rc.0');
+  assert.equal(root.dependencies.foottrace, '^2.1.0');
   assert.equal(root.devDependencies.agentfootprint, '15.0.0-rc.0');
   const studio = parsed['studio/package.json'];
   assert.equal(studio.devDependencies.storydeck, 'npm:footprint-storydeck@^0.13.1');
-  root.dependencies.footprintjs = '13.0.0';
-  root.dependencies.foottrace = '2.0.0';
+  root.dependencies.footprintjs = '14.0.0-rc.0';
+  root.dependencies.foottrace = '2.1.0';
   root.devDependencies.agentfootprint = 'file:' + archives.agentfootprint;
   studio.devDependencies.storydeck = 'file:' + archives.storydeck;
   return Object.fromEntries(manifestPaths.map(path => [path,

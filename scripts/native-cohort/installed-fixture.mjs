@@ -13,7 +13,7 @@ export function installedFixture(root) {
     ...(path === 'package.json' ? { workspaces: workspacePaths } : {}) })]));
   for (const [path, bytes] of Object.entries(originals)) put(path, bytes);
   const packages = {}, images = {};
-  const rows = [['footprintjs', 'footprintjs', '13.0.0'], ['foottrace', 'foottrace', '2.0.0'],
+  const rows = [['footprintjs', 'footprintjs', '14.0.0-rc.0'], ['foottrace', 'foottrace', '2.1.0'],
     ['agentfootprint', 'agentfootprint', '15.0.0-rc.0'], ['storydeck', 'footprint-storydeck', '0.13.3'],
     ['contextfootprint', 'contextfootprint', '0.1.0'],
     ['agentfootprint/node_modules/contextfootprint', 'contextfootprint', '0.1.1'], ['typescript', 'typescript', '5.9.3']];

@@ -119,7 +119,7 @@ function ownerManifest(file) {
 
 export function requireFamilyCensus(census) {
   const byName = name => census.packages.filter(p => p.name === name);
-  for (const [name, version] of Object.entries({ footprintjs: '13.0.0', foottrace: '2.0.0',
+  for (const [name, version] of Object.entries({ footprintjs: '14.0.0-rc.0', foottrace: '2.1.0',
     agentfootprint: '15.0.0-rc.0', 'footprint-storydeck': '0.13.3' })) {
     assert.equal(byName(name).length, 1, `one physical ${name} required`);
     assert.equal(byName(name)[0].version, version);
@@ -141,7 +141,7 @@ export function inspectInstalled({ root, originals, nativeLock, admitted, archiv
     for (const key of ['version', 'resolved', 'integrity', 'link']) assert.deepEqual(record[key], lock.packages[path][key]);
   }
   const census = physicalCensus(root, parse), byName = requireFamilyCensus(census);
-  const selected = { footprintjs: '13.0.0', foottrace: '2.0.0', agentfootprint: '15.0.0-rc.0', 'footprint-storydeck': '0.13.3' };
+  const selected = { footprintjs: '14.0.0-rc.0', foottrace: '2.1.0', agentfootprint: '15.0.0-rc.0', 'footprint-storydeck': '0.13.3' };
   for (const [name, version] of Object.entries(selected)) {
     const key = relative(root, byName(name)[0].root).split('\\').join('/'), record = lock.packages[key];
     assert(record && record.version === version && hidden.packages[key], 'selected package missing from normal/hidden lock');

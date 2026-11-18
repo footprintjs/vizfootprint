@@ -20,16 +20,16 @@ crosses out of this package. Which symbol belongs on a barrel, which earns a
 subpath, and why the two resolutions (`dist/` outside, `src/` in a test run) are
 one list twice: [`PACKAGING.md`](PACKAGING.md).
 
-Node.js 22 or newer is required. This draft targets `footprintjs ^13.0.0-rc.0`
-and `foottrace ^2.0.0-rc.0` together. Both are direct dependencies, with no copied
-readers or re-exported Foottrace names. Agent integration targets the proposed
+Node.js 22 or newer is required. This draft targets published `footprintjs ^14.0.0-rc.0`
+and `foottrace ^2.1.0` together. Both are direct dependencies, with no copied
+readers or re-exported Foottrace names. Agent integration targets the unpublished
 `agentfootprint@15.0.0-rc.0` source candidate and the same prerelease peer range.
-These are intended cohort inputs, not claims that the engine or agent candidates
-have been published or that compatibility has passed.
+The engine release candidate and reader are real registry inputs; the agent remains
+a source-archive input. Their declaration does not establish current compatibility.
 
-### Migration: the engine 13 and Foottrace 2 cohort
+### Migration: the engine 14 release candidate and Foottrace 2.1 cohort
 
-The earlier engine 11/12, Foottrace 1 and AgentFootprint 14 ranges are no longer
+The earlier engine 11/12/13, Foottrace 1/2.0 and AgentFootprint 14 ranges are no longer
 the declared target. All four workspaces remain private. The committed lockfile
 still records the real prior published cohort: footprintjs 12.0.0, Foottrace
 1.11.1 and AgentFootprint 14.4.0. It is retained as that baseline, not rewritten
@@ -37,12 +37,12 @@ with invented registry locations or integrity for unpublished candidates.
 Plain `npm ci` therefore does not yet match this draft's manifests.
 
 Native source validation requires the exact accepted, original AgentFootprint15
-candidate and compatible Storydeck source archives, alongside published engine13
-and Foottrace2. It is not registry readiness or a publication of those candidates.
+candidate and compatible Storydeck source archives, alongside published engine14.0.0-rc.0
+and Foottrace2.1.0. It is not registry readiness or a publication of the source candidates.
 The temporary workspace lock starts from the real baseline above, updates only the
 four selected dependency requests, and preserves the reviewed vendored
 ContextFootprint0.1.0 input. AgentFootprint also owns published ContextFootprint0.1.1;
-both owners are checked, with one physical engine13 and Foottrace2 throughout.
+both owners are checked, with one physical engine14RC and Foottrace2.1 throughout.
 
 Studio retains its authored `storydeck` alias for `footprint-storydeck ^0.13.1`.
 Native validation explicitly substitutes the admitted original tarball at that same
@@ -61,8 +61,7 @@ CI installs Playwright's matching Chromium headless shell and its
 Linux system dependencies for the real-browser tests. Updating the Storydeck
 revision requires re-running the full checks. The workflow does not publish any
 package and checks that every workspace stays
-private. The separately tested unpublished engine candidate is not substituted
-into this locked public-dependency check.
+private. No source version is relabelled and the engine candidate is not promoted to stable.
 
 ## Data analysis without a dashboard
 

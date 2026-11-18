@@ -58,13 +58,26 @@ test('complete installed fixture binds native/hidden locks, vendor image, all ow
 function packages(root) {
   for (const path of manifestPaths) put(root,path,JSON.stringify({private:true,
     ...(path==='package.json'?{workspaces:workspacePaths}:{})}));
-  const rows = [['footprintjs', 'footprintjs', '13.0.0'], ['foottrace', 'foottrace', '2.0.0'],
+  const rows = [['footprintjs', 'footprintjs', '14.0.0-rc.0'], ['foottrace', 'foottrace', '2.1.0'],
     ['agentfootprint', 'agentfootprint', '15.0.0-rc.0'], ['storydeck', 'footprint-storydeck', '0.13.3'],
     ['contextfootprint', 'contextfootprint', '0.1.0'],
     ['agentfootprint/node_modules/contextfootprint', 'contextfootprint', '0.1.1']];
   for (const [path, name, version] of rows) put(root, `node_modules/${path}/package.json`, JSON.stringify({ name, version }));
   return rows;
 }
+
+test('legacy core images cannot masquerade as the exact 14RC/2.1 physical graph', () => {
+  const root = fixture();
+  try {
+    packages(root);
+    const census = physicalCensus(root, parse); requireFamilyCensus(census);
+    for (const [engine, trace] of [['13.0.0', '2.0.0'], ['13.0.0', '2.1.0'], ['14.0.0-rc.0', '2.0.0']]) {
+      const changed = census.packages.map(row => ({ ...row,
+        version: row.name === 'footprintjs' ? engine : row.name === 'foottrace' ? trace : row.version }));
+      assert.throws(() => requireFamilyCensus({ packages: changed }));
+    }
+  } finally { rmSync(root, { recursive: true }); }
+});
 
 test('census includes both context owners, alias identity, hidden duplicates and actual links', () => {
   const root = fixture();
