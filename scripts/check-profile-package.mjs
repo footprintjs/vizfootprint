@@ -2,7 +2,7 @@
 // This is a local check: no registry install, network, live database, or browser.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile, cp, lstat, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,13 +53,18 @@ try {
   assert.notEqual(namespaceDirect.bindings[0].nativeField, namespaceDirect.distinctTableAddress);
   // The comparison example needs ContextFootprint, which the LIBRARY does not depend on (its assertion
   // is the library's own shape, `src/data/profile/assertion.types.ts`): install it as a host would —
-  // the reviewed archive under vendor/, offline, beside the packed library.
-  const vendorDir = join(root, 'vendor', 'contextfootprint');
-  const archive = (await readdir(vendorDir)).find(name => name.endsWith('.tgz'));
-  assert(archive, 'vendor/contextfootprint holds the reviewed archive');
+  // the normal locked development install, offline, beside the packed library.
+  const installedComparator = join(root, 'node_modules', 'contextfootprint');
+  assert((await lstat(installedComparator)).isDirectory());
+  assert.equal(await realpath(installedComparator), installedComparator, 'canonical comparator owner required');
+  const comparator = JSON.parse(await readFile(join(installedComparator, 'package.json'), 'utf8'));
+  const authored = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  assert.equal(comparator.name, 'contextfootprint');
+  assert.equal(comparator.version, authored.devDependencies.contextfootprint);
+  assert.equal(Object.keys(comparator.dependencies ?? {}).length, 0);
+  assert.equal(Object.keys(comparator.peerDependencies ?? {}).length, 0);
   const comparatorDir = join(consumer, 'node_modules', 'contextfootprint');
-  await mkdir(comparatorDir, { recursive: true });
-  run('tar', ['-xzf', join(vendorDir, archive), '--strip-components=1', '-C', comparatorDir]);
+  await cp(installedComparator, comparatorDir, { recursive: true, force: false, errorOnExist: true });
   const assertionExample = join(packageDir, 'examples/profile-assertion.mjs');
   const assertionDirect = JSON.parse(run(process.execPath, [assertionExample], consumer));
   assert.equal(assertionDirect.observedValue, 10);

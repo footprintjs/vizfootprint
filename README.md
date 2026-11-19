@@ -20,48 +20,36 @@ crosses out of this package. Which symbol belongs on a barrel, which earns a
 subpath, and why the two resolutions (`dist/` outside, `src/` in a test run) are
 one list twice: [`PACKAGING.md`](PACKAGING.md).
 
-Node.js 22 or newer is required. This draft targets published `footprintjs ^14.0.0-rc.0`
-and `foottrace ^2.1.0` together. Both are direct dependencies, with no copied
-readers or re-exported Foottrace names. Agent integration targets the unpublished
-`agentfootprint@15.0.0-rc.0` source candidate and the same prerelease peer range.
-The engine release candidate and reader are real registry inputs; the agent remains
-a source-archive input. Their declaration does not establish current compatibility.
+Node.js 22 or newer is required. The host supplies the required `footprintjs ^14.0.0`
+peer; development uses engine 14.0.0. Viz executes the host's analysis charts, so
+one physical engine must own both ends of that boundary. `foottrace ^2.1.0` is a
+runtime dependency: Viz owns its recorded-value readers, without copied readers
+or re-exported Foottrace names. Agent integration uses published AgentFootprint15.
 
-### Migration: the engine 14 release candidate and Foottrace 2.1 cohort
+### Migration: stable engine 14 and Foottrace 2.1
 
-The earlier engine 11/12/13, Foottrace 1/2.0 and AgentFootprint 14 ranges are no longer
-the declared target. All four workspaces remain private. The committed lockfile
-still records the real prior published cohort: footprintjs 12.0.0, Foottrace
-1.11.1 and AgentFootprint 14.4.0. It is retained as that baseline, not rewritten
-with invented registry locations or integrity for unpublished candidates.
-Plain `npm ci` therefore does not yet match this draft's manifests.
+Engine 11/12/13 and the engine14 release candidate are no longer accepted. Update
+the host's engine and reader together, regenerate its genuine lock, and keep one
+physical engine and reader across the application and Viz. The runtime metadata
+change is breaking; this private source draft leaves package versions unchanged
+and creates no npm release. All four workspaces remain private.
 
-Native source validation requires the exact accepted, original AgentFootprint15
-candidate and compatible Storydeck source archives, alongside published engine14.0.0-rc.0
-and Foottrace2.1.0. It is not registry readiness or a publication of the source candidates.
-The temporary workspace lock starts from the real baseline above, updates only the
-four selected dependency requests, and preserves the reviewed vendored
-ContextFootprint0.1.0 input. AgentFootprint also owns published ContextFootprint0.1.1;
-both owners are checked, with one physical engine14RC and Foottrace2.1 throughout.
+Required checks use the committed normal dependency graph. They never fetch a
+sibling's source-run artifact or ask whether a newer sibling release exists.
+The historical native-input fixtures remain boundary regression tests, not the
+current installation route. Both original coverage gates remain at 100%.
 
-Studio retains its authored `storydeck` alias for `footprint-storydeck ^0.13.1`.
-Native validation explicitly substitutes the admitted original tarball at that same
-key, records its original package name/version, and restores the alias afterwards.
-No successful registry-alias resolution to unpublished bytes is claimed. Original
-manifest and public-lock bytes are restored before the public package/profile
-gates; actual native-lock and installed-member evidence are retained separately.
-Plain `npm ci` remains unavailable until a genuine published-cohort lock exists.
+The development comparator is published ContextFootprint0.1.1, installed normally
+from the committed lock. No sibling archive is stored in this repository. The
+packed comparison example still runs offline against that actual installed
+comparator, and the dependency-free profile bundle keeps its existing checks.
+Studio uses the published `footprint-storydeck ^0.14.1` alias with its engine14
+peer; its optional integration remains outside the UI library's dependency wall.
 
-CI now uses the two fixed, accepted source-input tuples through a read-only data
-fetch, token-absent native setup and final byte/owner guard. The Node22/24 build,
-public-package boundary, type, browser, root100% and Studio100% coverage gates
-remain unchanged. Their actual result on this source combination is required
-before compatibility is established. A sibling checkout is not installation proof.
-CI installs Playwright's matching Chromium headless shell and its
-Linux system dependencies for the real-browser tests. Updating the Storydeck
-revision requires re-running the full checks. The workflow does not publish any
-package and checks that every workspace stays
-private. No source version is relabelled and the engine candidate is not promoted to stable.
+Viz is not published on npm. The hosted source run builds and retains the actual
+`npm pack` snapshot, its SHA256, and exact source/run provenance for app use. A
+packed build is not a claim that an application has adopted or tested it. See
+[CHANGELOG.md](CHANGELOG.md) for the migration and corrections to the old notes.
 
 ## Data analysis without a dashboard
 

@@ -42,7 +42,7 @@ export function requireMembers(root, admitted) {
     dependencyRoots: actual.dependencyRoots }; // Separately scanned install namespaces, never shipped members.
 }
 
-function owner(entry, name, parse) {
+export function owner(entry, name, parse) {
   let path = dirname(realpathSync(entry));
   for (;;) {
     try {

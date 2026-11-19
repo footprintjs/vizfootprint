@@ -394,12 +394,13 @@ ContextFootprint is NOT a dependency of the packed library. `profileStatisticAss
 returns the library's own `ProfileAssertion` (`src/data/profile/assertion.types.ts`),
 which is structurally ContextFootprint's `Assertion` — the port is our shape, and a
 host that uses ContextFootprint hands the record to its comparator untouched. The
-package is pinned at 0.1.0 as a dev-time dependency of this repository only, for
-the compile-time pin that the two shapes stay assignable and for the comparison
-example; the tracked lockfile resolves it to the reviewed archive under
-`vendor/contextfootprint` (preserve that lockfile while the package remains
-unpublished on npm). Its source commit, integrity and update procedure are in
-`vendor/contextfootprint/README.md`.
+package is pinned at published 0.1.1 as a dev-time dependency of this repository
+only, for the compile-time pin that both assertion shapes stay assignable and for
+the comparison example. Normal `npm ci` supplies the comparator from the committed
+lock. The package check copies that actual installed package into its disposable
+consumer, including its license and both module builds; it never fetches a live
+release or reads a stored sibling archive. Viz's packed runtime does not depend
+on the comparator.
 
 The package check runs the observation/comparison example against the actual
 packed archive, then bundles and runs it without any installed packages. Ordinary

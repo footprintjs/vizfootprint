@@ -1,4 +1,17 @@
-# Viz native cohort setup
+# Viz installed-cohort checks
+
+The current required workflow installs the normal committed public dependency graph.
+`published.mjs` reuses the physical namespace census in `installed.mjs` to require one
+stable engine and reader, all workspace/owner resolutions, and genuine normal/hidden
+lock agreement. `node scripts/native-cohort.mjs identity` runs that observation without
+an API token. The host owns the engine peer; Viz owns the reader dependency.
+
+## Historical source-input boundary fixtures
+
+The remaining FETCH/PREPARE/VERIFY modules and inert fixtures describe the earlier
+reviewed RC installation route. They remain regression checks for those boundaries;
+the current required workflow never activates those producer effects. Old source
+proofs remain historical and do not establish stable compatibility.
 
 This private CI library prepares existing workspace gates from two admitted original source archives.
 The Node22/24 workflow now uses those fixed source-only inputs. Actual fresh gate results and review

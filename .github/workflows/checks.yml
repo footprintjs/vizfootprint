@@ -13,13 +13,64 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Preparation is a report, not a freshness gate: only the committed lock owns
+  # required installation. A later npm publish cannot invalidate an unchanged head.
+  lock-refresh:
+    name: Lock preparation report
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: changed
+        env:
+          SOURCE_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --quiet "$SOURCE_BASE" HEAD -- package.json package-lock.json ui/package.json studio/package.json bridges/vega-lite/package.json; then
+            echo 'value=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'value=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        if: steps.changed.outputs.value == 'true'
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - if: steps.changed.outputs.value == 'true'
+        run: npm install --global npm@11.19.0
+      - if: steps.changed.outputs.value == 'true'
+        name: Generate real lock bytes without builds or lifecycle hooks
+        run: |
+          npm install --package-lock-only --ignore-scripts --strict-peer-deps --no-audit --no-fund
+          git diff --exit-code -- package.json ui/package.json studio/package.json bridges/vega-lite/package.json
+          mkdir "$RUNNER_TEMP/viz-lock"
+          cp package-lock.json "$RUNNER_TEMP/viz-lock/package-lock.json"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { createHash } from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          const hashes = Object.fromEntries(['package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json', 'package-lock.json'].map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')]));
+          writeFileSync(join(process.env.RUNNER_TEMP, 'viz-lock/source.json'), JSON.stringify({ head: git('rev-parse', 'HEAD'), tree: git('rev-parse', 'HEAD^{tree}'), run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, hashes }, null, 2) + '\n');
+          NODE
+      - if: steps.changed.outputs.value == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: viz-lock-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/viz-lock/
+          if-no-files-found: error
+          retention-days: 7
+
   check:
     name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: read
-      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -30,42 +81,37 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: vizfootprint
           persist-credentials: false
-      # The shared data inspector is fixed source, never a producer rebuild.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Immutable test-tool source, not a mutable sibling run or source package.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: footprintjs/ci
           ref: 1ca5d7de9bde68c205b5d140c94dc475ae3b2520
           path: .ci-tools
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
-      # Match the family's strict resolver; npm 10 can fail on Vitest 4's
+      # Match the family's strict resolver; npm10 can fail on Vitest4's
       # optional peer graph before any test runs.
       - run: npm install --global npm@11.19.0
-      - name: Test source-input refusal boundaries without dependencies
+      - name: Keep historical refusal boundaries and current published identity controls
         env:
           NATIVE_ARCHIVE_PORT: ${{ github.workspace }}/.ci-tools/src/release-route/archive
         run: |
           node --test scripts/native-cohort/*.node-test.mjs
           python3 -B -m unittest discover -s scripts/native-cohort -p '*_test.py'
-      - name: Fetch accepted original source data
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          command -v gh >/dev/null
-          command -v python3 >/dev/null
-          node scripts/native-cohort.mjs fetch
-      - name: Prepare strict native source setup without an API token
-        id: native_setup
-        run: node scripts/native-cohort.mjs prepare
+      - name: Install the committed published graph normally
+        run: npm ci --strict-peer-deps
       - name: Install the matching real-browser test runtime
         run: npx --no-install playwright-core install --with-deps chromium-headless-shell
       - name: Verify the installed record and engine graph
-        run: npm ls agentfootprint footprintjs foottrace --all
+        run: |
+          npm ls agentfootprint footprintjs foottrace --all
+          node scripts/native-cohort.mjs identity
       - name: Keep every workspace private
         run: |
           node --input-type=module -e "import {readFileSync} from 'node:fs'; for (const file of ['package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json']) { if (JSON.parse(readFileSync(file, 'utf8')).private !== true) throw new Error(file + ' must stay private'); }"
@@ -79,33 +125,31 @@ jobs:
       - run: npm run check:profile-package
       - name: Run all tests with the existing 100% coverage thresholds
         run: npm run test:coverage
-      # The app layer runs under its own config (it resolves the BUILT ui package and is the one
-      # workspace that imports StoryDeck) and keeps its own 100% gate.
+      # Studio is the app layer: it resolves the BUILT UI package, is the one
+      # workspace importing Storydeck, and keeps its independent 100% gate.
       - name: Run the studio tests with their own 100% coverage thresholds
         run: npm run test:studio
-      - name: Verify original inputs, installed bytes and compiler after every gate
-        env:
-          EXPECTED_NATIVE_CHECKPOINT: ${{ steps.native_setup.outputs.checkpoint_sha256 }}
-        run: node scripts/native-cohort.mjs verify | tee "$RUNNER_TEMP/viz-native-cohort/verify-result.json"
-      - name: Retain only compact native evidence
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Keep physical core ownership after all source gates
+        run: node scripts/native-cohort.mjs identity
+      - name: Pack the actual reviewed source for app snapshot consumption
+        run: |
+          mkdir "$RUNNER_TEMP/viz-pack"
+          npm pack --ignore-scripts --json --workspaces=false --pack-destination "$RUNNER_TEMP/viz-pack" > "$RUNNER_TEMP/viz-pack/npm-pack.json"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { createHash } from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          const dir = join(process.env.RUNNER_TEMP, 'viz-pack');
+          const [pack] = JSON.parse(readFileSync(join(dir, 'npm-pack.json')));
+          if (!pack || pack.filename !== `vizfootprint-${pack.version}.tgz`) throw Error('Unexpected pack basename');
+          const raw = readFileSync(join(dir, pack.filename));
+          writeFileSync(join(dir, 'source.json'), JSON.stringify({ head: git('rev-parse', 'HEAD'), tree: git('rev-parse', 'HEAD^{tree}'), run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, node: process.version, filename: pack.filename, bytes: raw.length, sha256: createHash('sha256').update(raw).digest('hex') }, null, 2) + '\n');
+          NODE
+      - uses: actions/upload-artifact@v4
         with:
-          name: viz-native-proof-${{ matrix.node }}-${{ github.sha }}
-          if-no-files-found: warn
+          name: viz-pack-${{ matrix.node }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/viz-pack/
+          if-no-files-found: error
           retention-days: 7
-          path: |
-            ${{ runner.temp }}/viz-native-cohort/agentfootprint/admission.json
-            ${{ runner.temp }}/viz-native-cohort/agentfootprint/provider-summary.json
-            ${{ runner.temp }}/viz-native-cohort/storydeck/admission.json
-            ${{ runner.temp }}/viz-native-cohort/storydeck/provider-summary.json
-            ${{ runner.temp }}/viz-native-cohort/originals.json
-            ${{ runner.temp }}/viz-native-cohort/setup-manifests.json
-            ${{ runner.temp }}/viz-native-cohort/native-package-lock.json
-            ${{ runner.temp }}/viz-native-cohort/setup-receipt.json
-            ${{ runner.temp }}/viz-native-cohort/lock-update.json
-            ${{ runner.temp }}/viz-native-cohort/lock-update.log
-            ${{ runner.temp }}/viz-native-cohort/strict-ci.json
-            ${{ runner.temp }}/viz-native-cohort/strict-ci.log
-            ${{ runner.temp }}/viz-native-cohort/restoration.json
-            ${{ runner.temp }}/viz-native-cohort/verify-result.json
