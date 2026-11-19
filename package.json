@@ -1,6 +1,6 @@
 {
   "name": "vizfootprint",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Experimental Beta: Causal/agent provenance layer for coordinated interactive visualization \u2014 cause-tagged clauses on a selection port (built-in, or Mosaic behind an optional adapter), append-only branching provenance, declared analyses with online FDR. Part of the footprintjs family.",
   "type": "module",

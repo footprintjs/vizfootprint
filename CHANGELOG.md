@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 — 2026-11-19
 
 ### Migration: next major — stable engine 14 and Foottrace 2.1
 
-This is a breaking host/dependency contract and requires the next major; current private snapshot versions stay unchanged in this draft.
+This is a breaking host/dependency contract. Viz moves from 0.1.0 to its next major,
+1.0.0; the workspace privacy flags stay unchanged. Release and publication remain
+the coordinator's separate reviewed steps.
 
 - Require the host's `footprintjs ^14.0.0` as a peer and use engine 14.0.0 in development.
   `AnalysisDef.build()` returns the host's chart and Viz executes it, so both must
@@ -13,8 +15,8 @@ This is a breaking host/dependency contract and requires the next major; current
   The genuine hosted lock selects published Foottrace 2.2.0 within that range.
 - Develop and test against published AgentFootprint 15 and the compatible published
   Storydeck 0.14.1 Studio alias. Regenerate the real lock with npm; do not relabel old
-  lock entries or substitute source-candidate archives. Private flags and package
-  versions stay unchanged; no release, tag or npm publication is part of this draft.
+  lock entries or substitute source-candidate archives. All four privacy flags
+  stay unchanged; no release, tag or npm publication is part of this draft.
 - Replace the stored ContextFootprint 0.1.0 development archive with published 0.1.1.
   Its assertion/comparison API matches the existing tests. The packed comparison
   example copies the actual locked install offline; every comparison, attribution,
@@ -25,6 +27,10 @@ This is a breaking host/dependency contract and requires the next major; current
   The RC-only per-command byte/compiler snapshots retire; normal lock integrity,
   physical identity, actual compiler tests and source-to-packed-manifest equality
   remain. This is not a claim that normal checks reproduce the retired snapshots.
+- Keep only the normal installed-identity import closure and its behavior tests.
+  The candidate-only RC route and its fault fixtures never existed on main;
+  preserve their unchanged source on `archive/rc-native-input` at
+  `75d7e9828b156a6aab4aa2e0e3fec5c607526ba8` rather than adding inactive code.
 - Pin the Node 22/24 source and real-browser jobs to supported Ubuntu 24.04.
   The moving `ubuntu-latest` alias selected Ubuntu 26.04, where the locked browser
   install's requested apt fonts were unavailable. The browser tests, 20-minute
@@ -32,6 +38,12 @@ This is a breaking host/dependency contract and requires the next major; current
 - Retain the actual reviewed-head Viz pack, SHA256 and source/run provenance from
   hosted CI for app snapshot consumption. A successful package build does not prove
   an app uses it.
+- The genuine lock regeneration also changes the browser test driver from
+  Playwright 1.61.1 to 1.65.1, and its Chrome Headless Shell from 149.0.7827.55 to
+  159.0.8154.6. The unchanged capped-Sheet test exposed an invalid exact equality
+  between differently rounded scroll measurements. Use the web platform's one
+  CSS-pixel bottom check and directly assert that the last row is rendered inside
+  the viewport; keep the canvas, last-row identity and other product assertions.
 
 ### Corrections to the previous migration notes
 

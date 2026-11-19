@@ -1,91 +1,48 @@
-# Viz installed-cohort checks
+# Published install identity
 
-The current required workflow installs the normal committed public dependency graph.
-`published.mjs` reuses the physical namespace census in `installed.mjs` to require one
-stable engine and reader, all workspace/owner resolutions, and genuine normal/hidden
-lock agreement. `node scripts/native-cohort.mjs identity` runs that observation without
-an API token. The host owns the engine peer; Viz owns the reader dependency.
-The normal source path uses committed lock integrity, standard Git cleanliness,
-the actual compiler's type/build tests and source-to-packed-manifest equality.
-The earlier RC per-command image/compiler/checkpoint snapshots retire from active
-CI; they are not equivalent to these normal checks. Any family-wide additional
-mutation guard belongs once in shared CI, not in a Viz-specific adapter.
+This private CI helper observes the normal committed dependency installation.
+The workflow calls `node scripts/native-cohort.mjs identity` before and after the
+source gates. The historical directory name remains so those callers have one
+fixed entry. The command requires this repository's Actions environment and no
+API token; it never fetches a producer, installs a package or imports package
+runtime code.
 
-## Historical source-input boundary fixtures
+The host owns the required engine peer. Viz owns its Foottrace reader dependency.
+One physical engine and reader must serve every declared workspace and installed
+family owner. Normal and hidden lock entries must agree with the installed
+versions and the authored stable ranges. Hidden directories and alias package
+manifests participate in the census; workspace links do not replace the separate
+scan of each workspace-owned dependency namespace. A declared local bin link may
+target an admitted dependency namespace. Unknown workspace declarations and
+aliased namespaces refuse rather than imply a complete census.
 
-The remaining FETCH/PREPARE/VERIFY modules and inert fixtures describe the earlier
-reviewed RC installation route. They remain regression checks for those boundaries;
-the current required workflow never activates those producer effects. Old source
-proofs remain historical and do not establish stable compatibility.
+## Files and callers
 
-Code intentionally left for the follow-up cleanup card: the facade's historical
-FETCH/PREPARE/VERIFY branches; `setup.mjs` transaction/restoration/checkpoint helpers;
-`inputs.json`; producer admission and transport functions; `zip_input.py`; native
-member/family/compiler snapshot functions in `installed.mjs`; and
-`manifests.mjs`'s source-archive projection. Their `admission`, `config`, `manifests`,
-`installed`, `workspace-census` and ZIP fault tests plus `byte-fixture.mjs` and
-`installed-fixture.mjs` remain intact. The normal physical census, owner resolution
-and workspace declaration helpers are still active and must not be removed.
+| File | Responsibility and caller |
+| --- | --- |
+| `../native-cohort.mjs` | Fixed identity CLI, called by `.github/workflows/checks.yml`. |
+| `published.mjs` | `inspectPublished`, called by the CLI and its focused tests. |
+| `installed.mjs` | Physical census and resolved package owners, called by `published.mjs` and census tests. |
+| `manifests.mjs` | The closed root/UI/Studio/bridge workspace declarations, used by the census and fixtures. |
+| `files.mjs` | Canonical regular-file reads and raw digests, used by the census and published observer. |
+| `published-fixture.mjs` | Inert installed metadata for the two focused test files; entry text must never execute. |
+| `published.node-test.mjs` | Stable declarations, coherent stale versions, locks, physical copies and required-peer controls. |
+| `workspace-census.node-test.mjs` | Four-namespace hidden copy/lock faults, once-only workspace scans, declared bins and namespace refusal. |
 
-This private CI library prepares existing workspace gates from two admitted original source archives.
-The Node22/24 workflow now uses those fixed source-only inputs. Actual fresh gate results and review
-are still required; producer admission is not consumer compatibility or registry readiness.
+Run the focused data-only controls with:
 
-`manifests.mjs` owns exactly four temporary dependency-slot projections: root engine14.0.0-rc.0 and
-Foottrace2.1.0 exact requests, AF's root development request and Studio's existing `storydeck` key.
-The exact registry requests prevent a newer release admitted by the authored caret ranges from entering
-this fixed validation cohort. The Storydeck projection explicitly replaces alias resolution during
-native setup; it does not rename the original `footprint-storydeck` archive. Other fields, workspace
-privacy and original input bytes are preserved. The owning setup workflow must retain and restore the
-exact authored caret ranges and all original bytes/modes, including after installation failure.
-
-```mermaid
-flowchart LR
-  fetch[FETCH: token-only public metadata + original ZIP data] --> admit[Fixed provider/head/tree/parent/gate/archive admission]
-  admit --> prepare[PREPARE: no API token; re-admit saved originals]
-  prepare --> lock[Baseline-derived four-name lock update + strict original-hook ci]
-  lock --> guard[Actual members / all physical owners / compiler / locks]
-  guard --> restore[Restore immutable Git manifest + public-lock bytes and modes]
-  restore --> gates[Existing build / types / browser / two 100% gates]
-  gates --> verify[VERIFY: re-admit original archives + prior-step checkpoint + installed guard]
+```sh
+node --test scripts/native-cohort/*.node-test.mjs
 ```
 
-`admission.mjs` owns fixed provider/receipt semantics; `zip_input.py` owns the original-ZIP boundary;
-`transport.mjs` owns read-only provider/data capture and saved-data re-admission; `manifests.mjs` owns
-the four projections; `installed.mjs` owns physical/member/lock/compiler observations; `setup.mjs` owns
-the fixed setup/restoration transaction. Only `scripts/native-cohort.mjs` may wire these private units.
-No downloaded package or helper runs during FETCH. The shared pinned ci1ca inspector owns tar parsing.
-Its existing AF roots include CAPABILITIES.md and canonical-notes.json; Storydeck keeps its own profile.
+The normal path uses committed lock integrity, standard Git cleanliness, the
+actual compiler's type/build tests and source-to-packed-manifest equality.
+It does not claim to reproduce the retired RC per-command byte/compiler snapshots.
+Any additional family-wide mutation guard belongs once in shared CI, not in a
+Viz-specific adapter.
 
-The workflow gives `GH_TOKEN` ONLY to FETCH. PREPARE and VERIFY require its absence, re-admit saved
-ZIP/receipt/TGZ bytes against fixed `inputs.json`, and never call a GitHub client. PREPARE starts from
-the genuine historical public lock, updates only agentfootprint/storydeck/footprintjs/foottrace requests,
-preserves the vendored context0.1.0/compiler entries, then uses strict ordinary ci and its prepare hook.
-Both context0.1.0 and AF's context0.1.1 are observed. Hidden directories, alias package manifests, bin links
-and workspace links are inspected; installed dependency namespaces are separately recorded, not shipped
-archive members. Installed source-package members equal their original archives; other family/compiler
-images are fingerprinted after normal strict installation and must remain unchanged through the gates.
-The literal workspace declarations must match this closed four-manifest cohort. Every root/workspace
-`node_modules` scope is examined independently; absent scopes are empty, and every present canonical
-directory is visited once. Workspace symlinks do not replace those scans. Hidden aliases/locks in any
-scope participate, and declared local bin links may target any admitted dependency scope. Unknown
-workspace declarations or linked dependency namespaces refuse rather than imply a complete census.
-Every phase and the CLI first require `GITHUB_ACTIONS=true` and the exact
-`GITHUB_REPOSITORY=footprintjs/vizfootprint`; desktop and foreign-repository invocations refuse before I/O.
-
-PREPARE emits `checkpoint_sha256` as a GitHub step output. VERIFY requires the immutable prior-step
-output as `EXPECTED_NATIVE_CHECKPOINT`; a digest stored beside the mutable checkpoint is never trusted.
-Authored source bytes/modes are re-read from consumer GitHEAD independently of backups/checkpoints.
-Restoration runs on setup failures too and reports restoration failure separately. An uncertain setup
-is consumed, not retried in place. No alternate credentials, dependency overrides or peer bypass exists.
-
-Evidence upload whitelists compact admissions, original/projected manifests and hashes, native
-lock, command result/log records, restoration and final inventory/checkpoint observations. Never upload
-the whole scratch folder, npm cache, duplicate producer ZIP/TGZ, build tree or node_modules. Owned input
-and cache cleanup follows the LAST required guard; public source, historical lock and canonical producer
-evidence remain intact. Local source authoring never installs, builds or packs these inputs. Hosted
-execution validates source inputs; registry publication and public-lock readiness remain separate.
-
-Focused inert checks: `node --test scripts/native-cohort/*.node-test.mjs` with `NATIVE_ARCHIVE_PORT`
-pointing to the pinned shared archive directory, plus `python3 -B -m unittest discover -s
-scripts/native-cohort -p '*_test.py'`. They install, build or execute no package.
+The former source-candidate installation route and its dead fault fixtures are
+preserved unchanged at `archive/rc-native-input`, source
+`75d7e9828b156a6aab4aa2e0e3fec5c607526ba8`. They are not active code or evidence
+of the published installation's compatibility. Original archived proof remains
+outside this repository; this cleanup neither reruns nor replaces it.

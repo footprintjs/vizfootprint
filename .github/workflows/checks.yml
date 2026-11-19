@@ -46,9 +46,8 @@ jobs:
       - if: steps.changed.outputs.value == 'true'
         name: Generate real lock bytes without builds or lifecycle hooks
         run: |
-          # A new major graph must not inherit the old hoisted optional-peer choice.
-          # The immutable prior lock remains in Git; npm creates every new entry.
-          rm package-lock.json
+          # The stable graph is now genuinely locked. Let npm retain it while
+          # regenerating authored metadata; every output byte still comes from npm.
           npm install --package-lock-only --ignore-scripts --strict-peer-deps --no-audit --no-fund
           git diff --exit-code -- package.json ui/package.json studio/package.json bridges/vega-lite/package.json
           mkdir "$RUNNER_TEMP/viz-lock"
@@ -89,13 +88,6 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: vizfootprint
           persist-credentials: false
-      # Immutable test-tool source, not a mutable sibling run or source package.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: footprintjs/ci
-          ref: 1ca5d7de9bde68c205b5d140c94dc475ae3b2520
-          path: .ci-tools
-          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: ${{ matrix.node }}
@@ -103,12 +95,8 @@ jobs:
       # Match the family's strict resolver; npm10 can fail on Vitest4's
       # optional peer graph before any test runs.
       - run: npm install --global npm@11.19.0
-      - name: Keep historical refusal boundaries and current published identity controls
-        env:
-          NATIVE_ARCHIVE_PORT: ${{ github.workspace }}/.ci-tools/src/release-route/archive
-        run: |
-          node --test scripts/native-cohort/*.node-test.mjs
-          python3 -B -m unittest discover -s scripts/native-cohort -p '*_test.py'
+      - name: Keep the normal installed-identity refusal boundaries
+        run: node --test scripts/native-cohort/*.node-test.mjs
       - name: Install the committed published graph normally
         run: npm ci --strict-peer-deps
       - name: Install the matching real-browser test runtime
@@ -134,6 +122,19 @@ jobs:
       # workspace importing Storydeck, and keeps its independent 100% gate.
       - name: Run the studio tests with their own 100% coverage thresholds
         run: npm run test:studio
+      - name: Prove the last-row browser property rejects an unreachable-row mutant
+        if: matrix.node == 22
+        run: node scripts/check-sheet-mutant.mjs
+      - name: Preserve the single negative control and its source restoration
+        if: always() && matrix.node == 22
+        uses: actions/upload-artifact@v4
+        with:
+          name: viz-sheet-mutant-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/viz-sheet-mutation/mutant.log
+            ${{ runner.temp }}/viz-sheet-mutation/result.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Keep locked source and core ownership after all source gates
         run: |
           node scripts/native-cohort.mjs identity

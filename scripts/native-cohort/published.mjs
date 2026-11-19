@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
 import { realpathSync as canonical } from 'node:fs';
-import { regular } from './transport.mjs';
+import { regular } from './files.mjs';
 import { owner, physicalCensus } from './installed.mjs';
 
 export function inspectPublished(root) {
