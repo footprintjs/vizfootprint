@@ -8,6 +8,7 @@
   `AnalysisDef.build()` returns the host's chart and Viz executes it, so both must
   resolve one engine. Older engines and the RC-only range are no longer accepted.
   Keep runtime `foottrace ^2.1.0` and the existing one-physical-reader checks.
+  The genuine hosted lock selects published Foottrace 2.2.0 within that range.
 - Develop and test against published AgentFootprint 15 and the compatible published
   Storydeck 0.14.1 Studio alias. Regenerate the real lock with npm; do not relabel old
   lock entries or substitute source-candidate archives. Private flags and package
