@@ -5,23 +5,16 @@ import { fileURLToPath } from 'node:url';
 import { fetchInputs, prepare, verify,requireWorkflow } from './native-cohort/setup.mjs';
 import { appendFileSync } from 'node:fs';
 import { inspectPublished } from './native-cohort/published.mjs';
-import { checkpointPublished, verifyPublishedCheckpoint } from './native-cohort/published-guard.mjs';
 
 try {
   requireWorkflow(process.env);
   const command = process.argv[2];
-  if (process.argv.length !== 3 || !['fetch','prepare','verify','identity','checkpoint','verify-published'].includes(command)) throw new Error('unknown command');
-  if (['prepare','checkpoint'].includes(command) && !process.env.GITHUB_OUTPUT) throw new Error('step output missing');
+  if (process.argv.length !== 3 || !['fetch','prepare','verify','identity'].includes(command)) throw new Error('unknown command');
+  if (command === 'prepare' && !process.env.GITHUB_OUTPUT) throw new Error('step output missing');
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-  if (['identity','checkpoint','verify-published'].includes(command)) {
+  if (command === 'identity') {
     if (process.env.GH_TOKEN) throw new Error('identity needs no API token');
-    if (command !== 'identity' && !process.env.RUNNER_TEMP) throw new Error('CI paths missing');
-    const args = { root, out: resolve(process.env.RUNNER_TEMP || '.', 'viz-published-cohort'),
-      expectedCheckpoint: process.env.EXPECTED_PUBLISHED_CHECKPOINT };
-    const result = command === 'identity' ? inspectPublished(root)
-      : command === 'checkpoint' ? checkpointPublished(args) : verifyPublishedCheckpoint(args);
-    if (command === 'checkpoint') appendFileSync(process.env.GITHUB_OUTPUT, `checkpoint_sha256=${result.checkpointSha256}\n`);
-    console.log(JSON.stringify(result));
+    console.log(JSON.stringify(inspectPublished(root)));
   } else {
   const inputs = JSON.parse(readFileSync(new URL('./native-cohort/inputs.json', import.meta.url)));
   if (!process.env.RUNNER_TEMP || !process.env.GITHUB_WORKSPACE) throw new Error('CI paths missing');

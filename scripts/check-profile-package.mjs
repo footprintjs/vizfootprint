@@ -27,6 +27,9 @@ try {
   const packageDir = join(consumer, 'node_modules', 'vizfootprint');
   await mkdir(packageDir, { recursive: true });
   run('tar', ['-xzf', join(scratch, packed[0].filename), '--strip-components=1', '-C', packageDir]);
+  const sourceManifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  assert.deepEqual(JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8')), sourceManifest,
+    'The packed manifest must equal the reviewed source manifest');
   await writeFile(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
   assert.deepEqual(await readdir(join(consumer, 'node_modules')), ['vizfootprint']);
   const example = await readFile(join(packageDir, 'examples/profile-data.mjs'), 'utf8');
@@ -58,9 +61,8 @@ try {
   assert((await lstat(installedComparator)).isDirectory());
   assert.equal(await realpath(installedComparator), installedComparator, 'canonical comparator owner required');
   const comparator = JSON.parse(await readFile(join(installedComparator, 'package.json'), 'utf8'));
-  const authored = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   assert.equal(comparator.name, 'contextfootprint');
-  assert.equal(comparator.version, authored.devDependencies.contextfootprint);
+  assert.equal(comparator.version, sourceManifest.devDependencies.contextfootprint);
   assert.equal(Object.keys(comparator.dependencies ?? {}).length, 0);
   assert.equal(Object.keys(comparator.peerDependencies ?? {}).length, 0);
   const comparatorDir = join(consumer, 'node_modules', 'contextfootprint');

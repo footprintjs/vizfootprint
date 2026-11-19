@@ -20,8 +20,9 @@
 - Required CI checks the commit's locked source graph and keeps all original build,
   type, browser/profile and both four-column 100% coverage gates. It no longer fetches
   sibling producer runs. External compatibility observations cannot block a merge.
-  Preserve final installed-image/compiler/lock fingerprints and immutable Git
-  manifest/lock bytes and modes through an authenticated prior-step checkpoint.
+  The RC-only per-command byte/compiler snapshots retire; normal lock integrity,
+  physical identity, actual compiler tests and source-to-packed-manifest equality
+  remain. This is not a claim that normal checks reproduce the retired snapshots.
 - Retain the actual reviewed-head Viz pack, SHA256 and source/run provenance from
   hosted CI for app snapshot consumption. A successful package build does not prove
   an app uses it.

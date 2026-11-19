@@ -112,10 +112,9 @@ jobs:
       - name: Install the matching real-browser test runtime
         run: npx --no-install playwright-core install --with-deps chromium-headless-shell
       - name: Verify the installed record and engine graph
-        id: published_inputs
         run: |
           npm ls agentfootprint footprintjs foottrace --all
-          node scripts/native-cohort.mjs checkpoint
+          node scripts/native-cohort.mjs identity
       - name: Keep every workspace private
         run: |
           node --input-type=module -e "import {readFileSync} from 'node:fs'; for (const file of ['package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json']) { if (JSON.parse(readFileSync(file, 'utf8')).private !== true) throw new Error(file + ' must stay private'); }"
@@ -133,12 +132,11 @@ jobs:
       # workspace importing Storydeck, and keeps its independent 100% gate.
       - name: Run the studio tests with their own 100% coverage thresholds
         run: npm run test:studio
-      - name: Keep source bytes, installed images, compiler and locks after every source gate
-        env:
-          EXPECTED_PUBLISHED_CHECKPOINT: ${{ steps.published_inputs.outputs.checkpoint_sha256 }}
+      - name: Keep locked source and core ownership after all source gates
         run: |
-          node scripts/native-cohort.mjs verify-published > "$RUNNER_TEMP/viz-published-cohort/verify-result.json"
-          cat "$RUNNER_TEMP/viz-published-cohort/verify-result.json"
+          node scripts/native-cohort.mjs identity
+          git diff --exit-code
+          git diff --cached --exit-code
       - name: Pack the actual reviewed source for app snapshot consumption
         run: |
           mkdir "$RUNNER_TEMP/viz-pack"
@@ -150,17 +148,17 @@ jobs:
           import { execFileSync } from 'node:child_process';
           const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
           const dir = join(process.env.RUNNER_TEMP, 'viz-pack');
-          const [pack] = JSON.parse(readFileSync(join(dir, 'npm-pack.json')));
+          const reports = JSON.parse(readFileSync(join(dir, 'npm-pack.json')));
+          if (!Array.isArray(reports) || reports.length !== 1) throw Error('Expected one actual package');
+          const [pack] = reports;
           if (!pack || pack.filename !== `vizfootprint-${pack.version}.tgz`) throw Error('Unexpected pack basename');
           const raw = readFileSync(join(dir, pack.filename));
+          if (raw.length !== pack.size) throw Error('Pack byte count differs from npm report');
           writeFileSync(join(dir, 'source.json'), JSON.stringify({ head: git('rev-parse', 'HEAD'), tree: git('rev-parse', 'HEAD^{tree}'), run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, node: process.version, filename: pack.filename, bytes: raw.length, sha256: createHash('sha256').update(raw).digest('hex') }, null, 2) + '\n');
           NODE
       - uses: actions/upload-artifact@v4
         with:
           name: viz-pack-${{ matrix.node }}-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            ${{ runner.temp }}/viz-pack/
-            ${{ runner.temp }}/viz-published-cohort/checkpoint.json
-            ${{ runner.temp }}/viz-published-cohort/verify-result.json
+          path: ${{ runner.temp }}/viz-pack/
           if-no-files-found: error
           retention-days: 7

@@ -5,11 +5,11 @@ The current required workflow installs the normal committed public dependency gr
 stable engine and reader, all workspace/owner resolutions, and genuine normal/hidden
 lock agreement. `node scripts/native-cohort.mjs identity` runs that observation without
 an API token. The host owns the engine peer; Viz owns the reader dependency.
-The `checkpoint` and `verify-published` operations retain the old installed-byte,
-compiler, normal/hidden-lock and immutable Git-document checks on the normal path.
-The final observation must equal the initial checkpoint authenticated by the prior
-GitHub step output. A rewritten neighboring file cannot approve itself. These byte
-guards do not substitute for the separate product tests and coverage outcomes.
+The normal source path uses committed lock integrity, standard Git cleanliness,
+the actual compiler's type/build tests and source-to-packed-manifest equality.
+The earlier RC per-command image/compiler/checkpoint snapshots retire from active
+CI; they are not equivalent to these normal checks. Any family-wide additional
+mutation guard belongs once in shared CI, not in a Viz-specific adapter.
 
 ## Historical source-input boundary fixtures
 
@@ -17,6 +17,15 @@ The remaining FETCH/PREPARE/VERIFY modules and inert fixtures describe the earli
 reviewed RC installation route. They remain regression checks for those boundaries;
 the current required workflow never activates those producer effects. Old source
 proofs remain historical and do not establish stable compatibility.
+
+Code intentionally left for the follow-up cleanup card: the facade's historical
+FETCH/PREPARE/VERIFY branches; `setup.mjs` transaction/restoration/checkpoint helpers;
+`inputs.json`; producer admission and transport functions; `zip_input.py`; native
+member/family/compiler snapshot functions in `installed.mjs`; and
+`manifests.mjs`'s source-archive projection. Their `admission`, `config`, `manifests`,
+`installed`, `workspace-census` and ZIP fault tests plus `byte-fixture.mjs` and
+`installed-fixture.mjs` remain intact. The normal physical census, owner resolution
+and workspace declaration helpers are still active and must not be removed.
 
 This private CI library prepares existing workspace gates from two admitted original source archives.
 The Node22/24 workflow now uses those fixed source-only inputs. Actual fresh gate results and review
