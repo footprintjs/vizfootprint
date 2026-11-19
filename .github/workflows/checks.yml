@@ -45,10 +45,13 @@ jobs:
         run: npm install --global npm@11.19.0
       - if: steps.changed.outputs.value == 'true'
         name: Generate real lock bytes without builds or lifecycle hooks
+        env:
+          SOURCE_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          # The stable graph is now genuinely locked. Let npm retain it while
-          # regenerating authored metadata; every output byte still comes from npm.
-          npm install --package-lock-only --ignore-scripts --strict-peer-deps --no-audit --no-fund
+          # A migration changes its required packages, not main's whole toolchain.
+          # npm owns every output entry; the main baseline stays independently bound.
+          git show "$SOURCE_BASE:package-lock.json" > package-lock.json
+          npm update agentfootprint footprintjs foottrace storydeck contextfootprint --package-lock-only --ignore-scripts --strict-peer-deps --no-audit --no-fund
           git diff --exit-code -- package.json ui/package.json studio/package.json bridges/vega-lite/package.json
           mkdir "$RUNNER_TEMP/viz-lock"
           cp package-lock.json "$RUNNER_TEMP/viz-lock/package-lock.json"
@@ -58,8 +61,9 @@ jobs:
           import { createHash } from 'node:crypto';
           import { execFileSync } from 'node:child_process';
           const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          const baseline = { head: process.env.SOURCE_BASE, lockSha256: createHash('sha256').update(execFileSync('git', ['show', `${process.env.SOURCE_BASE}:package-lock.json`])).digest('hex') };
           const hashes = Object.fromEntries(['package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json', 'package-lock.json'].map(path => [path, createHash('sha256').update(readFileSync(path)).digest('hex')]));
-          writeFileSync(join(process.env.RUNNER_TEMP, 'viz-lock/source.json'), JSON.stringify({ head: git('rev-parse', 'HEAD'), tree: git('rev-parse', 'HEAD^{tree}'), run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, hashes }, null, 2) + '\n');
+          writeFileSync(join(process.env.RUNNER_TEMP, 'viz-lock/source.json'), JSON.stringify({ head: git('rev-parse', 'HEAD'), tree: git('rev-parse', 'HEAD^{tree}'), run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, baseline, hashes }, null, 2) + '\n');
           NODE
       - if: steps.changed.outputs.value == 'true'
         uses: actions/upload-artifact@v4

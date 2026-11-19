@@ -31,11 +31,12 @@ or re-exported Foottrace names. Agent integration uses published AgentFootprint1
 Engine 11/12/13 and the engine14 release candidate are no longer accepted. Update
 the host's engine and reader together, regenerate its genuine lock, and keep one
 physical engine and reader across the application and Viz. The runtime metadata
-change is breaking; this draft moves Viz to its next major, 1.0.0, and creates no
-npm release. All four workspaces remain private.
+change is breaking in Viz 1.0.0. All four workspaces remain private.
 
 Required checks use the committed normal dependency graph. They never fetch a
 sibling's source-run artifact or ask whether a newer sibling release exists.
+The migration updates only its required packages and preserves main's locked
+development tools; tool upgrades belong in separate changes.
 Only the normal installed-identity controls remain on this path. The retired RC
 route and its fixtures are preserved, unmerged, on `archive/rc-native-input` at
 `75d7e9828b156a6aab4aa2e0e3fec5c607526ba8`. Both original coverage gates remain at 100%.

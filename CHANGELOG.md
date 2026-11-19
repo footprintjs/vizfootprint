@@ -5,8 +5,7 @@
 ### Migration: next major — stable engine 14 and Foottrace 2.1
 
 This is a breaking host/dependency contract. Viz moves from 0.1.0 to its next major,
-1.0.0; the workspace privacy flags stay unchanged. Release and publication remain
-the coordinator's separate reviewed steps.
+1.0.0; all four workspace privacy flags stay unchanged.
 
 - Require the host's `footprintjs ^14.0.0` as a peer and use engine 14.0.0 in development.
   `AnalysisDef.build()` returns the host's chart and Viz executes it, so both must
@@ -15,8 +14,8 @@ the coordinator's separate reviewed steps.
   The genuine hosted lock selects published Foottrace 2.2.0 within that range.
 - Develop and test against published AgentFootprint 15 and the compatible published
   Storydeck 0.14.1 Studio alias. Regenerate the real lock with npm; do not relabel old
-  lock entries or substitute source-candidate archives. All four privacy flags
-  stay unchanged; no release, tag or npm publication is part of this draft.
+  lock entries or substitute source-candidate archives. Preserve main's locked
+  development toolchain while updating these packages and their required inputs.
 - Replace the stored ContextFootprint 0.1.0 development archive with published 0.1.1.
   Its assertion/comparison API matches the existing tests. The packed comparison
   example copies the actual locked install offline; every comparison, attribution,
@@ -38,12 +37,11 @@ the coordinator's separate reviewed steps.
 - Retain the actual reviewed-head Viz pack, SHA256 and source/run provenance from
   hosted CI for app snapshot consumption. A successful package build does not prove
   an app uses it.
-- The genuine lock regeneration also changes the browser test driver from
-  Playwright 1.61.1 to 1.65.1, and its Chrome Headless Shell from 149.0.7827.55 to
-  159.0.8154.6. The unchanged capped-Sheet test exposed an invalid exact equality
-  between differently rounded scroll measurements. Use the web platform's one
-  CSS-pixel bottom check and directly assert that the last row is rendered inside
-  the viewport; keep the canvas, last-row identity and other product assertions.
+- Keep main's development tools: Playwright 1.61.1 and Vitest/coverage 4.1.10,
+  together with their locked inputs. A whole-lock refresh is a separate tool
+  upgrade, not part of this migration. The capped-Sheet test uses the platform's
+  one CSS-pixel bottom check and directly asserts that the last row is rendered
+  inside the viewport; its canvas, last-row identity and other assertions remain.
 
 ### Corrections to the previous migration notes
 
