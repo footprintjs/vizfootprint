@@ -72,7 +72,9 @@ jobs:
 
   check:
     name: Node ${{ matrix.node }}
-    runs-on: ubuntu-latest
+    # Keep the real browser's apt prerequisites on an explicit supported LTS.
+    # The moving latest alias reached Ubuntu 26 before this locked install worked.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false

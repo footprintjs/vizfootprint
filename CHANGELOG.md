@@ -25,6 +25,10 @@ This is a breaking host/dependency contract and requires the next major; current
   The RC-only per-command byte/compiler snapshots retire; normal lock integrity,
   physical identity, actual compiler tests and source-to-packed-manifest equality
   remain. This is not a claim that normal checks reproduce the retired snapshots.
+- Pin the Node 22/24 source and real-browser jobs to supported Ubuntu 24.04.
+  The moving `ubuntu-latest` alias selected Ubuntu 26.04, where the locked browser
+  install's requested apt fonts were unavailable. The browser tests, 20-minute
+  job limits and existing coverage thresholds remain unchanged.
 - Retain the actual reviewed-head Viz pack, SHA256 and source/run provenance from
   hosted CI for app snapshot consumption. A successful package build does not prove
   an app uses it.
