@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-### Migration: stable engine 14 and Foottrace 2.1
+### Migration: next major — stable engine 14 and Foottrace 2.1
+
+This is a breaking host/dependency contract and requires the next major; current private snapshot versions stay unchanged in this draft.
 
 - Require the host's `footprintjs ^14.0.0` as a peer and use engine 14.0.0 in development.
   `AnalysisDef.build()` returns the host's chart and Viz executes it, so both must

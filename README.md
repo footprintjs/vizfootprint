@@ -26,7 +26,7 @@ one physical engine must own both ends of that boundary. `foottrace ^2.1.0` is a
 runtime dependency: Viz owns its recorded-value readers, without copied readers
 or re-exported Foottrace names. Agent integration uses published AgentFootprint15.
 
-### Migration: stable engine 14 and Foottrace 2.1
+### Migration: next major — stable engine 14 and Foottrace 2.1
 
 Engine 11/12/13 and the engine14 release candidate are no longer accepted. Update
 the host's engine and reader together, regenerate its genuine lock, and keep one
