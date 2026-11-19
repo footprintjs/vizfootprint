@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Correct spacing in the migration documentation and restore literal punctuation
+  in the package description.
+
 ## 1.0.0 — 2026-11-19
 
 ### Migration: next major — stable engine 14 and Foottrace 2.1
