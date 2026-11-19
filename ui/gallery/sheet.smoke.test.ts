@@ -178,12 +178,44 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('the Sheet above th
       body.dispatchEvent(new Event('scroll', { bubbles: true }));
       return { top: body.scrollTop, max: body.scrollHeight - body.clientHeight };
     });
-    expect(at.top).toBe(at.max); // the browser gave us its maximum, and it is the one the sheet drew
+    // scrollTop and the integer scrollHeight/clientHeight have different precision.
+    // The platform's bottom test permits one CSS pixel; reachability is checked below.
+    // https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollHeight#determine_if_an_element_has_been_totally_scrolled
+    expect(Math.abs(at.top - at.max)).toBeLessThanOrEqual(1);
     expect(at.max).toBeGreaterThan(9_999_000);
 
+    // The readout names the completed data window, independently of how many
+    // rows the renderer drew. Observe that completion before checking the DOM,
+    // so an omitted last row earns an assertion instead of a competing timeout.
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      const readout = document.querySelector('.vzf-sheet-readout') as HTMLElement;
+      const complete = (): void => {
+        if (/rows 399,9\d\d–400,000 of 400,000/.test(readout.textContent ?? '')) {
+          observer.disconnect(); resolve();
+        }
+      };
+      const observer = new MutationObserver(complete);
+      observer.observe(readout, { childList: true, characterData: true, subtree: true });
+      complete();
+    }));
+    expect(await page.locator('[data-row="399999"]').count(),
+      'the last row must be rendered at the completed bottom window').toBe(1);
     await page.waitForSelector('[data-row="399999"]', { timeout: 30_000 });
     expect(await page.locator('[data-row="399999"] [data-column="id"]').innerText()).toBe('c399999');
     expect(await page.locator('.vzf-sheet-readout').innerText()).toMatch(/rows 399,9\d\d–400,000 of 400,000/); // the last screenful, whatever the box's height makes it
+
+    // The product property: the last row is rendered, wholly inside the vertical
+    // scroll viewport, rather than merely named by a rounded scrollbar value.
+    const last = await page.locator('[data-row="399999"]').evaluate((row) => {
+      const body = document.querySelector('.vzf-sheet-body') as HTMLElement;
+      const rect = row.getBoundingClientRect(), viewport = body.getBoundingClientRect();
+      const top = viewport.top + body.clientTop;
+      return { height: rect.height, top: rect.top, bottom: rect.bottom,
+        viewportTop: top, viewportBottom: top + body.clientHeight };
+    });
+    expect(last.height, 'the last row must be rendered').toBeGreaterThan(0);
+    expect(last.top, 'the last row starts inside the scroll viewport').toBeGreaterThanOrEqual(last.viewportTop);
+    expect(last.bottom, 'the last row ends inside the scroll viewport').toBeLessThanOrEqual(last.viewportBottom);
 
     // the rows layer never reaches past the canvas, so the maximum scroll IS the canvas minus the box
     const after = await page.evaluate(() => {
@@ -191,7 +223,7 @@ describe.skipIf(CHROME !== undefined && !existsSync(CHROME))('the Sheet above th
       return { scrollHeight: body.scrollHeight, clientHeight: body.clientHeight, top: body.scrollTop };
     });
     expect(after.scrollHeight).toBe(10_000_000);
-    expect(after.top).toBe(after.scrollHeight - after.clientHeight);
+    expect(Math.abs(after.scrollHeight - after.clientHeight - after.top)).toBeLessThanOrEqual(1);
   });
 
   it('nothing was logged on the way', () => {

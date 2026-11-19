@@ -20,23 +20,38 @@ crosses out of this package. Which symbol belongs on a barrel, which earns a
 subpath, and why the two resolutions (`dist/` outside, `src/` in a test run) are
 one list twice: [`PACKAGING.md`](PACKAGING.md).
 
-Node.js 22 or newer is required. Analyses run on `footprintjs` (`^11.0.0 || ^12.0.0`);
-record readers come from `foottrace` (`^1.0.0`). Both are direct
-dependencies, with no copied readers or re-exported Foottrace names.
-The checkout's lockfile selects footprintjs 12.0.0 and foottrace 1.11.1.
-Agent checks are pinned to agentfootprint 14.4.0. Studio uses
-`footprint-storydeck` (`^0.13.1`) under the `storydeck` alias.
+Node.js 22 or newer is required. The host supplies the required `footprintjs ^14.0.0`
+peer; development uses engine 14.0.0. Viz executes the host's analysis charts, so
+one physical engine must own both ends of that boundary. `foottrace ^2.1.0` is a
+runtime dependency: Viz owns its recorded-value readers, without copied readers
+or re-exported Foottrace names. Agent integration uses published AgentFootprint15.
 
-Pull requests and `main` run the same build, public-package boundary, type and
-100%-coverage checks on Node 22 and 24. CI checks out Storydeck at the exact
-revision named in `.github/workflows/checks.yml` beside this repository, so the
-existing sibling `file:` links remain intact; both installs use their committed
-lockfiles. CI installs Playwright's matching Chromium headless shell and its
-Linux system dependencies for the real-browser tests. Updating the Storydeck
-revision requires re-running the full checks. The workflow does not publish any
-package and checks that every workspace stays
-private. The separately tested unpublished engine candidate is not substituted
-into this locked public-dependency check.
+### Migration: next major — stable engine 14 and Foottrace 2.1
+
+Engine 11/12/13 and the engine14 release candidate are no longer accepted. Update
+the host's engine and reader together, regenerate its genuine lock, and keep one
+physical engine and reader across the application and Viz. The runtime metadata
+change is breaking in Viz 1.0.0. All four workspaces remain private.
+
+Required checks use the committed normal dependency graph. They never fetch a
+sibling's source-run artifact or ask whether a newer sibling release exists.
+The migration updates only its required packages and preserves main's locked
+development tools; tool upgrades belong in separate changes.
+Only the normal installed-identity controls remain on this path. The retired RC
+route and its fixtures are preserved, unmerged, on `archive/rc-native-input` at
+`75d7e9828b156a6aab4aa2e0e3fec5c607526ba8`. Both original coverage gates remain at 100%.
+
+The development comparator is published ContextFootprint0.1.1, installed normally
+from the committed lock. No sibling archive is stored in this repository. The
+packed comparison example still runs offline against that actual installed
+comparator, and the dependency-free profile bundle keeps its existing checks.
+Studio uses the published `footprint-storydeck ^0.14.1` alias with its engine14
+peer; its optional integration remains outside the UI library's dependency wall.
+
+Viz is not published on npm. The hosted source run builds and retains the actual
+`npm pack` snapshot, its SHA256, and exact source/run provenance for app use. A
+packed build is not a claim that an application has adopted or tested it. See
+[CHANGELOG.md](CHANGELOG.md) for the migration and corrections to the old notes.
 
 ## Data analysis without a dashboard
 
