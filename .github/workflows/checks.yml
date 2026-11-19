@@ -46,6 +46,9 @@ jobs:
       - if: steps.changed.outputs.value == 'true'
         name: Generate real lock bytes without builds or lifecycle hooks
         run: |
+          # A new major graph must not inherit the old hoisted optional-peer choice.
+          # The immutable prior lock remains in Git; npm creates every new entry.
+          rm package-lock.json
           npm install --package-lock-only --ignore-scripts --strict-peer-deps --no-audit --no-fund
           git diff --exit-code -- package.json ui/package.json studio/package.json bridges/vega-lite/package.json
           mkdir "$RUNNER_TEMP/viz-lock"
@@ -109,9 +112,10 @@ jobs:
       - name: Install the matching real-browser test runtime
         run: npx --no-install playwright-core install --with-deps chromium-headless-shell
       - name: Verify the installed record and engine graph
+        id: published_inputs
         run: |
           npm ls agentfootprint footprintjs foottrace --all
-          node scripts/native-cohort.mjs identity
+          node scripts/native-cohort.mjs checkpoint
       - name: Keep every workspace private
         run: |
           node --input-type=module -e "import {readFileSync} from 'node:fs'; for (const file of ['package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json']) { if (JSON.parse(readFileSync(file, 'utf8')).private !== true) throw new Error(file + ' must stay private'); }"
@@ -129,8 +133,12 @@ jobs:
       # workspace importing Storydeck, and keeps its independent 100% gate.
       - name: Run the studio tests with their own 100% coverage thresholds
         run: npm run test:studio
-      - name: Keep physical core ownership after all source gates
-        run: node scripts/native-cohort.mjs identity
+      - name: Keep source bytes, installed images, compiler and locks after every source gate
+        env:
+          EXPECTED_PUBLISHED_CHECKPOINT: ${{ steps.published_inputs.outputs.checkpoint_sha256 }}
+        run: |
+          node scripts/native-cohort.mjs verify-published > "$RUNNER_TEMP/viz-published-cohort/verify-result.json"
+          cat "$RUNNER_TEMP/viz-published-cohort/verify-result.json"
       - name: Pack the actual reviewed source for app snapshot consumption
         run: |
           mkdir "$RUNNER_TEMP/viz-pack"
@@ -150,6 +158,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: viz-pack-${{ matrix.node }}-${{ github.event.pull_request.head.sha || github.sha }}
-          path: ${{ runner.temp }}/viz-pack/
+          path: |
+            ${{ runner.temp }}/viz-pack/
+            ${{ runner.temp }}/viz-published-cohort/checkpoint.json
+            ${{ runner.temp }}/viz-published-cohort/verify-result.json
           if-no-files-found: error
           retention-days: 7

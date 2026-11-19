@@ -23,7 +23,7 @@ function replaceDocument(file, bytes, mode) {
   } finally { closeSync(fd); }
 }
 
-function clean(root) {
+export function clean(root) {
   git(root, ['diff', '--exit-code', '--']);
   git(root, ['diff', '--cached', '--exit-code', '--']);
 }

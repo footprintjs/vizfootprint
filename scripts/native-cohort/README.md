@@ -5,6 +5,11 @@ The current required workflow installs the normal committed public dependency gr
 stable engine and reader, all workspace/owner resolutions, and genuine normal/hidden
 lock agreement. `node scripts/native-cohort.mjs identity` runs that observation without
 an API token. The host owns the engine peer; Viz owns the reader dependency.
+The `checkpoint` and `verify-published` operations retain the old installed-byte,
+compiler, normal/hidden-lock and immutable Git-document checks on the normal path.
+The final observation must equal the initial checkpoint authenticated by the prior
+GitHub step output. A rewritten neighboring file cannot approve itself. These byte
+guards do not substitute for the separate product tests and coverage outcomes.
 
 ## Historical source-input boundary fixtures
 
