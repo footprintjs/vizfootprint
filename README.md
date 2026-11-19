@@ -24,11 +24,11 @@ Node.js 22 or newer is required. The host supplies the required `footprintjs ^14
 peer; development uses engine 14.0.0. Viz executes the host's analysis charts, so
 one physical engine must own both ends of that boundary. `foottrace ^2.1.0` is a
 runtime dependency: Viz owns its recorded-value readers, without copied readers
-or re-exported Foottrace names. Agent integration uses published AgentFootprint15.
+or re-exported Foottrace names. Agent integration uses published AgentFootprint 15.
 
 ### Migration: next major — stable engine 14 and Foottrace 2.1
 
-Engine 11/12/13 and the engine14 release candidate are no longer accepted. Update
+Engine 11/12/13 and the engine 14 release candidate are no longer accepted. Update
 the host's engine and reader together, regenerate its genuine lock, and keep one
 physical engine and reader across the application and Viz. The runtime metadata
 change is breaking in Viz 1.0.0. All four workspaces remain private.
@@ -41,11 +41,11 @@ Only the normal installed-identity controls remain on this path. The retired RC
 route and its fixtures are preserved, unmerged, on `archive/rc-native-input` at
 `75d7e9828b156a6aab4aa2e0e3fec5c607526ba8`. Both original coverage gates remain at 100%.
 
-The development comparator is published ContextFootprint0.1.1, installed normally
+The development comparator is published ContextFootprint 0.1.1, installed normally
 from the committed lock. No sibling archive is stored in this repository. The
 packed comparison example still runs offline against that actual installed
 comparator, and the dependency-free profile bundle keeps its existing checks.
-Studio uses the published `footprint-storydeck ^0.14.1` alias with its engine14
+Studio uses the published `footprint-storydeck ^0.14.1` alias with its engine 14
 peer; its optional integration remains outside the UI library's dependency wall.
 
 Viz is not published on npm. The hosted source run builds and retains the actual
