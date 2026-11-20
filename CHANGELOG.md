@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Accept AgentFootprint 16 as well as 15 for the optional routing peer.
 - Correct spacing in the migration documentation and restore literal punctuation
   in the package description.
 
