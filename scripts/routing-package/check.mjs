@@ -27,11 +27,23 @@ function importsHost(text, path) {
 /** Inspect the files extracted from the actual npm archive, never a dist sibling. */
 export async function checkRoutingPackage(packageDir, files) {
   const manifest = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8'));
-  for (const section of ['dependencies', 'peerDependencies', 'peerDependenciesMeta']) {
-    assert(!Object.hasOwn(manifest[section] ?? {}, 'agentfootprint'), `${section} must not require the host agent`);
+  const isHost = name => typeof name === 'string' && name.toLowerCase() === 'agentfootprint';
+  const isHostAlias = spec => typeof spec === 'string' && /^npm:agentfootprint(?:@|$)/i.test(spec.trim());
+  for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies', 'peerDependenciesMeta']) {
+    for (const [name, spec] of Object.entries(manifest[section] ?? {})) {
+      assert(!isHost(name) && !isHostAlias(spec), `${section} must not require the host agent`);
+    }
+  }
+  for (const field of ['bundleDependencies', 'bundledDependencies']) {
+    // Boolean true bundles the runtime declarations already checked above.
+    const names = manifest[field];
+    assert(!Array.isArray(names) || !names.some(name => isHost(name) || isHostAlias(manifest.devDependencies?.[name])), `${field} must not bundle the host agent`);
   }
   for (const { path } of files) {
-    if (path.startsWith('dist/')) {
+    if (/(^|\/)node_modules\//.test(path) && path.endsWith('/package.json')) {
+      const bundled = JSON.parse(await readFile(join(packageDir, path), 'utf8'));
+      assert(!isHost(bundled.name), `Packed ${path} must not bundle the host agent`);
+    } else if (path.startsWith('dist/')) {
       const text = await readFile(join(packageDir, path), 'utf8');
       assert(!/agentfootprint/i.test(text), `Packed ${path} contains the host agent name`);
     } else if (path.startsWith('src/') && /\.[cm]?[jt]sx?$/.test(path)) {

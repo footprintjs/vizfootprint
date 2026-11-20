@@ -55,7 +55,8 @@ export interface RoutePort {
     score(phrase: string, candidates: readonly RouteCandidate[], signal?: AbortSignal): readonly RouteScore[] | Promise<readonly RouteScore[]>;
   };
   readonly policy: RoutePolicy;
-  decide(scores: readonly RouteScore[], incumbent: string | undefined, policy: RoutePolicy): RouteDecision;
+  /** Ordinary results are captured immediately; callable then is the async protocol. */
+  decide(scores: readonly RouteScore[], incumbent: string | undefined, policy: RoutePolicy): RouteDecision | PromiseLike<RouteDecision>;
 }
 
 export interface RouteOptions {

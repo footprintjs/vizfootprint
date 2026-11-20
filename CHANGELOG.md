@@ -12,6 +12,8 @@
   scores produce the existing empty unmatched fallback. Non-number refusal is
   an intentional correction: the previous validator admitted those values.
   Preserve raw NaN/infinity numeric evidence for the supplied decision rule.
+- Capture synchronous decisions immediately and asynchronous decisions at their
+  first delivery; contain rejecting callbacks without an unhandled rejection.
 - The actual packed files now enforce the host-free source/build boundary, and
   a chart-only consumer installs/bundles without that host. Existing route and
   real mock-Agent attribution tests remain; the host-backed tests live outside

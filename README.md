@@ -29,8 +29,11 @@ Unknown/omitted/duplicate candidate IDs and non-number scores are refused;
 NaN and infinities remain raw numeric evidence for the supplied rule. Callback
 failure or malformed decision evidence produces the existing empty unmatched
 answer. Missing required port configuration throws an error naming the input.
-Callback inputs and returned evidence are copied at their ownership boundaries;
-an asynchronous scorer settles on its own result, with no polling or retry.
+Callback inputs and returned evidence are copied at their ownership boundaries.
+Both callbacks may deliver asynchronously, with no polling or retry. A decision's
+callable `then` is observed once as its async protocol; ordinary decisions are
+copied immediately, and delivered decisions are copied before their callback
+returns. Rejections become the same unmatched answer without an unhandled error.
 The optional abort signal is forwarded; Viz does not pretend an uncooperative
 scorer completed merely because it was cancelled.
 

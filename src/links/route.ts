@@ -16,7 +16,7 @@ import { ENCODING_KIND } from './types.js';
 import type { RouteNode, RouteOptions, RoutePort, RouteVerdict } from './route/types.js';
 import { candidatesFor, captureNodes, captureOptions, capturePort, copyCandidates } from './route/input.js';
 import { captureScores } from './route/scores.js';
-import { captureDecision, unmatchedDecision } from './route/decision.js';
+import { captureDecisionDelivery, unmatchedDecision } from './route/decision.js';
 export type { RouteCandidate, RouteDecision, RouteNode, RouteOptions, RoutePolicy, RoutePort, RouteScore, RouteVerdict, RankedRouteScore } from './route/types.js';
 
 /** The routable nodes of a graph: every view with a `does` sentence and at least one selection kind in its voice. */
@@ -47,7 +47,8 @@ export async function routeIntent(phrase: string, nodes: readonly RouteNode[], p
     // captured when their result is delivered, with no polling or timeout.
     const scores = captureScores(candidates, Array.isArray(raw) ? raw : await raw);
     const result = captured.decide(scores.map(score => ({ ...score })), options.incumbent, { ...captured.policy });
-    return { verdict: captureDecision(result, scores), ...evidence };
+    const delivered = captureDecisionDelivery(result, scores);
+    return { verdict: delivered instanceof Promise ? await delivered : delivered, ...evidence };
   } catch {
     // A misbehaving callback cannot invent an action: honestly unmatched,
     // with the scorer and declared policy captured before the foreign call.

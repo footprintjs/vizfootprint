@@ -15,6 +15,11 @@ const controls = [
   { name: 'policy-custody', file: 'src/links/route.ts', from: '{ ...captured.policy }', to: 'captured.policy',
     args: [vitest, 'run', 'src/links/route/decision.test.ts', '-t', 'contains decision exceptions and input mutation without altering owned evidence'],
     assertion: 'contains decision exceptions and input mutation without altering owned evidence' },
+  { name: 'async-decision-observation', file: 'src/links/route/decision.ts', from: "typeof then !== 'function'", to: 'true',
+    args: [vitest, 'run', 'src/links/route/delivery.test.ts', '-t', 'contains rejected decisions without an unhandled rejection in a strict process'],
+    assertion: 'contains rejected decisions without an unhandled rejection in a strict process' },
+  { name: 'optional-runtime-boundary', file: 'scripts/routing-package/check.mjs', from: "'optionalDependencies', ", to: '',
+    args: ['--test', 'scripts/routing-package/check.node-test.mjs'], assertion: 'the packed manifest refuses the host in optionalDependencies' },
   { name: 'packed-host-boundary', file: 'scripts/routing-package/check.mjs', from: 'assert(!/agentfootprint/i.test(text),', to: 'assert(true,',
     args: ['--test', 'scripts/routing-package/check.node-test.mjs'], assertion: 'host reference' },
 ];

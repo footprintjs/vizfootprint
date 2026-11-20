@@ -34,20 +34,28 @@ describe('routing decision boundary', () => {
     expect((await routeIntent('alpha', nodes(), p)).verdict).toEqual(unmatched);
   });
   const kinds: readonly RouteDecision['kind'][] = ['move', 'stay', 'menu', 'unmatched'];
+  const { ranked, decisive } = decision();
   // The declared union must grow this exhaustive table when a kind is added.
   const cases = {
     move: { ...decision(), kind: 'move', to: 'b' },
-    stay: { ...decision(), kind: 'stay' },
-    menu: { ...decision(), kind: 'menu', offered: ['b', 'a'] },
-    unmatched: { ...decision(), kind: 'unmatched' },
+    stay: { ranked, decisive, kind: 'stay' },
+    menu: { ranked, decisive, kind: 'menu', offered: ['b', 'a'] },
+    unmatched: { ranked, decisive, kind: 'unmatched' },
   } satisfies Record<RouteDecision['kind'], RouteDecision>;
   it.each(kinds)('preserves a valid %s decision without choosing a routing policy', async kind => {
     const p = port(); p.decide = () => cases[kind];
     expect((await routeIntent('alpha', nodes(), p)).verdict).toEqual(cases[kind]);
   });
   it('allows an empty menu because the consumer owns menu policy', async () => {
-    const p = port(); p.decide = () => ({ ...decision(), kind: 'menu', offered: [] });
-    expect((await routeIntent('alpha', nodes(), p)).verdict).toEqual({ ...decision(), kind: 'menu', offered: [] });
+    const empty = { ranked, decisive, kind: 'menu', offered: [] } as const;
+    const p = port(); p.decide = () => empty;
+    expect((await routeIntent('alpha', nodes(), p)).verdict).toEqual(empty);
+  });
+  it.each(['stay', 'menu', 'unmatched'] as const)('ignores move-only and unknown fields on %s decisions', async kind => {
+    const raw = { ...cases[kind] };
+    for (const field of ['to', 'hidden']) Object.defineProperty(raw, field, { enumerable: true, get() { throw Error('irrelevant field'); } });
+    const p = port(); p.decide = () => raw;
+    expect((await routeIntent('alpha', nodes(), p)).verdict).toEqual(cases[kind]);
   });
   it('captures returned evidence once and breaks retained references', async () => {
     const reads = { kind: 0, ranked: 0, decisive: 0, runner: 0, id: 0, score: 0, relevance: 0, offered: 0, offeredLength: 0 };
