@@ -6,6 +6,8 @@ on:
       - package.json
       - package-lock.json
       - scripts/agent-peer-report/**
+      - src/links/**
+      - test/**
       - .github/workflows/agent-peer-report.yml
 
 permissions:
@@ -103,6 +105,8 @@ jobs:
           npm ls agentfootprint footprintjs foottrace --all
           node scripts/native-cohort.mjs identity
           node --input-type=module -e "import {readFileSync} from 'node:fs'; for (const file of ['package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json']) { if (JSON.parse(readFileSync(file, 'utf8')).private !== true) throw new Error(file + ' must stay private'); }"
+      - name: Exercise the required routing boundary before compiler gates
+        run: npx --no-install vitest run src/links/route.boundary.test.ts
       - name: Run every original build and type check
         run: |
           npm run typecheck
