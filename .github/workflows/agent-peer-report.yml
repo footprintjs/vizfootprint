@@ -32,6 +32,12 @@ jobs:
       - run: npm install --global npm@11.19.0
       - name: Install the pinned second resolver in runner scratch space
         run: npm install --prefix "$RUNNER_TEMP/viz-peer-tools" --no-save --ignore-scripts --no-audit --no-fund pnpm@10.11.0
+      - name: Generate peer metadata with npm while preserving the locked graph
+        run: |
+          npm install --package-lock-only --ignore-scripts --strict-peer-deps --no-audit --no-fund
+          git diff --exit-code -- package.json ui/package.json studio/package.json bridges/vega-lite/package.json
+          mkdir "$RUNNER_TEMP/viz-agent-peer"
+          cp package-lock.json "$RUNNER_TEMP/viz-agent-peer/package-lock.json"
       - name: Measure each real installer once without lifecycle hooks
         env:
           PNPM_BINARY: ${{ runner.temp }}/viz-peer-tools/node_modules/.bin/pnpm

@@ -151,7 +151,7 @@
     "@modelcontextprotocol/sdk": ">=1.0.0",
     "@uwdata/mosaic-core": ">=0.28.0",
     "@uwdata/mosaic-sql": ">=0.28.0",
-    "agentfootprint": "^15.0.0",
+    "agentfootprint": "^15.0.0 || ^16.0.0",
     "footprintjs": "^14.0.0"
   },
   "peerDependenciesMeta": {
