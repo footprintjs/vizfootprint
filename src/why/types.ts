@@ -12,7 +12,7 @@
  *   - agent  : the tool-call frame, addressed by the anchor's persisted
  *              native `(runId, toolCallId)` identity. The resolver
  *              consumes a typed RECORD SHAPE ({@link AgentEventFrame}), never
- *              the agentfootprint package — af stays a devDep;
+ *              the host agent package — af stays a devDep;
  *   - kernel : foottrace `sliceForKey` over the analysis flowchart's commit
  *              log — the R9 minimal dependency chain for the anchor key.
  *
@@ -123,7 +123,7 @@ export interface ClauseTravel {
 }
 
 /**
- * The SANCTIONED agent-tier record shape (C4) — the subset of agentfootprint's
+ * The SANCTIONED agent-tier record shape (C4) — the subset of the host agent's
  * `EventMeta` a caller-supplied event log carries, plus payload.toolCallId.
  * Exact identity is `(runId, toolCallId)`: call ids can repeat across runs,
  * and several calls in a batch can share runtimeStageId. Correlation is only
@@ -138,7 +138,7 @@ export interface AgentEventFrame {
   /** footprintjs runtimeStageId of the tool-call stage. Collides across runs (see above). */
   readonly runtimeStageId: string;
   /**
-   * The turn/batch label, from `EventMeta.correlationId` (agentfootprint
+   * The turn/batch label, from `EventMeta.correlationId` (the host agent
    * ≥ 9524460). ABSENT when the installed runtime doesn't populate it — the
    * caller's harvester passes it through verbatim, never fabricates it.
    */

@@ -124,6 +124,7 @@ jobs:
       - name: Run the original browser mutant and installed-identity post-check
         run: |
           node scripts/check-sheet-mutant.mjs
+          node scripts/check-routing-mutant.mjs
           node scripts/native-cohort.mjs identity
           git diff --exit-code -- . ':!package.json' ':!package-lock.json'
       - name: Restore the two alternate-graph inputs and verify source cleanliness
@@ -141,5 +142,6 @@ jobs:
             ${{ runner.temp }}/viz-agent16-suite/
             ${{ runner.temp }}/viz-sheet-mutation/mutant.log
             ${{ runner.temp }}/viz-sheet-mutation/result.json
+            ${{ runner.temp }}/viz-routing-mutation/
           if-no-files-found: error
           retention-days: 7

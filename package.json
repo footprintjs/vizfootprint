@@ -102,8 +102,8 @@
     "prepare": "npm run build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit",
-    "check:profile-package": "node scripts/check-profile-package.mjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+    "check:profile-package": "node --test scripts/routing-package/*.node-test.mjs && node scripts/check-profile-package.mjs",
     "typecheck:demo": "tsc -p demo/tsconfig.json --noEmit",
     "typecheck:demo-agent": "tsc -p demo-agent/tsconfig.json --noEmit",
     "demo": "node demo/server.mjs",
@@ -151,7 +151,6 @@
     "@modelcontextprotocol/sdk": ">=1.0.0",
     "@uwdata/mosaic-core": ">=0.28.0",
     "@uwdata/mosaic-sql": ">=0.28.0",
-    "agentfootprint": "^15.0.0 || ^16.0.0",
     "footprintjs": "^14.0.0"
   },
   "peerDependenciesMeta": {
@@ -165,9 +164,6 @@
       "optional": true
     },
     "@uwdata/mosaic-sql": {
-      "optional": true
-    },
-    "agentfootprint": {
       "optional": true
     }
   },

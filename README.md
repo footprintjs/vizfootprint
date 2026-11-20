@@ -2,6 +2,36 @@
 
 **Beta — source checkout only; not published on npm.** APIs and integrations remain experimental; X1'/X2 spikes are still in progress. The package retains `private: true`, which prevents npm publication. Use the checkout's build and compatibility instructions below.
 
+## Routing with a consumer-owned rule
+
+Routing requires a port: Viz names the candidates and validates their evidence;
+the consumer supplies the scorer, policy and decision. Chart-only consumers do
+not need an agent package. A host that uses AgentFootprint can keep its rule in
+one place with this adapter (application/test code, not a library entry):
+
+```ts
+import { DEFAULT_ROUTING_POLICY, decideTier2, keywordScorer } from 'agentfootprint/skill-graph';
+import { routeIntent, type RoutePort } from './src/links/route.js';
+
+const scorer = keywordScorer();
+const routing: RoutePort = {
+  policy: DEFAULT_ROUTING_POLICY,
+  scorer: { name: scorer.name, score: (phrase, candidates, signal) => scorer.score(
+    { message: phrase }, candidates.map(({ id, text, examples }) => ({ id, intent: text, examples })), signal) },
+  decide: (scores, current, policy) => decideTier2(scores, current, policy, scorer),
+};
+const answer = await routeIntent(phrase, nodes, routing, { incumbent });
+```
+
+Passing the same scorer to the decision preserves its declared floor and
+categorical behavior. Viz provides no fallback scorer or routing thresholds.
+Unknown/omitted/duplicate candidate IDs and non-number scores are refused;
+NaN and infinities remain raw numeric evidence for the supplied rule. Callback
+failure or malformed decision evidence produces the existing empty unmatched
+answer. Missing required port configuration throws an error naming the input.
+Callback inputs and returned evidence are copied at their ownership boundaries;
+an asynchronous scorer settles on its own result, with no polling or retry.
+
 ## Importing it
 
 The library is `private` and always will be, but it is importable by name.

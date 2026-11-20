@@ -60,7 +60,7 @@ export function resolveVizTier(
 /**
  * AGENT tier — resolve the tool-call frame from a CALLER-SUPPLIED event log by
  * exact host-runtime call identity. Turn correlation never proves a call.
- * agentfootprint is never
+ * the host agent is never
  * imported here; the resolver consumes the typed {@link AgentEventFrame} shape.
  */
 export function resolveAgentTier(

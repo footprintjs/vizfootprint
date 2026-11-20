@@ -28,7 +28,7 @@ const source = {
   node: process.version,
   agentfootprint: '16.0.0',
   engine: '14.0.0',
-  peer: JSON.parse(manifest).peerDependencies.agentfootprint,
+  peer: JSON.parse(manifest).peerDependencies.agentfootprint ?? null,
   manifestSha256: createHash('sha256').update(manifest).digest('hex'),
   packSha256: createHash('sha256').update(readFileSync(archive)).digest('hex'),
   results,
@@ -37,18 +37,25 @@ const cases = [
   ['npm-default', 'npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund']],
   ['npm-strict', 'npm', ['install', '--strict-peer-deps', '--ignore-scripts', '--no-audit', '--no-fund']],
   ['pnpm-default', resolve(process.env.PNPM_BINARY), ['install', '--ignore-scripts']],
+  ['npm-charts-only', 'npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], false],
 ];
-for (const [label, command, args] of cases) {
+for (const [label, command, args, withAgent = true] of cases) {
   const cwd = join(out, label);
   mkdirSync(cwd);
   writeFileSync(join(cwd, 'package.json'), JSON.stringify({ name: `viz-${label}`, version: '0.0.0', private: true,
-    dependencies: { vizfootprint: `file:${archive}`, agentfootprint: source.agentfootprint, footprintjs: source.engine } }, null, 2) + '\n');
+    dependencies: { vizfootprint: `file:${archive}`, footprintjs: source.engine, ...(withAgent ? { agentfootprint: source.agentfootprint } : {}) } }, null, 2) + '\n');
   // The same empty user config and public registry for every fresh consumer.
   writeFileSync(join(cwd, '.npmrc'), 'registry=https://registry.npmjs.org/\nfetch-retries=0\n');
   const version = run(command, ['--version'], cwd, `${label}-version`);
   if (version.status !== 0) throw Error(`${label} executable unavailable`);
   const r = run(command, args, cwd, label);
+  if (!withAgent && r.status === 0) {
+    const tree = run('npm', ['ls', 'agentfootprint', '--all', '--json'], cwd, `${label}-tree`);
+    const data = JSON.parse(tree.stdout);
+    if (data.error || data.problems || /"agentfootprint"\s*:/.test(tree.stdout)) throw Error('Chart-only install has an invalid or host-agent dependency tree');
+  }
   results.push({ label, version: version.stdout.trim(), args, exit: r.status, signal: r.signal,
+    declaredAgent: withAgent ? source.agentfootprint : null,
     stdout: `${label}.stdout.log`, stderr: `${label}.stderr.log` });
   writeFileSync(join(out, 'results.json'), JSON.stringify(source, null, 2) + '\n');
   console.log(`${label}: exit ${r.status}\n${r.stdout}\n${r.stderr}`);
