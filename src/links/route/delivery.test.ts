@@ -129,4 +129,3 @@ describe('routing decision delivery', () => {
     expect(run.stdout).toContain('rejection observed');
   });
 });
-
