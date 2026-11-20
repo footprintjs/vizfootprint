@@ -18,10 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      NPM_CONFIG_FETCH_RETRIES: 0
       npm_config_fetch_retries: 0
       SOURCE_HEAD: ${{ github.event.pull_request.head.sha }}
-      PNPM_BINARY: ${{ runner.temp }}/viz-peer-tools/node_modules/.bin/pnpm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -35,6 +33,8 @@ jobs:
       - name: Install the pinned second resolver in runner scratch space
         run: npm install --prefix "$RUNNER_TEMP/viz-peer-tools" --no-save --ignore-scripts --no-audit --no-fund pnpm@10.11.0
       - name: Measure each real installer once without lifecycle hooks
+        env:
+          PNPM_BINARY: ${{ runner.temp }}/viz-peer-tools/node_modules/.bin/pnpm
         run: node scripts/agent-peer-report/install.mjs
       - name: Preserve only source-bound results and raw installer output
         if: always()
