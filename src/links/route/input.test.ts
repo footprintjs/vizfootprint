@@ -68,6 +68,12 @@ describe('routing input boundary', () => {
     await expect(routeIntent('alpha', nodes(), p)).rejects.toBe(error);
     expect(reads).toBe(1);
   });
+  it('preserves a captured inherited floor and an explicit override that clears it', async () => {
+    const policy = Object.assign(Object.create({ floor: 1 }) as { floor: number; nearTieMargin: number; menuSize: number }, { nearTieMargin: 0.2, menuSize: 4 });
+    const p = port(); Reflect.set(p, 'policy', policy);
+    expect((await routeIntent('alpha', nodes(), p)).policy).toEqual({ nearTieMargin: 0.2, menuSize: 4, floor: 1 });
+    expect((await routeIntent('alpha', nodes(), p, { policy: { floor: undefined } })).policy).toEqual({ nearTieMargin: 0.2, menuSize: 4, floor: undefined });
+  });
   it('calls the captured functions without reading their extra bind properties', async () => {
     const p = port();
     p.scorer.score = () => scores(); p.decide = rows => decision(rows);

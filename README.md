@@ -31,6 +31,8 @@ failure or malformed decision evidence produces the existing empty unmatched
 answer. Missing required port configuration throws an error naming the input.
 Callback inputs and returned evidence are copied at their ownership boundaries;
 an asynchronous scorer settles on its own result, with no polling or retry.
+The optional abort signal is forwarded; Viz does not pretend an uncooperative
+scorer completed merely because it was cancelled.
 
 ## Importing it
 

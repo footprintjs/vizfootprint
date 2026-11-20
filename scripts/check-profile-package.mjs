@@ -44,7 +44,11 @@ try {
   const chartEntry = join(consumer, 'chart-only-entry.mjs');
   await writeFile(chartEntry, "export { builtinSelection, causeClauseFromEmission } from 'vizfootprint/selection';\n");
   const chartBundle = await build({ absWorkingDir: consumer, entryPoints: [chartEntry], outfile: join(consumer, 'chart-only.mjs'),
-    bundle: true, format: 'esm', platform: 'neutral', target: 'es2022', treeShaking: true, metafile: true, logLevel: 'silent' });
+    bundle: true, format: 'esm', platform: 'neutral', target: 'es2022', treeShaking: true, metafile: true,
+    // Resolve the broad barrel without installing unused optional adapters, as
+    // the profile check does below; no external may survive, and the host agent
+    // is deliberately absent from this resolver allowance.
+    external: ['node:*', '@duckdb/*', '@modelcontextprotocol/*', '@uwdata/*', 'footprintjs', 'react', 'react-dom'], logLevel: 'silent' });
   for (const output of Object.values(chartBundle.metafile.outputs)) {
     assert.deepEqual(output.imports, [], 'Chart-only selection must retain no external host dependency');
     assert(!Object.keys(output.inputs).some(path => /agentfootprint/i.test(path)), 'Chart-only bundle contains the host agent');

@@ -37,6 +37,7 @@ export interface RankedRouteScore extends RouteScore {
 interface RouteEvidence {
   readonly ranked: readonly RankedRouteScore[];
   readonly decisive: boolean;
+  /** A known candidate and the finite comparison gap reported by the consumer. */
   readonly runnerUp?: { readonly id: string; readonly gap: number };
 }
 

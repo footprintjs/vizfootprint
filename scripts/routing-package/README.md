@@ -4,6 +4,9 @@
 check. It rejects a host runtime/peer declaration, any host name in built files
 (including declarations and source maps), and host imports in library source.
 Development dependencies and the consumer's README adapter remain allowed.
+The existing locked TypeScript parser identifies source imports (including
+side-effect, type-only, dynamic and require forms), without mistaking comments
+or data strings for imports.
 
 The adjacent data-only tests inject each forbidden declaration/file/import.
 The actual package check also dirties one extracted built file, proves refusal,

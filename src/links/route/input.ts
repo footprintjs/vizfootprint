@@ -25,7 +25,7 @@ export function capturePort(port: RoutePort, overrides?: Partial<RoutePolicy>) {
   if (typeof nearTieMargin !== 'number' || typeof menuSize !== 'number' || (floor !== undefined && typeof floor !== 'number')) {
     throw new TypeError('The routing port policy needs numeric nearTieMargin, menuSize and optional floor');
   }
-  const hasFloor = Object.hasOwn(declared, 'floor') || replaced.has('floor');
+  const hasFloor = floor !== undefined || Object.hasOwn(declared, 'floor') || replaced.has('floor');
   const owned: RoutePolicy = { nearTieMargin, menuSize, ...(hasFloor ? { floor } : {}) };
   return { name, policy: owned,
     score: (...args: Parameters<typeof score>): ReturnType<typeof score> => Reflect.apply(score, scorer, args),
