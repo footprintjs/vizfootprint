@@ -10,3 +10,10 @@ Installer refusal is an observation, not a failed source gate. A spawn/transport
 failure aborts the report rather than inventing a compatibility verdict. The
 workflow uploads only the compact report/log files, not consumer installations.
 Viz remains private: a file install of its real pack is not npm publication.
+
+The same workflow runs the original whole-suite command list with AgentFootprint
+16 in an alternate npm-generated graph. It requires every other package entry
+to match the committed graph, retains the original thresholds/browser/control,
+and restores its two temporary metadata edits after testing. This external
+report accompanies the unchanged required Node 22/24 jobs on locked version 15;
+no compatibility claim is made when either graph has a differing test result.

@@ -52,3 +52,90 @@ jobs:
             ${{ runner.temp }}/viz-agent-peer/*.log
           if-no-files-found: error
           retention-days: 7
+
+  suite-16:
+    name: AgentFootprint 16 full-suite report
+    # This alternate graph reads npm; it reports beside the committed AF15 gates.
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      npm_config_fetch_retries: 0
+      SOURCE_HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: npm install --global npm@11.19.0
+      - name: Resolve only the alternate AgentFootprint version with npm
+        run: |
+          npm install --package-lock-only --ignore-scripts --strict-peer-deps --save-dev --save-exact --no-audit --no-fund agentfootprint@16.0.0
+          mkdir "$RUNNER_TEMP/viz-agent16-suite"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { join } from 'node:path';
+          const before = path => JSON.parse(execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' }));
+          const manifest = JSON.parse(readFileSync('package.json'));
+          assert.equal(manifest.devDependencies.agentfootprint, '16.0.0');
+          const original = before('package.json');
+          manifest.devDependencies.agentfootprint = original.devDependencies.agentfootprint;
+          assert.deepEqual(manifest, original, 'only the alternate development version may change');
+          const base = before('package-lock.json');
+          const lock = JSON.parse(readFileSync('package-lock.json'));
+          const changed = Object.keys({ ...base.packages, ...lock.packages }).filter(path => JSON.stringify(base.packages[path]) !== JSON.stringify(lock.packages[path]));
+          assert.deepEqual(changed.sort(), ['', 'node_modules/agentfootprint']);
+          assert.equal(lock.packages['node_modules/agentfootprint'].version, '16.0.0');
+          writeFileSync(join(process.env.RUNNER_TEMP, 'viz-agent16-suite/graph.json'), JSON.stringify({ head: process.env.SOURCE_HEAD, run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, changed, before: base.packages['node_modules/agentfootprint'].version, after: '16.0.0', otherPackageEntries: 'byte-equivalent JSON' }, null, 2) + '\n');
+          NODE
+          cp package.json package-lock.json "$RUNNER_TEMP/viz-agent16-suite/"
+      - name: Run the original identity, install and matching browser checks
+        run: |
+          node --test scripts/native-cohort/*.node-test.mjs
+          npm ci --strict-peer-deps
+          npx --no-install playwright-core install --with-deps chromium-headless-shell
+          npm ls agentfootprint footprintjs foottrace --all
+          node scripts/native-cohort.mjs identity
+          node --input-type=module -e "import {readFileSync} from 'node:fs'; for (const file of ['package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json']) { if (JSON.parse(readFileSync(file, 'utf8')).private !== true) throw new Error(file + ' must stay private'); }"
+      - name: Run every original build and type check
+        run: |
+          npm run typecheck
+          npm run build
+          npm run build:ui
+          npm run typecheck:ui
+          npm run typecheck:vega-lite
+          npm run typecheck:demo
+          npm run typecheck:demo-agent
+          npm run check:profile-package
+      - name: Run the original root and Studio suites and coverage thresholds
+        run: |
+          npm run test:coverage
+          npm run test:studio
+      - name: Run the original browser mutant and installed-identity post-check
+        run: |
+          node scripts/check-sheet-mutant.mjs
+          node scripts/native-cohort.mjs identity
+          git diff --exit-code -- . ':!package.json' ':!package-lock.json'
+      - name: Restore the two alternate-graph inputs and verify source cleanliness
+        if: always()
+        run: |
+          git restore -- package.json package-lock.json
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Preserve graph provenance and the original negative control
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: viz-agent16-suite-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/viz-agent16-suite/
+            ${{ runner.temp }}/viz-sheet-mutation/mutant.log
+            ${{ runner.temp }}/viz-sheet-mutation/result.json
+          if-no-files-found: error
+          retention-days: 7
