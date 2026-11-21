@@ -1,6 +1,6 @@
 /**
  * Coverage packet (COV-trace) — closes the branches `why.test.ts` /
- * `x3.test.ts` / `sanctioned-path.test.ts` never needed to exercise because
+ * `x3.test.ts` / `test/agent-routing/sanctioned-path.test.ts` never needed to exercise because
  * they only ever drove `why()` through a SUCCEEDING session or a fully
  * threaded x3 fixture. This file calls `why(target, sources)` DIRECTLY with
  * hand-built `WhySources` so every honest-miss / fallback branch inside

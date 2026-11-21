@@ -2,7 +2,33 @@
 
 ## Unreleased
 
-- Accept AgentFootprint 16 as well as 15 for the optional routing peer.
+### Migration: required routing port (major)
+
+- Routing now requires a consumer-owned scorer, declared policy and decision;
+  remove the optional AgentFootprint peer and every runtime import from it.
+  The host remains development-only for integration tests and the example app.
+- Capture node/policy/scorer facts before callbacks and validate/project foreign
+  scores and verdict evidence. Unknown, omitted or duplicate IDs and non-number
+  scores produce the existing empty unmatched fallback. Non-number refusal is
+  an intentional correction: the previous validator admitted those values.
+  Preserve raw NaN/infinity numeric evidence for the supplied decision rule.
+- Capture synchronous decisions immediately and asynchronous decisions at their
+  first delivery; contain rejecting callbacks without an unhandled rejection.
+- Capture asynchronous scores at actual observer delivery too, including Promise
+  subtypes that retain and change their payload after the observer returns.
+  Native resolution before observer delivery is not a snapshot guarantee.
+- The actual packed files now enforce the host-free source/build boundary, and
+  a chart-only consumer installs/bundles without that host. Existing route and
+  real mock-Agent attribution tests remain; the host-backed tests live outside
+  library source and keep their own no-emit type check.
+
+Migration:
+1. Create a port with your scorer, complete policy and decision function.
+2. Pass it as `routeIntent(phrase, nodes, port, options)`; move old options fourth.
+3. Keep any host adapter in application/test code, or remove that package for charts only.
+
+- The preceding compatibility patch accepted AgentFootprint 16 alongside 15;
+  the routing-port major above replaces that optional peer with consumer input.
 - Correct spacing in the migration documentation and restore literal punctuation
   in the package description.
 

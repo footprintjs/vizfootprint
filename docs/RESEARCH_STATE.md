@@ -83,7 +83,7 @@ C4 CLOSED 2026-07-09 (DEP-BUMP packet, src/why commit after ecaa0b8): af 7.4.0 (
 correlationId path — `run({correlationId})` → `AgentRunOptions.correlationId` (source 9524460,
 `node_modules/agentfootprint/dist/esm/core/Agent.d.ts:51`) is folded into the run context
 (`Agent.js:639,645`) and forwarded onto every emitted `EventMeta.correlationId`
-(`bridge/eventMeta.js:39`); `sanctioned-path.test.ts` now asserts the SANCTIONED field is populated
+(`bridge/eventMeta.js:39`); `test/agent-routing/sanctioned-path.test.ts` now asserts the SANCTIONED field is populated
 end-to-end (no manual stamping), keeping a typed `no-agent-frame` miss test for a correlationId that
 never ran (fallback stays honest). fp 9.11.0 (npm-live) ships `RuntimeSnapshot.runId: string`
 (source fba2886, `node_modules/footprintjs/dist/esm/lib/runner/ExecutionRuntime.d.ts:39`) →

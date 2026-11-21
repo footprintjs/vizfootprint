@@ -10,10 +10,10 @@
 import { describe, expect, it } from 'vitest';
 import { Agent, defineTool } from 'agentfootprint';
 import { mock } from 'agentfootprint/providers';
-import { resolveAgentTier, why } from './index.js';
-import type { AgentEventFrame, WhySources } from './index.js';
-import { CauseSelectionSession } from '../log/index.js';
-import { runKernel } from './kernel.fixture.js';
+import { resolveAgentTier, why } from '../../src/why/index.js';
+import type { AgentEventFrame, WhySources } from '../../src/why/index.js';
+import { CauseSelectionSession } from '../../src/log/index.js';
+import { runKernel } from '../../src/why/kernel.fixture.js';
 
 const CORR = 'corr-sanctioned-1';
 
