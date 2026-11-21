@@ -1,4 +1,11 @@
 import type { RouteCandidate, RouteScore } from './types.js';
+import { captureDelivery } from './delivery.js';
+
+/** A synchronous array is already delivered; never inspect its extra then. */
+export function captureScoresDelivery(candidates: readonly RouteCandidate[], result: unknown): RouteScore[] | Promise<RouteScore[]> {
+  return Array.isArray(result) ? captureScores(candidates, result)
+    : captureDelivery(result, value => captureScores(candidates, value));
+}
 
 /** One numeric score per declared candidate, returned in declaration order. */
 export function captureScores(candidates: readonly RouteCandidate[], result: unknown): RouteScore[] {

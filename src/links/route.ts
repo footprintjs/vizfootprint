@@ -15,7 +15,7 @@ import type { EmissionKind, LinkView } from './types.js';
 import { ENCODING_KIND } from './types.js';
 import type { RouteNode, RouteOptions, RoutePort, RouteVerdict } from './route/types.js';
 import { candidatesFor, captureNodes, captureOptions, capturePort, copyCandidates } from './route/input.js';
-import { captureScores } from './route/scores.js';
+import { captureScoresDelivery } from './route/scores.js';
 import { captureDecisionDelivery, unmatchedDecision } from './route/decision.js';
 export type { RouteCandidate, RouteDecision, RouteNode, RouteOptions, RoutePolicy, RoutePort, RouteScore, RouteVerdict, RankedRouteScore } from './route/types.js';
 
@@ -42,10 +42,10 @@ export async function routeIntent(phrase: string, nodes: readonly RouteNode[], p
   if (candidates.length === 0) return { verdict: unmatchedDecision(), ...evidence };
   try {
     const raw = captured.score(phrase, copyCandidates(candidates), options.signal);
-    // A synchronous array is observed before yielding, so a retained reference
-    // cannot rewrite the returned facts in a later microtask. Promises are
-    // captured when their result is delivered, with no polling or timeout.
-    const scores = captureScores(candidates, Array.isArray(raw) ? raw : await raw);
+    // Each callback is copied at actual delivery, before producer code resumes;
+    // only an owned promise crosses an await, never the foreign payload.
+    const deliveredScores = captureScoresDelivery(candidates, raw);
+    const scores = deliveredScores instanceof Promise ? await deliveredScores : deliveredScores;
     const result = captured.decide(scores.map(score => ({ ...score })), options.incumbent, { ...captured.policy });
     const delivered = captureDecisionDelivery(result, scores);
     return { verdict: delivered instanceof Promise ? await delivered : delivered, ...evidence };

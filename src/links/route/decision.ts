@@ -1,24 +1,9 @@
 import type { RankedRouteScore, RouteDecision, RouteScore } from './types.js';
+import { captureDelivery } from './delivery.js';
 
 /** Observe foreign async failure, while ordinary decisions are copied now. */
 export function captureDecisionDelivery(result: unknown, scores: readonly RouteScore[]): RouteDecision | Promise<RouteDecision> {
-  const then = (result as { then?: unknown } | null | undefined)?.then;
-  if (typeof then !== 'function') return captureDecision(result, scores);
-  // Copy a delivered decision before resolving our promise, so the platform
-  // never assimilates the foreign value or reads its then/getters a second time.
-  return new Promise<RouteDecision>((resolve, reject) => {
-    let settled = false;
-    const accept = (value: unknown) => {
-      if (settled) return;
-      settled = true;
-      try { resolve(captureDecision(value, scores)); } catch (error) { reject(error); }
-    };
-    const refuse = (reason: unknown) => {
-      if (settled) return;
-      settled = true; reject(reason);
-    };
-    try { Reflect.apply(then, result, [accept, refuse]); } catch (error) { refuse(error); }
-  });
+  return captureDelivery(result, value => captureDecision(value, scores));
 }
 
 /** Only evidence integrity belongs here; the consumer decides the routing rule. */

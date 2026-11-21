@@ -15,9 +15,15 @@ const controls = [
   { name: 'policy-custody', file: 'src/links/route.ts', from: '{ ...captured.policy }', to: 'captured.policy',
     args: [vitest, 'run', 'src/links/route/decision.test.ts', '-t', 'contains decision exceptions and input mutation without altering owned evidence'],
     assertion: 'contains decision exceptions and input mutation without altering owned evidence' },
-  { name: 'async-decision-observation', file: 'src/links/route/decision.ts', from: "typeof then !== 'function'", to: 'true',
+  { name: 'async-decision-observation', file: 'src/links/route/delivery.ts', from: "typeof then !== 'function'", to: 'true',
     args: [vitest, 'run', 'src/links/route/delivery.test.ts', '-t', 'contains rejected decisions without an unhandled rejection in a strict process'],
     assertion: 'contains rejected decisions without an unhandled rejection in a strict process' },
+  { name: 'score-delivery-custody', file: 'src/links/route.ts', from: 'captureScoresDelivery(candidates, raw)',
+    to: 'captureScoresDelivery(candidates, Array.isArray(raw) ? raw : await raw)',
+    args: [vitest, 'run', 'src/links/route/score-delivery.test.ts'],
+    assertion: 'captures an admitted Promise subclass before post-delivery mutation',
+    alsoFails: 'captures an admitted fulfilled subclass array without re-assimilating its then getter',
+    summary: /Tests\s+2 failed\s*\|\s*7 passed\s*\(9\)/ },
   { name: 'optional-runtime-boundary', file: 'scripts/routing-package/check.mjs', from: "'optionalDependencies', ", to: '',
     args: ['--test', 'scripts/routing-package/check.node-test.mjs'], assertion: 'the packed manifest refuses the host in optionalDependencies' },
   { name: 'packed-host-boundary', file: 'scripts/routing-package/check.mjs', from: 'assert(!/agentfootprint/i.test(text),', to: 'assert(true,',
@@ -38,6 +44,8 @@ for (const control of controls) {
     assert.equal(result.signal, null, `${control.name}: process did not finish normally`);
     assert.equal(result.status, 1, `${control.name}: mutation was not killed`);
     assert(plain.includes(control.assertion), `${control.name}: expected assertion did not run`);
+    if (control.alsoFails) assert(plain.includes(control.alsoFails), `${control.name}: second custody assertion did not fail`);
+    if (control.summary) assert(control.summary.test(plain), `${control.name}: native controls or failure counts changed`);
     assert(/AssertionError|ERR_ASSERTION/.test(plain), `${control.name}: failure was not an assertion`);
     assert(!/SyntaxError|Cannot find module|Failed to load/.test(plain), `${control.name}: unrelated loader failure`);
     results.push({ name: control.name, source: control.file, status: 'killed', exit: result.status,

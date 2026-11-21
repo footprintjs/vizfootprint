@@ -14,6 +14,9 @@
   Preserve raw NaN/infinity numeric evidence for the supplied decision rule.
 - Capture synchronous decisions immediately and asynchronous decisions at their
   first delivery; contain rejecting callbacks without an unhandled rejection.
+- Capture asynchronous scores at actual observer delivery too, including Promise
+  subtypes that retain and change their payload after the observer returns.
+  Native resolution before observer delivery is not a snapshot guarantee.
 - The actual packed files now enforce the host-free source/build boundary, and
   a chart-only consumer installs/bundles without that host. Existing route and
   real mock-Agent attribution tests remain; the host-backed tests live outside

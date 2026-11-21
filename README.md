@@ -32,8 +32,11 @@ answer. Missing required port configuration throws an error naming the input.
 Callback inputs and returned evidence are copied at their ownership boundaries.
 Both callbacks may deliver asynchronously, with no polling or retry. A decision's
 callable `then` is observed once as its async protocol; ordinary decisions are
-copied immediately, and delivered decisions are copied before their callback
-returns. Rejections become the same unmatched answer without an unhandled error.
+copied immediately. Score arrays are also copied immediately without reading an
+extra `then` property. Both async callbacks are copied inside their actual delivery
+observer, before producer code resumes; native Promise resolution alone does not
+freeze a producer's value. Rejections become the same unmatched answer without
+an unhandled error.
 The optional abort signal is forwarded; Viz does not pretend an uncooperative
 scorer completed merely because it was cancelled.
 

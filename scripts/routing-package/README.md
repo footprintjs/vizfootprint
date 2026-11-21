@@ -15,6 +15,8 @@ then restores it before continuing. No sibling dist tree is substituted.
 
 `../check-routing-mutant.mjs`, in the compatibility report, removes numeric
 validation, policy input custody, async rejection observation, optional runtime
-dependency refusal and the built-file check one at a time. Each
+dependency refusal, score delivery custody and the built-file check one at a time.
+The score custody control restores foreign await and must reproduce exactly the
+two Promise-subclass failures while its seven native/sync controls still pass. Each
 original assertion must fail normally; the source bytes are restored in a
 finally block. Each fixed control runs once, never as a retry.
