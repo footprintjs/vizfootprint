@@ -14,7 +14,7 @@
  *
  * The agent tier consumes SANCTIONED `EventMeta`-shaped frames (C4 — the join
  * key rides in the `correlationId` field, NOT tool args); the sanctioned path
- * over a real agentfootprint run is proven in `sanctioned-path.test.ts`.
+ * over a real agentfootprint run is proven in `test/agent-routing/sanctioned-path.test.ts`.
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';

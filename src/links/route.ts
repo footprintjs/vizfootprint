@@ -2,50 +2,22 @@
  * ROUTE — which node would this phrase reach? (layer 4, step 5; ruling 7)
  *
  * A node is one (view, emission kind) with the view's `does` sentence as its
- * routing text. The scorer and the verdict are agentfootprint's skill-graph
- * kernel, reused as-is (ruling 9: the kernel stays in one place): the scorer
- * scores every candidate, the framework — not the scorer — decides move,
+ * routing text. The consumer supplies its scorer and decision rule through
+ * Viz's own port: the scorer scores every candidate, the decision chooses move,
  * stay, menu or unmatched. Read-only: routing never lands a commit; the act
  * that follows a verdict does, with the verdict's numbers as its evidence.
  *
- * Its own module, NOT in the links barrel (the file-carrier precedent): it
- * imports agentfootprint's skill-graph door, and the ui package bundles the
- * core — a host that routes imports `src/links/route` directly.
+ * Its own module, NOT in the links barrel (the file-carrier precedent): a
+ * host that routes imports `src/links/route` directly. No host package or
+ * routing default is loaded by this library.
  */
-import { DEFAULT_ROUTING_POLICY, decideTier2, keywordScorer, validateIntentScores } from 'agentfootprint/skill-graph';
-import type { IntentCandidate, IntentScorer, RoutingPolicy, Tier2Verdict } from 'agentfootprint/skill-graph';
 import type { EmissionKind, LinkView } from './types.js';
 import { ENCODING_KIND } from './types.js';
-
-/** One routable node: a VIEW, named by its `does` sentence; which emission kind the act uses is the act's own choice among `kinds`. */
-export interface RouteNode {
-  /** The view id — one node per view, so two kinds never tie on one sentence. */
-  readonly id: string;
-  readonly viewId: string;
-  /** The selection kinds the view can emit (the act picks one; an offer names it). */
-  readonly kinds: readonly EmissionKind[];
-  /** The routing text: what acting on the view does, in one sentence. */
-  readonly does: string;
-  /** Real phrasings, if the author gave any. */
-  readonly examples?: readonly string[];
-}
-
-export interface RouteOptions {
-  /** The node the conversation is already on (mid-conversation ambiguity = stay). */
-  readonly incumbent?: string;
-  /** The scorer; default = the kernel's keyword scorer (word overlap, a declared floor). */
-  readonly scorer?: IntentScorer;
-  readonly policy?: Partial<RoutingPolicy>;
-  readonly signal?: AbortSignal;
-}
-
-/** The verdict, with the scorer and policy that produced it — evidence an act may carry. */
-export interface RouteVerdict {
-  readonly verdict: Tier2Verdict;
-  readonly scorer: string;
-  readonly policy: RoutingPolicy;
-  readonly nodes: readonly RouteNode[];
-}
+import type { RouteNode, RouteOptions, RoutePort, RouteVerdict } from './route/types.js';
+import { candidatesFor, captureNodes, captureOptions, capturePort, copyCandidates } from './route/input.js';
+import { captureScoresDelivery } from './route/scores.js';
+import { captureDecisionDelivery, unmatchedDecision } from './route/decision.js';
+export type { RouteCandidate, RouteDecision, RouteNode, RouteOptions, RoutePolicy, RoutePort, RouteScore, RouteVerdict, RankedRouteScore } from './route/types.js';
 
 /** The routable nodes of a graph: every view with a `does` sentence and at least one selection kind in its voice. */
 export function routeNodes(views: readonly LinkView[], does: Readonly<Record<string, string | undefined>>): RouteNode[] {
@@ -61,17 +33,25 @@ export function routeNodes(views: readonly LinkView[], does: Readonly<Record<str
 }
 
 /** Which node would this phrase reach? Pure over its inputs; never lands a commit. */
-export async function routeIntent(phrase: string, nodes: readonly RouteNode[], opts: RouteOptions = {}): Promise<RouteVerdict> {
-  const scorer = opts.scorer ?? keywordScorer();
-  const policy: RoutingPolicy = { ...DEFAULT_ROUTING_POLICY, ...opts.policy };
-  const candidates: IntentCandidate[] = nodes.map((n) => ({ id: n.id, intent: n.does, examples: n.examples ?? [] }));
-  if (candidates.length === 0) return { verdict: { kind: 'unmatched', ranked: [], decisive: false }, scorer: scorer.name, policy, nodes };
+export async function routeIntent(phrase: string, nodes: readonly RouteNode[], port: RoutePort, opts: RouteOptions = {}): Promise<RouteVerdict> {
+  const options = captureOptions(opts);
+  const captured = capturePort(port, options.policy);
+  const ownedNodes = captureNodes(nodes);
+  const candidates = candidatesFor(ownedNodes);
+  const evidence = { scorer: captured.name, policy: captured.policy, nodes: ownedNodes };
+  if (candidates.length === 0) return { verdict: unmatchedDecision(), ...evidence };
   try {
-    const raw = await scorer.score({ message: phrase }, candidates, opts.signal);
-    const scores = validateIntentScores(scorer.name, candidates, raw);
-    return { verdict: decideTier2(scores, opts.incumbent, policy, scorer), scorer: scorer.name, policy, nodes };
+    const raw = captured.score(phrase, copyCandidates(candidates), options.signal);
+    // Each callback is copied at actual delivery, before producer code resumes;
+    // only an owned promise crosses an await, never the foreign payload.
+    const deliveredScores = captureScoresDelivery(candidates, raw);
+    const scores = deliveredScores instanceof Promise ? await deliveredScores : deliveredScores;
+    const result = captured.decide(scores.map(score => ({ ...score })), options.incumbent, { ...captured.policy });
+    const delivered = captureDecisionDelivery(result, scores);
+    return { verdict: delivered instanceof Promise ? await delivered : delivered, ...evidence };
   } catch {
-    // the kernel's own law: a misbehaving scorer must never abort a run — honestly unmatched, nothing ranked
-    return { verdict: { kind: 'unmatched', ranked: [], decisive: false }, scorer: scorer.name, policy, nodes };
+    // A misbehaving callback cannot invent an action: honestly unmatched,
+    // with the scorer and declared policy captured before the foreign call.
+    return { verdict: unmatchedDecision(), ...evidence };
   }
 }

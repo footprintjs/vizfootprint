@@ -6,6 +6,8 @@ on:
       - package.json
       - package-lock.json
       - scripts/agent-peer-report/**
+      - src/links/**
+      - test/**
       - .github/workflows/agent-peer-report.yml
 
 permissions:
@@ -103,6 +105,8 @@ jobs:
           npm ls agentfootprint footprintjs foottrace --all
           node scripts/native-cohort.mjs identity
           node --input-type=module -e "import {readFileSync} from 'node:fs'; for (const file of ['package.json', 'ui/package.json', 'studio/package.json', 'bridges/vega-lite/package.json']) { if (JSON.parse(readFileSync(file, 'utf8')).private !== true) throw new Error(file + ' must stay private'); }"
+      - name: Exercise the required routing boundary before compiler gates
+        run: npx --no-install vitest run src/links/route.boundary.test.ts
       - name: Run every original build and type check
         run: |
           npm run typecheck
@@ -120,6 +124,7 @@ jobs:
       - name: Run the original browser mutant and installed-identity post-check
         run: |
           node scripts/check-sheet-mutant.mjs
+          node scripts/check-routing-mutant.mjs
           node scripts/native-cohort.mjs identity
           git diff --exit-code -- . ':!package.json' ':!package-lock.json'
       - name: Restore the two alternate-graph inputs and verify source cleanliness
@@ -137,5 +142,6 @@ jobs:
             ${{ runner.temp }}/viz-agent16-suite/
             ${{ runner.temp }}/viz-sheet-mutation/mutant.log
             ${{ runner.temp }}/viz-sheet-mutation/result.json
+            ${{ runner.temp }}/viz-routing-mutation/
           if-no-files-found: error
           retention-days: 7

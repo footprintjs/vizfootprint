@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { checkRoutingPackage } from './routing-package/check.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const scratch = await mkdtemp(join(tmpdir(), 'viz-profile-package-'));
@@ -30,8 +31,31 @@ try {
   const sourceManifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   assert.deepEqual(JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8')), sourceManifest,
     'The packed manifest must equal the reviewed source manifest');
+  await checkRoutingPackage(packageDir, packed[0].files);
+  const controlPath = join(packageDir, packed[0].files.find(file => file.path.startsWith('dist/') && file.path.endsWith('.js')).path);
+  const originalControl = await readFile(controlPath);
+  try {
+    await writeFile(controlPath, Buffer.concat([originalControl, Buffer.from('\n// agentfootprint negative control\n')]));
+    await assert.rejects(checkRoutingPackage(packageDir, packed[0].files), /host agent name/);
+  } finally { await writeFile(controlPath, originalControl); }
+  await checkRoutingPackage(packageDir, packed[0].files);
   await writeFile(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
   assert.deepEqual(await readdir(join(consumer, 'node_modules')), ['vizfootprint']);
+  const chartEntry = join(consumer, 'chart-only-entry.mjs');
+  await writeFile(chartEntry, "export { builtinSelection, causeClauseFromEmission } from 'vizfootprint/selection';\n");
+  const chartBundle = await build({ absWorkingDir: consumer, entryPoints: [chartEntry], outfile: join(consumer, 'chart-only.mjs'),
+    bundle: true, format: 'esm', platform: 'neutral', target: 'es2022', treeShaking: true, metafile: true,
+    // Resolve the broad barrel without installing unused optional adapters, as
+    // the profile check does below; no external may survive, and the host agent
+    // is deliberately absent from this resolver allowance.
+    external: ['node:*', '@duckdb/*', '@modelcontextprotocol/*', '@uwdata/*', 'footprintjs', 'react', 'react-dom'], logLevel: 'silent' });
+  for (const output of Object.values(chartBundle.metafile.outputs)) {
+    assert.deepEqual(output.imports, [], 'Chart-only selection must retain no external host dependency');
+    assert(!Object.keys(output.inputs).some(path => /agentfootprint/i.test(path)), 'Chart-only bundle contains the host agent');
+  }
+  const chartPublic = run(process.execPath, ['--input-type=module', '-e', "import { builtinSelection } from './chart-only.mjs'; console.log(typeof builtinSelection);"], consumer).trim();
+  assert.equal(chartPublic, 'function');
+  console.log('PASS packed routing boundary and chart-only bundle without the host agent');
   const example = await readFile(join(packageDir, 'examples/profile-data.mjs'), 'utf8');
   await writeFile(join(consumer, 'example.mjs'), example);
   const direct = JSON.parse(run(process.execPath, ['example.mjs', '--sqlite'], consumer));
