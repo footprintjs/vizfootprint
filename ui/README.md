@@ -1177,7 +1177,7 @@ hand-bound run over a real two-table session that proves the loop closes.
 
 ## The layers (each importable alone)
 
-The package is being split into four layers: **theme** (design tokens), **components** (render only), a **door** per feature (the interface a component calls, and its adapter) and **data logic** (pure functions, no React). `src/layers.test.ts` reads the source and fails when a file crosses a layer: a model that imports React, a component that imports a data rule, a literal colour anywhere outside the theme, or a literal size in an inline style. Features are converted one at a time; the test lists the files not converted yet, and a list only shrinks. The theme (`theme/`) and the time-travel bar (`time/`) are the first two.
+The package is being split into four layers: **theme** (design tokens), **components** (render only), a **door** per feature (the interface a component calls, and its adapter) and **data logic** (pure functions, no React). `src/layers.test.ts` parses the source and fails when a file crosses a layer in a way it can see: a `model.ts` that reaches React, a component or a stylesheet through any import; a component that imports a value from the adapter, a library door or the root barrel; a colour literal in code outside the theme; a number in an inline style. Features are converted one at a time; the test lists the files not converted yet, and a list only shrinks. Its header states what it does not check (data rules outside `adapter/`, derivation inside a component, colours in the stylesheet, sizes written as SVG attributes). So far the theme (`theme/`) is in place, and the time-travel bar has its model and its door; its sizes are not tokens yet.
 
 | module | job |
 |---|---|
