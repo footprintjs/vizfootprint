@@ -25,7 +25,7 @@ function fakeView(initial: SessionViewState) {
   let state = initial;
   const listeners = new Set<() => void>();
   const calls: unknown[][] = [];
-  const act1 = (name: string) => vi.fn(async (...args: unknown[]) => void calls.push([name, ...args]));
+  const act1 = (name: string) => vi.fn(async (...args: unknown[]) => (calls.push([name, ...args]), { ok: false, sentence: name }));
   const view = {
     getState: () => state,
     subscribe: (l: () => void) => (listeners.add(l), () => void listeners.delete(l)),
@@ -58,9 +58,17 @@ describe('useTimeTravel — the door over a session view', () => {
     fireEvent.click(container.querySelector('[data-commit="a"]')!);
     fireEvent.click(container.querySelector('[data-step="forward"]')!);
     fireEvent.click(container.querySelector('[data-vzf="return-now"]')!);
-    seen[0]!.onStepBack();
-    seen[0]!.onNameBookmark('here');
+    void seen[0]!.onStepBack();
+    void seen[0]!.onNameBookmark('here');
     expect(calls).toEqual([['seek', 'a'], ['stepForward'], ['returnToNow'], ['stepBack'], ['bookmark', 'here']]);
+  });
+
+  it('each move hands back what the session said about it', async () => {
+    const { view } = fakeView(mapPollState(RAW));
+    const seen: TimeTravel[] = [];
+    render(<Bar view={view} seen={seen} />);
+    const door = seen[0]!;
+    expect(await Promise.all([door.onSeek('a'), door.onStepBack(), door.onStepForward(), door.onReturnToNow()])).toEqual(['seek', 'stepBack', 'stepForward', 'returnToNow'].map((sentence) => ({ ok: false, sentence })));
   });
 
   it('follows the view: a new state is a new model, the same state is the same model, the actions never change', () => {
@@ -98,6 +106,19 @@ describe('TimeTravelBar — renders the model it is given', () => {
     expect(container.querySelectorAll('.vzf-tl-dot')).toHaveLength(2);
     expect(container.querySelector('.vzf-cursor')).toBeNull();
     expect(container.querySelector('[data-vzf="rail-scope"]')!.textContent).toBe('2 of 2 steps · this path · the cursor is not among the recorded steps');
+  });
+
+  it('a present-mode dot seeks to the moment its bookmark NAMES, not to the act of naming it', () => {
+    const onSeek = vi.fn();
+    const bookmarks = [{ label: 'named', commitId: 'a', at: 'r', ts: 1, by: 'user' as const, madeAt: '2026-01-01T00:00:00.000Z' }];
+    const { container } = render(<TimeTravelBar mode="present" model={timeTravelModel({ commits, cursor: 'a', head: 'a', bookmarks })} onSeek={onSeek} />);
+    fireEvent.click(container.querySelector('[data-bookmark-dot="a"]')!);
+    expect(onSeek).toHaveBeenCalledWith('r');
+  });
+
+  it('a bar with no intent ends its title at the actor', () => {
+    const { container } = render(<TimeTravelBar model={timeTravelModel({ commits: commits.map((c) => ({ ...c, intent: '' })), cursor: 'a', head: 'a' })} />);
+    expect(container.querySelector('[data-commit="a"]')!.getAttribute('title')).toMatch(/\(agent\)$/);
   });
 
   it('draws only what the model says: a hand-made model is rendered as given', () => {

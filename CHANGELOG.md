@@ -8,8 +8,12 @@
   `head`, `bookmarks`, `branches` and `pathName`. It derives nothing from the log.
 - New: `timeTravelModel(input)` (data logic, no React), `useTimeTravel(view)`
   (a model and the view's five time actions, ready to spread onto the bar),
-  `timeTravelOf(state)` and the types `TimeTravel`, `TimeTravelModel`,
-  `ExploreModel`, `PresentModel`, `PresentStop`, `RailBar`, `RailCoverage`.
+  `timeTravelOf(state)` and the types `TimeTravel`, `TimeTravelInput`,
+  `TimeTravelModel`, `ExploreModel`, `PresentModel`, `PresentStop`, `RailBar`,
+  `RailCoverage`. Each action of the door hands back what the session said
+  (`DescribeOutcome`), so a custom bar can tell a reader a seek was refused.
+- The demo-agent app now names the path beside the rail, as the gallery and
+  the studio desk already did: the door always passes it.
 - Correction: a cursor naming a commit that is not in the log used to draw an
   empty rail under "no commits yet". The rail now draws the head's lineage and
   its sentence says the cursor is not among the recorded steps. `RailScope`

@@ -60,6 +60,17 @@ describe('timeTravelModel — explore', () => {
     expect(timeTravelModel({ ...base, cursor: 'b', pathName: 'main' }).explore.coverage.pathName).toBe('main');
   });
 
+  it('an empty cursor id is no cursor: nothing is reported missing', () => {
+    const m = timeTravelModel({ ...base, cursor: '' });
+    expect(ids(m)).toEqual(['r', 'a', 'b']);
+    expect(m.explore.coverage).toMatchObject({ offLane: false, cursorMissing: false });
+  });
+
+  it('an empty intent is no intent', () => {
+    const commits = S.commits.map((c) => (c.id === 'a' ? { ...c, intent: '' } : c));
+    expect('intent' in timeTravelModel({ ...base, commits, cursor: 'b' }).explore.bars[1]!).toBe(false);
+  });
+
   it('no cursor: the head lineage, no bar marked as the cursor, nowhere to step', () => {
     const m = timeTravelModel({ ...base, cursor: null });
     expect(ids(m)).toEqual(['r', 'a', 'b']);

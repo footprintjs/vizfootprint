@@ -88,9 +88,9 @@ export interface PresentModel {
   /** The current stop's index, or -1 when there are no stops. */
   readonly index: number;
   /**
-   * False when the cursor stands on no bookmark and has none behind it. The
-   * first stop is then shown as the NEAREST one, and the bar must say so
-   * rather than present it as where the reader is.
+   * False when the cursor stands on no bookmark and has none behind it (or
+   * there is no cursor). The FIRST stop is then the current one — it is not
+   * computed to be the nearest — and the bar marks the reading as not exact.
    */
   readonly exact: boolean;
   readonly previous: string | null;
@@ -117,8 +117,9 @@ function exploreModel(input: TimeTravelInput, bookmarks: readonly BookmarkView[]
   // rail used to draw NO bars for it and say "no commits yet" over a log that
   // had some; it draws the head's lineage now and `cursorMissing` says why no
   // bar is marked.
-  const cursorMissing = cursor !== null && !commits.some((c) => c.id === cursor);
-  const onHeadLineage = cursor === null || cursorMissing || headLineage.some((c) => c.id === cursor);
+  // an empty id is no cursor, as the step rules and the bookmark rules already read it
+  const cursorMissing = cursor !== null && cursor !== '' && !commits.some((c) => c.id === cursor);
+  const onHeadLineage = cursor === null || cursor === '' || cursorMissing || headLineage.some((c) => c.id === cursor);
   const lineage = onHeadLineage ? headLineage : pathToRoot(commits, cursor);
   const cursorAt = lineage.findIndex((c) => c.id === cursor);
   const flagged = new Set(bookmarks.map((b) => b.commitId).filter((id): id is string => id !== null && id !== ''));
