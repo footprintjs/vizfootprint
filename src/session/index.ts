@@ -24,6 +24,8 @@ export type {
   TimeState,
   SeekResult,
   ReplayResult,
+  ReplayedTests,
+  RejudgedTest,
   GapRow,
   GapCode,
   GapOp,

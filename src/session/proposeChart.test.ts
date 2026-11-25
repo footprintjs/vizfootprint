@@ -58,7 +58,7 @@ describe('proposeChart — the happy path (ledgered agent-authored chart)', () =
     expect(hyp.field).toBe('pValue');
     // ONE shape on the test lane: the act, and the p it entered at (an untested
     // visual claim enters at 1) — the same shape a declared test lands
-    expect(hyp.value).toEqual({ id: 'pr', table: 'data', pValue: 1 });
+    expect(hyp.value).toEqual({ id: 'pr', table: 'data', pValue: 1, ledgerRow: s.ledger()[0] });
     expect(hyp.cause.requestedBy).toBe('agent');
     expect(hyp.cause.computedBy).toBe('agent'); // agent-authored, NOT system (unlike analyze)
     expect(spec.field).toBe('__chart__');

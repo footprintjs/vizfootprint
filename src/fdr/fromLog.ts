@@ -32,6 +32,11 @@
  * number: a shape whose only reader is a mistake is not a shape worth staying
  * compatible with.
  *
+ * A test's value also carries `ledgerRow`: the row the test got in the error
+ * budget where it was made. A replay computes its own row and compares the
+ * two (`readLedgerRow`, `ledgerRowDifferences`), so a log judged again under
+ * other settings is reported, not passed off as the original.
+ *
  * ---- field mapping ----------------------------------------------------------
  * `hypothesisId` <- `correlationId` when present (L1's first-class cross-tier
  * join key, `src/log/log.ts:45-55`), else the commit's own `id`. A caller
@@ -49,7 +54,7 @@
 
 import { ANALYSIS_VIEW_PREFIX, CHART_VIEW_PREFIX } from '../branches/index.js';
 import type { CommitRecord } from '../log/index.js';
-import type { HypothesisRecord } from './types.js';
+import type { FdrStep, HypothesisRecord } from './types.js';
 
 /** The reserved field name a declared-analysis test emission commits its act under. */
 export const TEST_ANALOG_FIELD = 'pValue';
@@ -79,6 +84,16 @@ export interface TestAct {
   readonly def?: unknown;
   /** The p-value the test produced. A finite number in [0,1]; an untested visual claim enters at 1. */
   readonly pValue: number;
+  /**
+   * THE ROW THIS TEST GOT in the error budget where it was made: its position,
+   * the threshold it was judged against, the verdict, and the budget before and
+   * after. Written by the session that ran the test. It is what lets a replay
+   * CHECK the row it computes against the one the test really got
+   * ({@link ledgerRowDifferences}). Absent on a log written before the row was
+   * recorded, and absent when the stored row cannot be read
+   * ({@link readLedgerRow}) — a replay then says the test could not be checked.
+   */
+  readonly ledgerRow?: FdrStep;
 }
 
 /** Why a value on the reserved test field could not be read as a test. */
@@ -110,7 +125,83 @@ function readTestAct(value: unknown): TestAct | UnreadableTestReason {
   if (typeof id !== 'string' || id.length === 0) return 'unnamed-act';
   if (typeof table !== 'string' || table.length === 0) return 'unnamed-act';
   if (!isPValue(pValue)) return 'bad-p-value';
-  return { id, table, pValue };
+  const ledgerRow = readLedgerRow((value as { ledgerRow?: unknown }).ledgerRow, pValue);
+  return { id, table, pValue, ...(ledgerRow !== undefined ? { ledgerRow } : {}) };
+}
+
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
+const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * THE ONE READER of a recorded ledger row: the row, or `undefined` when the
+ * value is not one. It is rebuilt field by field, so nothing a foreign log
+ * put beside the known fields comes along. A row whose p-value is not the
+ * act's own is not a row OF this test, and is not returned.
+ */
+export function readLedgerRow(value: unknown, pValue: number): FdrStep | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const row = value as { readonly [K in keyof FdrStep]?: unknown };
+  if (!isCount(row.step)) return undefined;
+  if (typeof row.hypothesisId !== 'string' || row.hypothesisId.length === 0) return undefined;
+  if (row.pValue !== pValue) return undefined;
+  if (!isFiniteNumber(row.timestamp) || !isFiniteNumber(row.alphaThreshold)) return undefined;
+  if (!isFiniteNumber(row.wealthBefore) || !isFiniteNumber(row.wealthAfter)) return undefined;
+  if (typeof row.reject !== 'boolean' || typeof row.firstRejection !== 'boolean') return undefined;
+  if (row.branchId !== undefined && typeof row.branchId !== 'string') return undefined;
+  return {
+    step: row.step,
+    hypothesisId: row.hypothesisId,
+    pValue,
+    timestamp: row.timestamp,
+    ...(row.branchId !== undefined ? { branchId: row.branchId } : {}),
+    alphaThreshold: row.alphaThreshold,
+    reject: row.reject,
+    wealthBefore: row.wealthBefore,
+    wealthAfter: row.wealthAfter,
+    firstRejection: row.firstRejection,
+  };
+}
+
+/**
+ * The ledger row as a test's commit carries it: passed through the reader
+ * above, so what is written is exactly what a replay can read back — the known
+ * fields, no `undefined` keys. A row the reader would not accept (a procedure
+ * that produced a non-finite number) is not written; a replay then lists the
+ * test as unchecked rather than checking it against a bad row.
+ */
+export function ledgerRowToRecord(step: FdrStep): { readonly ledgerRow?: FdrStep } {
+  const ledgerRow = readLedgerRow(step, step.pValue);
+  return ledgerRow === undefined ? {} : { ledgerRow };
+}
+
+/** What can differ between the row a test got and the row a replay computes for it. */
+export type LedgerRowDifference =
+  /** Its position in the stream: tests are missing from the log, or extra. */
+  | 'step'
+  /** The level it was judged against. */
+  | 'threshold'
+  /** Whether it was a discovery. */
+  | 'verdict'
+  /** The budget before or after it. */
+  | 'budget';
+
+/** Two computed numbers are the same number when they agree to nine significant digits: one procedure on two JavaScript engines may differ in the last bits. */
+const sameNumber = (a: number, b: number): boolean => a === b || Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b));
+
+/**
+ * How the row a replay computed differs from the row the test recorded: empty
+ * when they agree. Compared: position, threshold, verdict and budget. Not
+ * compared: `timestamp` (a session's own logical clock), `hypothesisId` and
+ * `branchId` (names, not judgements) and `firstRejection` (stated as
+ * informational on {@link FdrStep}).
+ */
+export function ledgerRowDifferences(recorded: FdrStep, computed: FdrStep): LedgerRowDifference[] {
+  const differs: LedgerRowDifference[] = [];
+  if (recorded.step !== computed.step) differs.push('step');
+  if (!sameNumber(recorded.alphaThreshold, computed.alphaThreshold)) differs.push('threshold');
+  if (recorded.reject !== computed.reject) differs.push('verdict');
+  if (!sameNumber(recorded.wealthBefore, computed.wealthBefore) || !sameNumber(recorded.wealthAfter, computed.wealthAfter)) differs.push('budget');
+  return differs;
 }
 
 /**

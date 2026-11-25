@@ -1602,20 +1602,43 @@ that made it stood.
 const saved = original.log.records;          // holds two tests
 const session = dashboard.createSession();
 const res = await session.replay(saved);
-res.ok && res.tests;                          // { carried: 2, unreadable: [] }
+res.ok && res.tests;                          // { carried: 2, unreadable: [], rejudged: [], unchecked: [] }
 session.ledger().length;                      // 2 — the next test is step 3, as it would have been
 ```
 
 What it will not pretend:
 
-- **The verdicts are this dashboard's.** The log records the p-values. It does
-  not record the procedure, its settings, or the verdict each test got. The
-  carried rows are computed by the replaying session from the p-values, so in
-  the dashboard that made the log they are the original rows, and in a
-  dashboard configured differently they are what that configuration says of the
-  same p-values. A log made under LORD++ and replayed under alpha-investing can
-  show a discovery the original never made. Recording the row on the test's own
-  commit, so a replay can check it, is the next step and is not done yet.
+- **The ledger rows are this dashboard's, and each is checked.** The carried
+  rows are computed by the replaying session from the p-values, because its
+  procedure is the one that goes on judging. Every test also records, on its
+  own commit, the row it got where it was made (`TestAct.ledgerRow`: position,
+  threshold, verdict, budget before and after). The replay compares the two
+  and reports each test whose rows differ in `tests.rejudged`, with both rows
+  and what differs (`step`, `threshold`, `verdict`, `budget`):
+
+  ```ts
+  const res = await otherDashboard.createSession().replay(saved);   // alpha-investing; the log was made under LORD++
+  res.ok && res.tests.rejudged[0];
+  // { commitId: 's1',
+  //   recorded: { step: 1, alphaThreshold: 0.00125…, reject: true, wealthBefore: 0.025, wealthAfter: 0.0487…, … },
+  //   computed: { step: 1, alphaThreshold: 0.025,    reject: true, wealthBefore: 0.05,  wealthAfter: 0.1,     … },
+  //   differs: ['threshold', 'budget'] }
+  ```
+
+  Replayed whole into a dashboard configured as the one that made it,
+  `rejudged` is empty. It is not empty when the procedure or its settings
+  differ, when tests are missing from the log, or when a row was edited. The
+  session's ledger holds the computed row either way; `recorded` is what the
+  test really got. Two numbers count as the same when they agree to nine
+  significant digits. The procedure's settings are not written down as such (a
+  custom `gamma` is a function and cannot be); the row is what they produced,
+  and it is the row that is compared.
+- **A test with no recorded row cannot be checked, and is listed.** A log
+  written before rows were recorded, or a row that cannot be read, puts the
+  test's commit id in `tests.unchecked`. Nothing then says its carried row is
+  the original one. The check also only shows that the rows agree: it is not a
+  signature, and someone who rewrites both a p-value and its row consistently
+  is not caught by it.
 - **A test whose record cannot be read still spent budget.** Its p-value is
   unknown, so it is entered at p = 1: it costs what a test costs and can never
   be a discovery. It is listed in `tests.unreadable` with the reason, so a
@@ -1626,11 +1649,11 @@ What it will not pretend:
   value would be.
 - **A carried row's `timestamp` is this session's own clock**, not the
   original's. The log does not record that clock, and no threshold depends on it.
-- **A carried row's name and branch label come from this session.** The
-  hypothesis name is read from the analysis this session declares under the
-  act's id (the act's id itself when it declares none). An analysis declared
-  twice under one id, a module that named its own hypothesis, and a `branchId`
-  are not reproduced: the log does not record them.
+- **A carried row's name comes from its recorded row.** With no recorded row
+  it is read from the analysis this session declares under the act's id (the
+  act's id itself when it declares none), so for such a log an analysis
+  declared twice under one id, or a module that named its own hypothesis, is
+  not reproduced.
 - **`why({ kind: 'hypothesis' }).fdr` comes back only for a test the replay
   re-performs** (one that also wrote a column or a table). A plain-statistic
   test is carried into the ledger and is still not answerable by `why` on the
