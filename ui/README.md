@@ -486,6 +486,26 @@ so a host's format does not yet reach a layered line.
 
 ![the time series](gallery/screenshots/gallery-line.png)
 
+## An axis a chart sizes itself
+
+When the host declares no `domain`, a scatter (both axes) and a line (its value axis) size the axis from the data. Three rules, all in `primitives/scales.ts`:
+
+- **Room is a share of the span** (`roomyExtent`, 5% at each end). It used to be a fixed number of data units, 5 on a scatter's x and 0.5 on its y, which suits data in the hundreds and swamps data near zero: points between −0.5 and 0.5 were drawn on an axis from −5.5 to 5.5, a thin blob in the middle of the plot.
+- **Ticks stand at round values** (`roundTicks`): the multiples of a step of 1, 2 or 5 times a power of ten that lie inside the span. They used to be even cuts of the span, which land wherever the data's extent puts them.
+- **A label is written to the step's precision**, the same for every tick on the axis, and large values against one unit (k, M, B, T). Labels used to be rounded, which is how a −0.5…0.5 axis came to read "−1 0 0 0 1".
+
+```ts
+import { roomyExtent, roundTicks } from 'vizfootprint-ui';
+
+roomyExtent(rows, (r) => r.x, undefined);                 // [-0.55, 0.55] for x in −0.5 … 0.5
+roundTicks(-0.55, 0.55, 5).map((t) => t.label);           // ['-0.4', '-0.2', '0', '0.2', '0.4']
+roundTicks(-3_710_000, -3_704_000, 4).map((t) => t.label); // ['-3.710M', '-3.708M', '-3.706M', '-3.704M']
+```
+
+A declared `domain` is drawn as declared, with no room added, and ticked by the same rule. A logarithmic axis is unchanged: no room, decade ticks.
+
+Not done here: the left margin does not yet grow with the longest label, and ticks are not yet thinned when their labels would touch. The frame's shared axes, the box plot and the bar chart still use the older even cuts.
+
 ## A mark you are meant to press must be REACHABLE
 
 This one is also a defect measured on a real page, and it is the plainest kind

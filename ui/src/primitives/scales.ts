@@ -511,6 +511,136 @@ export function extentFor<T>(rows: readonly T[], get: (r: T) => number, pad: num
   return extent(rows, get, pad);
 }
 
+/**
+ * A ROUND STEP for about `target` intervals across `span`: 1, 2 or 5 times a
+ * power of ten, the steps a person counts in. 0 when there is no span to step
+ * across.
+ */
+export function roundStep(span: number, target: number): number {
+  if (!(span > 0) || !Number.isFinite(span) || !(target > 0)) return 0;
+  const raw = span / target;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const lead = raw / power; // 1 ≤ lead < 10
+  // the cut points are the geometric middles between 1, 2, 5 and 10 (the usual rule)
+  return (lead < Math.SQRT2 ? 1 : lead < Math.sqrt(10) ? 2 : lead < Math.sqrt(50) ? 5 : 10) * power;
+}
+
+/** How many decimals a step needs to be written exactly: 0.2 → 1, 0.05 → 2, 25 → 0. Capped, so a step with float noise in it cannot ask for sixteen. */
+export function stepDecimals(step: number): number {
+  if (!(step > 0) || !Number.isFinite(step)) return 0;
+  for (let d = 0; d <= 12; d++) {
+    const scaled = step * 10 ** d;
+    // a whole number of at least one: a step far below one must not read as "a whole number, zero"
+    if (Math.round(scaled) >= 1 && Math.abs(scaled - Math.round(scaled)) < 1e-9 * scaled) return d;
+  }
+  return 12;
+}
+
+/** More ticks than this is not an axis a person can read; no call may make more. */
+const MAX_TICKS = 100;
+
+/** One tick on a linear axis: where it is, and what it says. */
+export interface RoundTick {
+  readonly value: number;
+  readonly label: string;
+}
+
+const SUFFIXES: readonly (readonly [number, string])[] = [
+  [1e12, 'T'],
+  [1e9, 'B'],
+  [1e6, 'M'],
+  [1e3, 'k'],
+];
+
+/**
+ * THE TICKS OF A LINEAR AXIS: the multiples of a round step that lie inside
+ * `[lo, hi]`, each with its label.
+ *
+ * WHY multiples of a step, and not `n` even cuts of the span ({@link ticks}):
+ * even cuts land wherever the data's extent happens to put them (4.3, 5.8,
+ * 7.3), and the labels then have to be rounded to be readable — which is how a
+ * −0.5…0.5 axis came to read "−1 0 0 0 1": five different places, rounded to
+ * three numbers. A tick at a round value needs no rounding, so its label is
+ * the value.
+ *
+ * THE LABEL IS WRITTEN TO THE STEP'S PRECISION, the same for every tick on the
+ * axis: a step of 0.2 gives one decimal, 0.05 two, 25 none; zero is always
+ * "0". Large values are
+ * written against ONE unit for the whole axis (k, M, B, T — the largest one
+ * the biggest tick reaches), to the precision the step has in that unit:
+ * −3,710,000…−3,704,000 in steps of 2,000 reads −3.710M … −3.704M. An axis
+ * whose ticks are all below 10,000 in size is written in full.
+ *
+ * An empty or flat span has one tick, at the value, written as it is. A span
+ * that is not finite has none. A span no round step can index exactly, or one
+ * asked for more than a hundred ticks, has two: its ends.
+ */
+export function roundTicks(lo: number, hi: number, target: number): RoundTick[] {
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [];
+  const [a, b] = lo <= hi ? [lo, hi] : [hi, lo];
+  const step = roundStep(b - a, target);
+  if (step === 0) return [{ value: a, label: String(Number(a.toPrecision(6))) }];
+  const first = Math.ceil(a / step - 1e-9);
+  const count = Math.floor(b / step + 1e-9) - first;
+  // A COUNT, NEVER A WALK TO A BOUND. A span that is tiny beside its own offset (1e16 … 1e16 + 2)
+  // gives indices past the largest exact integer, where adding one changes nothing: a loop that
+  // counted up to `last` would never end. Such a span, and one asked for more ticks than an axis
+  // can hold, is ticked at its two ends.
+  if (!Number.isSafeInteger(first) || !Number.isSafeInteger(first + count) || count < 0 || count > MAX_TICKS) {
+    return [a, b].map((value) => ({ value, label: String(Number(value.toPrecision(6))) }));
+  }
+  const values: number[] = [];
+  for (let i = 0; i <= count; i++) values.push((first + i) * step);
+  // `count >= 0`, so there is a first and a last
+  const largest = Math.max(Math.abs(values[0]!), Math.abs(values[count]!));
+  // from ten thousand up the largest tick reaches a unit: the list ends at a thousand
+  const [unit, suffix] = largest >= 10_000 ? SUFFIXES.find(([size]) => largest >= size)! : ([1, ''] as const);
+  const decimals = stepDecimals(step / unit);
+  return values.map((value) => {
+    const shown = value / unit;
+    // a multiple of the step that should be zero can come out as −0 or 1e-17: zero is zero, and is written "0"
+    if (Math.abs(shown) < 10 ** -(decimals + 1)) return { value: 0, label: '0' };
+    // a step too fine to write out in decimals is written the way the language writes a small number
+    if (decimals > 6) return { value, label: String(Number(value.toPrecision(6))) };
+    return { value, label: `${shown.toFixed(decimals)}${suffix}` };
+  });
+}
+
+/** The share of its own span a chart leaves empty at each end of an axis it sizes itself. */
+export const EXTENT_ROOM = 0.05;
+
+/**
+ * THE DOMAIN A CHART GIVES ITSELF when the host declared none: the data's
+ * extent, with room at each end so no mark sits on the plot's edge.
+ *
+ * THE ROOM IS A SHARE OF THE SPAN, never a number of data units. It used to be
+ * a fixed 5 units on a scatter's x axis and 0.5 on y, which suits data in the
+ * hundreds and swamps data near zero: points between −0.5 and 0.5 were drawn
+ * on an axis from −5.5 to 5.5, a thin blob in the middle of the plot. A share
+ * keeps the same picture whatever units the data is in.
+ *
+ *  - a span: `share` of it at each end (5% by default, the usual figure);
+ *  - ONE value (a flat span): the same share of the value's own size at each
+ *    side, or ±1 around zero, so a single point still gets an axis to sit on;
+ *  - nothing to measure: `[0, 1]`, the placeholder an empty linear axis has
+ *    always had;
+ *  - a LOGARITHMIC axis: no room at all, as before ({@link padFor} says why),
+ *    and the log-aware empty answer of {@link extentFor}.
+ */
+export function roomyExtent<T>(rows: readonly T[], get: (r: T) => number, kind: ScaleKind | undefined, share: number = EXTENT_ROOM): [number, number] {
+  if (kind === 'log') return extentFor(rows, get, 0, kind);
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const r of rows) {
+    const v = get(r);
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 1];
+  const room = lo === hi ? (lo === 0 ? 1 : Math.abs(lo) * share) : (hi - lo) * share;
+  return [lo - room, hi + room];
+}
+
 /** The shape {@link scaleFor} hands back: the same signature `linearScale` has. */
 export type ScaleBuilder = (d0: number, d1: number, r0: number, r1: number) => LinearScale;
 

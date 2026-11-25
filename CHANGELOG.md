@@ -21,6 +21,25 @@
   `null`, or a stream of another kind) is still read whole, and the cap is
   checked afterwards.
 
+### Charts: an axis a chart sizes itself follows the data (changes how charts look)
+
+- A scatter padded its own x axis by 5 data units and its y by 0.5, and a line
+  its value axis by 0.5. Data near zero was drawn as a thin blob in the middle
+  of the plot. The room is now 5% of the data's span at each end.
+- Ticks on those axes stand at round values (multiples of 1, 2 or 5 times a
+  power of ten) instead of even cuts of the span, and each label is written
+  to the step's precision. A −0.5…0.5 axis reads −0.4, −0.2, 0, 0.2, 0.4; it
+  read "−1 0 0 0 1". Large values are written against one unit:
+  −3.710M … −3.704M.
+- Every scatter and line with no declared `domain` changes: data in the
+  hundreds gets slightly more room than before, tick positions and their
+  number change, and a line's labels are no longer rounded to one decimal.
+  A declared `domain` keeps its span and is ticked by the new rule.
+- New exports: `roomyExtent`, `roundTicks`, `roundStep`, `stepDecimals`,
+  `EXTENT_ROOM`, type `RoundTick`.
+- Not in this change: a left margin that grows with the longest label, and
+  thinning ticks whose labels would touch.
+
 ### Security: a selection value is never written into the recorded SQL unquoted (behaviour change)
 
 - A point select accepted any value. An array was written into the commit's

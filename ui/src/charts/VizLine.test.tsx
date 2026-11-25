@@ -481,9 +481,9 @@ describe('VizLine — a line on a BAND (band versus run is the x column’s, nev
 
   it('y is untouched by the band: its own padded extent and ticks as on a run, and a logarithmic y still ticks at decades and excludes what it cannot place', () => {
     const { container } = render(<VizLine data={BAND} width={520} />);
-    // the y ticks step inside the chart's own 0.5 padding, exactly as they do over dates: means 4 · 4 · 9
+    // the y ticks are the round values inside the chart's own span, exactly as they are over dates: means 4 · 4 · 9
     const yTicks = [...container.querySelectorAll('text.vzf-tick')].map((t) => t.textContent).slice(3);
-    expect(yTicks.slice(0, 4)).toEqual(['4', '5.7', '7.3', '9']);
+    expect(yTicks.slice(0, 6)).toEqual(['4', '5', '6', '7', '8', '9']);
     const log = render(<VizLine data={[{ category: 'a', value: 10 }, { category: 'b', value: 0 }, { category: 'c', value: 1000 }]} width={520} domain={{ categories: ['a', 'b', 'c'], transform: { y: 'log' } }} />);
     // the zero has no position on a logarithmic y — not drawn, and counted in the accessible name
     expect(log.container.querySelectorAll('circle.vzf-line-dot')).toHaveLength(2);

@@ -1896,7 +1896,7 @@ describe('the frame renderer — a declared curve and a declared extent reach th
     m.update(framed([POINTS_LAYER], { x: { ...LOG_X, guide: 'per-layer' } as ResolvedChannel }));
     // the layer's own x axis, ticked at decades off the scale it was HANDED (`logTicks`), and its y on its
     // own extent. BEFORE: ['1', '251', '501', '750', '1000'] for x — `ticks(1, 1000, 4)`, an even run
-    expect(tickTexts(el, '.vzf-scatter')).toEqual(['1', '10', '100', '1000', '2', '3.5', '5', '6.5', '8']);
+    expect(tickTexts(el, '.vzf-scatter')).toEqual(['1', '10', '100', '1000', '2', '3', '4', '5', '6', '7', '8']);
     m.unmount();
   });
 
@@ -1919,7 +1919,7 @@ describe('the frame renderer — a declared curve and a declared extent reach th
     // on y alone: the y ticks are the declared extent's and the x ticks are still this chart's OWN, because
     // an extent declared on one axis says nothing about the other
     m.update(framed([POINTS_LAYER], { y: bounds(0, 40, [2, 8]) }));
-    expect(tickTexts(el, '.vzf-scatter')).toEqual(['10', '30', '50', '70', '90', '0', '10', '20', '30', '40']);
+    expect(tickTexts(el, '.vzf-scatter')).toEqual(['20', '40', '60', '80', '0', '10', '20', '30', '40']);
     m.update(framed([POINTS_LAYER], { x: bounds(0, 200, [10, 90]), y: bounds(0, 40, [2, 8]) }));
     expect(tickTexts(el, '.vzf-scatter')).toEqual(['0', '50', '100', '150', '200', '0', '10', '20', '30', '40']);
     m.unmount();
