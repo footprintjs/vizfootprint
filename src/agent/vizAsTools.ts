@@ -200,7 +200,9 @@ const WHY_DESCRIPTION =
   'untouched chart answers declared-in-def). Tiers that were not threaded come back as typed misses, ' +
   'never faked. When a kernel chain is returned, kernel.limits says where its proof stops (cut by a ' +
   'budget, reads not recorded, untracked input, a value from before the run, uncertain edges) and ' +
-  'flags.kernelLimitsReported is true when any applies: report such a chain as partial, never as complete.';
+  'flags.kernelLimitsReported is true when any applies: report such a chain as partial, never as complete. ' +
+  'false is NOT proof the chain is complete (closures, constants and outside calls leave no mark), and it is ' +
+  'also false when no kernel chain was returned (see misses).';
 
 const FORK_DESCRIPTION =
   'Travel back: move the read-only cursor to a prior commit id and rebuild the visible selection there. ' +

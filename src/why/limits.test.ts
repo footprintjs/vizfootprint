@@ -43,6 +43,8 @@ describe('sliceLimits — everything the reader reported, nothing inferred', () 
     ['a possible edge', { edges: [{}, { overlap: 'some' }, { overlap: { kind: 'partial' } }] }, { uncertainEdges: 2 }],
     ['an edge resting on nested rows', { edges: [{}, { basis: 'nested-rows' }, { builtOn: 'partial-write' }] }, { uncertainEdges: 1 }],
     ['no step with a recorded read', { readsCoverage: { steps: 3, stepsWithReads: 0 } }, { readsCoverage: { steps: 3, stepsWithReads: 0 } }],
+    // one step is where the reader prints no warning of its own, and a read from before the run vanishes with tracking off
+    ['a single step with no recorded read', { readsCoverage: { steps: 1, stepsWithReads: 0 } }, { readsCoverage: { steps: 1, stepsWithReads: 0 } }],
     ['a note', { notes: [{ code: 'redacted', detail: 'a value was redacted', extra: 1 }] }, { notes: [{ code: 'redacted', detail: 'a value was redacted' }] }],
     ['reads nobody counted', { readsCoverage: undefined, keysReadKind: 'custom-fn' }, { readsCoverage: null, readsKind: 'custom-fn' }],
   ])('%s is carried, and counts as a reported limit', (_case, reported, expected) => {
@@ -99,7 +101,10 @@ describe('the reader\u2019s slice shape is the one the limits were written again
     const root: Same<keyof SliceJSON, 'key' | 'before' | 'missing' | 'keysReadKind' | 'readsCoverage' | 'writerId' | 'nodes' | 'edges' | 'truncated' | 'notes'> = true;
     const node: Same<keyof Node, 'stageId' | 'stageName' | 'keysWritten' | 'depth' | 'incompleteSources' | 'preRunReads' | 'preRunBase' | 'preRunView'> = true;
     const edge: Same<keyof Edge, 'from' | 'to' | 'kind' | 'key' | 'weight' | 'basis' | 'overlap' | 'builtOn'> = true;
-    expect([root, node, edge]).toEqual([true, true, true]);
+    // …and the two objects `sliceLimits` copies field by field
+    const cut: Same<keyof NonNullable<SliceJSON['truncated']>, 'byDepth' | 'byNodes'> = true;
+    const coverage: Same<keyof NonNullable<SliceJSON['readsCoverage']>, 'steps' | 'stepsWithReads'> = true;
+    expect([root, node, edge, cut, coverage]).toEqual([true, true, true, true, true]);
   });
 });
 

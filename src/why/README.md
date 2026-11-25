@@ -150,8 +150,9 @@ if (answer.ok && answer.kernel) {
 | `notes` | the reader's own statements, verbatim |
 
 Nothing here is inferred by this library. A guard in `limits.test.ts` stops the
-file compiling when the reader's slice gains a field, so a new caveat cannot be
-ignored by accident.
+file compiling when the reader's slice gains a field at the top level, on a
+node, on an edge, or inside its truncation and coverage records, so a new
+caveat there cannot be ignored by accident.
 
 **What the flag does not say.** `kernelLimitsReported: false` means the reader
 reported no limit. It is not proof the chain is complete: a value that reached a
