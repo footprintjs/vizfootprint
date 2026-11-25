@@ -17,7 +17,7 @@ import { makeDashboardDef } from './dashboard.fixture.js';
  * The fixture's dashboard, with its correlation module replaced by a hand-written wrapper:
  * it runs the real analysis, then tells the session's sink whatever `report` says to.
  */
-function sessionWhere(report: (sink: (pValue: unknown) => void) => void) {
+function sessionWhere(report: (sink: (pValue: unknown) => void) => void, degenerate = false) {
   const def = makeDashboardDef();
   const real = def.analyses!['correlation'] as AnalysisModule;
   const wrapped: AnalysisModule = {
@@ -26,7 +26,8 @@ function sessionWhere(report: (sink: (pValue: unknown) => void) => void) {
       let seen: Parameters<NonNullable<NonNullable<typeof opts>['sink']>>[0] | undefined;
       const result = await real.run(input, { ...opts, sink: (h) => void (seen = h) });
       report((pValue) => opts?.sink?.({ ...seen!, pValue: pValue as number }));
-      return result;
+      // a run that reported a result and then came back with none of its own
+      return degenerate ? ({ ...result, result: { ok: false, flag: 'degenerate' } } as unknown as typeof result) : result;
     },
   };
   return buildDashboard({ ...def, analyses: { ...def.analyses, correlation: wrapped } }).createSession({ as: 'agent' });
@@ -94,6 +95,15 @@ describe('a hand-written analysis module', () => {
     await expect(s.dispatch(analyze)).rejects.toThrow('the module failed after reporting');
     expect(s.ledger()).toEqual([]);
     expect(s.log.records).toEqual([]);
+  });
+
+  it('reporting a result and then returning no result spends no budget either', async () => {
+    const s = sessionWhere((sink) => sink(0.5), true);
+    const wealthBefore = (await s.overview()).fdr.wealth;
+    await s.dispatch(analyze);
+    expect(s.ledger()).toEqual([]);
+    expect(s.log.records).toEqual([]);
+    expect((await s.overview()).fdr.wealth).toBe(wealthBefore);
   });
 
   it('a refused test leaves the next one exactly where a fresh session would put it', async () => {
