@@ -17,13 +17,34 @@ import type { ReachRelation } from '../links/reach.js';
 import type { AgentCallIdentity, CommitRecord } from '../log/index.js';
 import type { CauseClause, SelectionPort } from '../selection/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
-import type { FdrStep, HypothesisRecord, UnreadableTest } from '../fdr/index.js';
+import type { FdrStep, HypothesisRecord, LedgerRowDifference, UnreadableTest } from '../fdr/index.js';
+
 import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, MatchClause, PredicateClause, Row, SortSpec, WalkAsk } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
 import type { ChannelResolution, DispatchVerb, IntentClass, SeriesGrain, SavedClause, SavedSelection, Bookmark, RelationEdge } from '../def/types.js';
 import type { RefreshRecord } from '../def/buildDashboard.js';
 import type { DiffChange, DiffOnly, PlanRecipe, RefEvent } from '../branches/index.js';
+
+/** A carried test whose row, computed by the replaying session, is not the row the test recorded. */
+export interface RejudgedTest {
+  readonly commitId: string;
+  /** The row the test got where it was made. */
+  readonly recorded: FdrStep;
+  /** The row this session computed, and holds in its ledger. */
+  readonly computed: FdrStep;
+  /** Never empty. */
+  readonly differs: readonly LedgerRowDifference[];
+}
+
+/** What a replay did with the tests its log holds. See `ReplayResult`. */
+export interface ReplayedTests {
+  readonly carried: number;
+  readonly unreadable: readonly UnreadableTest[];
+  readonly rejudged: readonly RejudgedTest[];
+  /** Commit ids of readable tests that carry no readable ledger row. */
+  readonly unchecked: readonly string[];
+}
 
 // ── The gap ledger (D14 taxonomy) — every unmet request, typed, never dropped. ─
 
@@ -470,10 +491,17 @@ export type ReplayResult =
        * the one that made it stood.
        *
        * The carried rows are computed by THIS session's procedure and settings
-       * from the recorded p-values. The log records neither the settings it was
-       * made under nor the verdicts it got, so a log replayed into a dashboard
-       * configured differently gets that dashboard's verdicts, which may differ
-       * from the original's.
+       * from the recorded p-values, and each is CHECKED against the row the
+       * test recorded for itself when it was made:
+       *
+       * - `rejudged` lists every test whose computed row is not the recorded
+       *   one, with both rows and what differs. The session's ledger holds the
+       *   computed row (its procedure is the one that goes on judging); the
+       *   recorded row is what the test really got. Empty when the log is
+       *   replayed whole into a dashboard configured as the one that made it.
+       * - `unchecked` lists the readable tests that carry no readable row: a
+       *   log written before rows were recorded. Nothing says their carried
+       *   rows are the original ones.
        *
        * `unreadable` lists the test commits whose result could not be read. Each
        * was entered at p = 1 — it costs what a test costs and can never be a
@@ -482,7 +510,7 @@ export type ReplayResult =
        * consumer that states an error rate over a replayed session must say how
        * many of these there are.
        */
-      readonly tests: { readonly carried: number; readonly unreadable: readonly UnreadableTest[] };
+      readonly tests: ReplayedTests;
       /** How many gaps this replay filed — one per act it could not re-perform. */
       readonly filed: number;
       /** The fold at the tip the replayed log ends on — detached, like every fold this library hands out. */

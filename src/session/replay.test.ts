@@ -338,7 +338,7 @@ describe('a replay re-performs the acts it can', () => {
     expect({ reran: res.reran, filed: res.filed }).toEqual({ reran: 0, filed: 0 });
     // …and the error budget came with the log: the test is not run again, and it is not forgotten
     // either — the replayed session has spent exactly what the one that made the log spent
-    expect(res.tests).toEqual({ carried: 1, unreadable: [] });
+    expect(res.tests).toEqual({ carried: 1, unreadable: [], rejudged: [], unchecked: [] });
     expect(res.overview.fdr.tests).toBe(1);
     expect(res.overview.fdr.wealth).toBe((await source.overview()).fdr.wealth);
   });
@@ -670,7 +670,7 @@ describe('a test analysis that also writes columns is replayed like any other ac
 
     // the RECORD: the act, and the p it made — on the lane that used to carry only the p
     expect(made.commit!.field).toBe('pValue');
-    expect(made.commit!.value).toEqual({ id: 'tested', table: 'other', pValue: 0.01 });
+    expect(made.commit!.value).toEqual({ id: 'tested', table: 'other', pValue: 0.01, ledgerRow: made.fdrStep });
     expect(made.materialized).toEqual(['risk']);   // it really did write a column
     expect(made.fdrStep!.step).toBe(1);            // and really did spend a ledger step
 

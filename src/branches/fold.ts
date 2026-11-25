@@ -248,6 +248,19 @@ function enc(v: unknown): string {
   return JSON.stringify(v);
 }
 
+/**
+ * An analysis entry's value WITHOUT the ledger row a test commit carries beside
+ * its act. The row is where the test stood in the error budget (position,
+ * clock, budget) — a fact about the order tests were made in, held by the FDR
+ * ledger, not a fact about the state. The same test with the same p-value on
+ * two paths is the same state, and must not be reported as a change.
+ */
+function actOnly(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || !('ledgerRow' in value)) return value;
+  const { ledgerRow: _row, ...act } = value as Record<string, unknown>;
+  return act;
+}
+
 /** A VALUE fingerprint (excludes `commitId`: identical state via different commits is NOT a change). */
 function fingerprint(e: FoldEntry): string {
   switch (e.kind) {
@@ -262,7 +275,7 @@ function fingerprint(e: FoldEntry): string {
     case 'encoding':
       return `encoding|${e.viewId}|${e.channel}|${e.field}`;
     case 'analysis':
-      return `analysis|${e.analysisId}|${e.field}|${enc(e.value)}`;
+      return `analysis|${e.analysisId}|${e.field}|${enc(actOnly(e.value))}`;
   }
 }
 

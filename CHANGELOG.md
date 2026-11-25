@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### A test records the row it got, and a replay checks it
+
+- A test's commit now carries `ledgerRow` beside its p-value: the position,
+  threshold, verdict and budget it got in the error budget where it was made.
+  The stored value of every new test commit is larger by that row; logs written
+  before this still replay.
+- `ReplayResult.tests` gains `rejudged` and `unchecked`. `rejudged` lists each
+  test whose row, computed by the replaying session, is not the row the test
+  recorded, with both rows and what differs. `unchecked` lists the readable
+  tests that carry no readable row. A log replayed into a dashboard with
+  another procedure or other settings used to be judged again with nothing to
+  show for it; it is still judged by the replaying dashboard, and now says so
+  test by test.
+- A carried row is named by its recorded row, so a replay no longer needs the
+  analysis declared to give the row its original name.
+- New types on `vizfootprint/session`: `ReplayedTests`, `RejudgedTest`,
+  `LedgerRowDifference`.
+- `compare()` and the fold's diff read a test by its act and p-value. The
+  ledger row beside it is not state: the same test with the same result on two
+  paths is not a change.
+- The check compares rows. It is not a signature: a log whose p-value and row
+  were both rewritten consistently passes it.
+
 ### Correction: a replayed session carries its error budget (behaviour change)
 
 - `session.replay(log)` used to start the replayed session with the full error
