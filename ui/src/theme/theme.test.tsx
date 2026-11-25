@@ -319,11 +319,27 @@ describe('<VizTheme>', () => {
       </VizTheme>,
     );
     const root = container.firstElementChild as HTMLElement;
-    expect(root.className).toBe('vzf-theme');
+    expect(root.className).toBe('vzf vzf-theme');
     expect(root.style.getPropertyValue('--vzf-brand')).toBe('#0a7d5a');
     expect(root.style.getPropertyValue('--vzf-ink')).toBe('');
     expect(root.hasAttribute('data-theme')).toBe(false);
     expect(root.textContent).toBe('inside');
+  });
+
+  it('is a root: a component rule, written under `.vzf`, reaches what the theme wraps and nothing else is needed above it', () => {
+    const { container } = render(
+      <VizTheme>
+        <svg className="vzf-chart">
+          <text className="vzf-tick">0.5</text>
+        </svg>
+      </VizTheme>,
+    );
+    // every component rule in the stylesheet has this shape; the wrapper used to carry only `vzf-theme` and matched none
+    expect(RULES.some((r) => r.selector === ':where(.vzf) .vzf-tick')).toBe(true);
+    expect(container.querySelector('.vzf-tick')!.matches(':where(.vzf) .vzf-tick')).toBe(true);
+    expect(container.querySelector('.vzf-chart')!.matches(':where(.vzf) .vzf-chart')).toBe(true);
+    // …and it still takes no box of its own
+    expect(CSS.replace(/\s+/g, ' ')).toContain('.vzf-theme { display: contents; }');
   });
 
   it('a whole preset declares every token that has a value of its own', () => {
@@ -337,7 +353,7 @@ describe('<VizTheme>', () => {
     const { container } = render(<VizTheme mode="dark" className="mine" />);
     const root = container.firstElementChild as HTMLElement;
     expect(root.getAttribute('data-theme')).toBe('dark');
-    expect(root.className).toBe('vzf-theme mine');
+    expect(root.className).toBe('vzf vzf-theme mine');
     expect(root.getAttribute('style')).toBeNull();
   });
 

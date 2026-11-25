@@ -59,6 +59,39 @@ import 'vizfootprint-ui/styles.css';
 Your own complete theme has the type `CompleteThemeTokens`; the compiler tells
 you which token is missing.
 
+## `VizTheme` is a root
+
+A chart, a panel or a sheet placed inside `<VizTheme>` and nothing else is
+styled and laid out. Every component rule in the stylesheet is written under
+`.vzf`, and the wrapper carries that class beside its own:
+
+```tsx
+<VizTheme tokens={slateDark}>
+  <VizScatter data={points} />   {/* draws: no className="vzf" needed above it */}
+</VizTheme>
+```
+
+It did not at first. The wrapper carried only `vzf-theme`, which declared the
+tokens and matched none of the component rules, so a chart inside it was drawn
+unstyled: no axis lines, the browser's default ticks and labels, no layout for
+its frame. It needed `className="vzf"` written somewhere above it. An element
+of your own that carries only `vzf-theme` is still not a root; give it both
+classes.
+
+Two things follow from being a root. The wrapper still takes no box
+(`display: contents`), so it paints no background and changes no layout. And
+what it wraps inherits the theme's ink colour and type, as under any `.vzf`:
+host content you place inside `<VizTheme>` takes them too. Keep host content
+outside it if it should keep the host's own.
+
+The wrapper sets the ink and paints no ground. A dark theme inside a light page
+gives light text on the page's light background unless something inside the
+wrapper paints a ground of the theme (paper or surface). A cockpit, a sheet,
+the selection chips and the other components that carry `vzf` on their own
+root do. A bare chart and the panels `CommitLog`, `FdrLedger`, `GapsPanel`,
+`ReadinessPanel` and `ProseText` do not: put those on a surface of your own
+that uses `var(--vzf-paper)`.
+
 ## Override part of it
 
 Only the tokens you name are declared. The rest keep the value already in force.
@@ -116,7 +149,7 @@ root and set the properties there. It wins over the stylesheet whatever the
 load order, and nested themes still override it.
 
 ```html
-<div class="vzf-theme my-theme">…the components…</div>
+<div class="vzf vzf-theme my-theme">…the components…</div>
 ```
 
 ```css
@@ -128,7 +161,7 @@ matches every nested component root too, so it overrides an inner `<VizTheme>`.
 
 A property set on an element ABOVE the outermost theme root does not reach the
 components: the root declares every default on itself. Wrap the subtree in
-`<VizTheme>` (or any element with the class `vzf-theme`) and set it there.
+`<VizTheme>` (or any element with the classes `vzf vzf-theme`) and set it there.
 
 `tokensToCSSVars(theme)` gives the same properties as an object, for a host
 that sets them itself or hands them to a renderer through the contract's

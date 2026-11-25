@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Correction: `VizTheme` alone is enough for charts to draw
+
+- A chart inside `<VizTheme>` with no `.vzf` element above it had no layout
+  and was drawn unstyled (no axis lines, the browser's default ticks and
+  labels): the wrapper declared the tokens and matched none of the
+  component rules, which are all written under `.vzf`. The wrapper now carries
+  `vzf` beside `vzf-theme`.
+- What `<VizTheme>` wraps now inherits the theme's ink colour and type, as
+  under any `.vzf`, and the theme's type scale reaches that text. Host content
+  placed inside it takes them too. The wrapper still takes no box and paints
+  no background, so a dark theme on a light page needs a surface that paints
+  the theme's paper.
+
 ### UI: the time-travel rail is one keyboard stop
 
 - Every bar on the rail was a tab stop. The rail is now one: Tab lands on the
