@@ -86,8 +86,11 @@ outside it if it should keep the host's own.
 
 The wrapper sets the ink and paints no ground. A dark theme inside a light page
 gives light text on the page's light background unless something inside the
-wrapper paints the theme's paper (a cockpit and a panel do; a bare chart does
-not). Put a bare chart on a surface of your own that uses `var(--vzf-paper)`.
+wrapper paints a ground of the theme (paper or surface). A cockpit, a sheet,
+the selection chips and the other components that carry `vzf` on their own
+root do. A bare chart and the panels `CommitLog`, `FdrLedger`, `GapsPanel`,
+`ReadinessPanel` and `ProseText` do not: put those on a surface of your own
+that uses `var(--vzf-paper)`.
 
 ## Override part of it
 
