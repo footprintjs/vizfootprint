@@ -10,19 +10,32 @@ consumer to change.
   (`colors.brand`) and a CSS property (`--vzf-brand`). The stylesheet reads only
   the property, so a theme written as an object and a theme written in plain CSS
   are the same theme.
-- **Tokens live on the outermost theme root.** The stylesheet declares the
-  defaults on the outermost `.vzf` or `.vzf-theme` element, and everything
-  beneath inherits. A themed ancestor therefore reaches every component inside
-  it. Before this layer a nested component re-declared the defaults on itself,
-  so a themed cockpit did not theme a sheet placed inside it.
+- **Every token is declared once, on the outermost theme root.** The stylesheet
+  declares the defaults on the outermost `.vzf` or `.vzf-theme` element, and
+  everything beneath inherits. A themed ancestor therefore reaches every
+  component inside it. Before this layer a nested component re-declared the
+  defaults on itself, so a themed cockpit did not theme a sheet placed inside it.
+- **A forced mode changes the ground, not the brand.** An element that stamps
+  `data-theme` re-declares only the tokens that differ between light and dark.
+  The brand, fonts, radii and spacing of an ancestor's theme survive it.
+- **The theme rules have zero specificity.** They are written with `:where()`,
+  so any host rule that names `.vzf` or `.vzf-theme` wins, whatever the load order.
+- **Two tokens follow another.** `colors.zero` follows `inkFaint` and
+  `colors.mapEmpty` follows `surfaceRaised` (`FOLLOWING_TOKENS`). They have no
+  value by default and are read with a fallback, so they track their source
+  through a forced mode or a nested theme. A theme that names one pins it.
 - **The stylesheet and the presets cannot drift.** `theme.test.tsx` reads the
-  stylesheet and fails when its default block differs from `slateLight`, when a
-  dark block differs from what `slateDark` changes, when a file names a property
-  no token covers, or when a preset stops naming a token.
-- **A wrong theme is refused, not ignored.** `tokensToCSSVars` throws a
-  `TypeError` naming the token for an unknown group, an unknown field, or a
-  value that is not one CSS value. A misspelt field that was silently dropped
-  would show the default with no reason given.
+  stylesheet and fails when the root block differs from `slateLight`, when a
+  dark or light block differs from what `slateDark` changes, when the automatic
+  dark rule leaves its media query, when any other rule declares a token, when
+  a file names a property no token covers, or when a preset stops naming a token.
+- **A wrong theme is refused, not ignored.** `tokensToCSSVars` and `mergeTokens`
+  throw a `TypeError` naming the token for an unknown group, an unknown field,
+  or a value that is not one CSS value. A misspelt field that was silently
+  dropped would show the default with no reason given. `undefined` and `null`
+  are omissions. The error is thrown where the theme is used, so a component
+  given a wrong theme fails to render: check a theme that comes from outside
+  your own code before handing it over.
 
 ## Replace the whole theme
 
@@ -75,7 +88,13 @@ import { accentColors } from 'vizfootprint-ui';
 ```
 
 It accepts `#rgb` and `#rrggbb` and refuses anything else. Pass `'dark'` as the
-third argument when the theme's ground is dark.
+third argument when the theme's ground is dark, so the tint is mixed toward it.
+The ink over the base is whichever of white and the dark ink has the higher
+contrast against it. That is the better of two, not a promise of 4.5:1: a
+mid-tone base may reach neither, and then you should name `on…` yourself.
+
+Naming only `colors.brand` changes only the base. The deep shade, the tint and
+the ink keep their current values unless you name them or use this helper.
 
 ## Derive a variant from a preset
 
@@ -87,12 +106,17 @@ const compact = mergeTokens(slateLight, { spacing: { md: '12px', lg: '16px' } })
 
 ## Plain CSS, no React
 
-The provider is a convenience. Any rule that sets a property on an ancestor of
-the components does the same thing.
+The provider is a convenience. A rule that sets a property on a theme root
+(`.vzf` or `.vzf-theme`) does the same thing, and wins over the stylesheet
+whatever the load order.
 
 ```css
 .my-app .vzf-theme, .my-app .vzf { --vzf-brand: #0a7d5a; }
 ```
+
+A property set on an element ABOVE the outermost theme root does not reach the
+components: the root declares every default on itself. Wrap the subtree in
+`<VizTheme>` (or any element with the class `vzf-theme`) and set it there.
 
 `tokensToCSSVars(theme)` gives the same properties as an object, for a host
 that sets them itself or hands them to a renderer through the contract's
@@ -117,10 +141,16 @@ root.
 ## Limits, stated
 
 - **Token values are host configuration.** Never build one from record content
-  or user input. A value containing `;`, `{` or `}` is refused, but the emitter
-  does not otherwise validate CSS.
+  or user input. A value must be one CSS value: a `;`, `{` or `}` outside a
+  quoted string, an unclosed quote or an unmatched bracket is refused. Nothing
+  else about the CSS is checked.
 - **Not every size is a token yet.** Type sizes, most pixel sizes and motion are
   still written in the stylesheet. `COMPONENT_VARS` in `theme.test.tsx` lists
-  the properties a component still declares for itself; the list only shrinks.
+  the properties a component still declares or reads for itself; the list only
+  shrinks.
+- **The shipped inks are not all at 4.5:1.** White on the light theme's brand,
+  user, ok and danger fills, and on the dark theme's agent fill, is below it.
+  These are the values the library already shipped; this layer names them and
+  does not change them.
 - **Host global rules still leak in.** The scoping is zero-specificity, as the
   package README explains.

@@ -4,12 +4,19 @@
  * `slateLight` is the default: the stylesheet declares exactly these values on
  * the theme root. `slateDark` is the same set with the dark ground. Both are
  * COMPLETE, so passing one to `<VizTheme tokens>` replaces the theme as a whole
- * whatever the operating system prefers. `theme.test.ts` holds the stylesheet
- * and these objects to the same values.
+ * whatever the operating system prefers. `theme.test.tsx` holds the stylesheet
+ * and these objects to the same values. Both are frozen: a preset is shared by
+ * everyone who imports it, so a variant is made with `mergeTokens`, never by
+ * editing one.
  */
 import { mergeTokens, type CompleteThemeTokens } from './tokens.js';
 
-export const slateLight: CompleteThemeTokens = {
+function frozen(theme: CompleteThemeTokens): CompleteThemeTokens {
+  for (const group of Object.values(theme)) Object.freeze(group);
+  return Object.freeze(theme);
+}
+
+export const slateLight: CompleteThemeTokens = frozen({
   colors: {
     paper: '#f5f7fa',
     surface: '#ffffff',
@@ -20,7 +27,6 @@ export const slateLight: CompleteThemeTokens = {
     inkFaint: '#8a97a8',
     line: '#dbe2ec',
     lineSoft: '#e9eef5',
-    zero: 'var(--vzf-ink-faint)',
     brand: '#7c5cff',
     brandDeep: '#5b3fd6',
     brandTint: '#efecff',
@@ -48,7 +54,6 @@ export const slateLight: CompleteThemeTokens = {
     rampMiddle: '#6bb2ae',
     rampHigh: '#3d8b8a',
     rampHighest: '#1d5f63',
-    mapEmpty: 'var(--vzf-surface-2)',
     scaleLeft: '#8a7a14',
     scaleRight: '#b03ad6',
     scrim: 'rgba(23, 32, 48, 0.38)',
@@ -84,9 +89,10 @@ export const slateLight: CompleteThemeTokens = {
     lg: '0 18px 46px rgba(16, 24, 38, 0.18), 0 4px 12px rgba(16, 24, 38, 0.1)',
     focus: '0 0 0 3px rgba(124, 92, 255, 0.4)',
   },
-};
+});
 
-export const slateDark: CompleteThemeTokens = mergeTokens(slateLight, {
+export const slateDark: CompleteThemeTokens = frozen(
+  mergeTokens(slateLight, {
   colors: {
     paper: '#0b0f16',
     surface: '#131924',
@@ -121,7 +127,8 @@ export const slateDark: CompleteThemeTokens = mergeTokens(slateLight, {
     md: '0 4px 14px rgba(0, 0, 0, 0.5)',
     lg: '0 18px 46px rgba(0, 0, 0, 0.6)',
   },
-});
+  }),
+);
 
 /** Every shipped theme, by name. */
 export const themePresets = { slateLight, slateDark } as const;

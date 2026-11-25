@@ -9,24 +9,44 @@
   replaces the theme as a whole or overrides part of it for a subtree.
 - **Removed, with no alias:** `resolveTheme`, `themeStyle`, `themeAttr`,
   `applyTheme`, `ThemeConfig` and `ColorInput`. They reached 27 of the 76
-  properties the stylesheet reads.
+  `--vzf-*` properties the stylesheet names.
 - `<VizCockpit theme>` now takes `ThemeTokens`; light or dark is the separate
   `mode` prop.
 - Correction: design tokens are declared on the outermost `.vzf` / `.vzf-theme`
   element only. A nested component used to re-declare the defaults on itself,
   so a themed cockpit did not theme a sheet, note or editor placed inside it.
+  A nested `data-theme` re-declares only the tokens that differ between light
+  and dark.
+- The theme rules have zero specificity, so a host rule naming `.vzf` now wins
+  whatever the load order.
+- `--vzf-zero` and `--vzf-map-empty` have no default declaration. They are read
+  with a fallback to `--vzf-ink-faint` and `--vzf-surface-2`. A host that read
+  either property itself must add the same fallback; `EMPTY_FILL` is exported
+  for the second.
 - A theme that names an unknown token, or gives one a value that is not a single
-  CSS value, is refused with a `TypeError` naming the token.
+  CSS value, is refused with a `TypeError` naming the token. An empty font
+  string used to be skipped and is now refused.
+- Behaviour that no longer happens by itself: a single `colors.brand` used to
+  derive its deep shade, tint and ink, and `mode: 'dark'` used to mix tints
+  toward the dark ground. `<VizCockpit theme={{ colors: { brand } }}>` still
+  compiles and now changes the base only. Use `accentColors`.
+- `accentColors` picks the ink by contrast. The old rule chose white over many
+  mid-tone fills where the dark ink was far more readable. It accepts `#rgb`
+  and `#rrggbb` only (4- and 8-digit hex is refused) and returns lower-case
+  six-digit hex.
 
 Migration:
 1. `themeStyle({ colors: { brand: '#36f' } })` becomes
    `tokensToCSSVars({ colors: accentColors('brand', '#3366ff') })`, or wrap the
-   subtree in `<VizTheme tokens={…}>`.
+   subtree in `<VizTheme tokens={…}>`. With a dark ground pass `'dark'` as the
+   third argument. The `{ base, deep, tint }` form becomes the four fields
+   written out: `{ brand, brandDeep, brandTint, onBrand }`.
 2. `mode: 'dark'` inside the config becomes `mode="dark"` on `<VizTheme>` or
    `<VizCockpit>`; `mode: 'auto'` is the absence of the prop.
 3. `fonts` is `fontFamily`; `textScale: 1.2` is `typography: { scale: '1.2' }`.
 4. `applyTheme(el, config)` becomes setting each entry of
-   `tokensToCSSVars(tokens)` with `el.style.setProperty`.
+   `tokensToCSSVars(tokens)` with `el.style.setProperty`, and setting the
+   element's `data-theme` attribute yourself when you force a mode.
 
 ### Migration: required routing port (major)
 

@@ -34,7 +34,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { RenderSelection } from '../contract/types.js';
 import { clickEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { inSet, markClass, selectedSet } from '../primitives/useSelection.js';
-import { rampStep, SEQ_RAMP_STEPS } from '../primitives/scales.js';
+import { EMPTY_FILL, rampStep, SEQ_RAMP_STEPS } from '../primitives/scales.js';
 
 /** A lon/lat ring: `[ [lon, lat], … ]`. */
 export type GeoRing = readonly (readonly [number, number])[];
@@ -211,7 +211,7 @@ export function VizMap(props: VizMapProps): JSX.Element {
             className={`vzf-region${hasData ? '' : ' vzf-region-empty'}${markClass(name, set)}`}
             d={featurePath(f, project)}
             fillRule="evenodd"
-            fill={hasData ? `var(--vzf-seq-${rampStep(value, max)})` : 'var(--vzf-map-empty)'}
+            fill={hasData ? `var(--vzf-seq-${rampStep(value, max)})` : EMPTY_FILL}
             role="button"
             tabIndex={0}
             aria-pressed={isSel && !set.exclude}

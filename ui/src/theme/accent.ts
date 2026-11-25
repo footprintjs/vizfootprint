@@ -20,8 +20,9 @@ const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const DEEPEN = 0.26;
 const TINT = 0.84;
 const TINT_GROUND: Readonly<Record<ThemeMode, Rgb>> = { light: [255, 255, 255], dark: [26, 34, 49] };
-const INK_ON_LIGHT_FILL = '#1b2430';
-const INK_ON_DARK_FILL = '#ffffff';
+const ROLES: readonly AccentRole[] = ['brand', 'user', 'agent', 'ok', 'danger'];
+/** The two inks a fill may carry; the one with the higher contrast against the fill is chosen. */
+const INKS = ['#ffffff', '#1b2430'] as const;
 
 function rgbOf(hex: string): Rgb {
   const digits = hex.slice(1);
@@ -43,6 +44,12 @@ function luminance(rgb: Rgb): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+/** WCAG contrast ratio between two colours, 1 (none) to 21 (black on white). */
+function contrast(a: Rgb, b: Rgb): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
 const capital = (role: AccentRole): string => role.charAt(0).toUpperCase() + role.slice(1);
 
 /**
@@ -50,9 +57,14 @@ const capital = (role: AccentRole): string => role.charAt(0).toUpperCase() + rol
  *
  * `base` is a three- or six-digit hex. Anything else is refused with a
  * `TypeError`: a named colour or an `rgb()` string cannot be shaded here, and
- * guessing would paint a colour the consumer never chose.
+ * guessing would paint a colour the consumer never chose. The ink over the
+ * base is whichever of white and the dark ink has the higher WCAG contrast
+ * against it. That is the better of two, not a promise of 4.5:1 — a mid-tone
+ * base may reach neither, and then the consumer should name `on…` themselves.
  */
 export function accentColors(role: AccentRole, base: string, mode: ThemeMode = 'light'): NonNullable<ThemeTokens['colors']> {
+  if (!ROLES.includes(role)) throw new TypeError(`vizfootprint-ui theme: accentColors has no role "${String(role)}"`);
+  if (mode !== 'light' && mode !== 'dark') throw new TypeError(`vizfootprint-ui theme: accentColors("${role}") mode must be "light" or "dark"`);
   if (typeof base !== 'string' || !HEX.test(base)) {
     throw new TypeError(`vizfootprint-ui theme: accentColors("${role}") needs a #rgb or #rrggbb colour`);
   }
@@ -64,6 +76,6 @@ export function accentColors(role: AccentRole, base: string, mode: ThemeMode = '
     [role]: hexOf(rgb),
     [`${role}Deep`]: hexOf(deep),
     [`${role}Tint`]: hexOf(tint),
-    [`on${capital(role)}`]: luminance(rgb) > 0.6 ? INK_ON_LIGHT_FILL : INK_ON_DARK_FILL,
+    [`on${capital(role)}`]: contrast(rgb, rgbOf(INKS[0])) >= contrast(rgb, rgbOf(INKS[1])) ? INKS[0] : INKS[1],
   };
 }

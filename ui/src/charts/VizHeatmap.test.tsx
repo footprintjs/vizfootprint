@@ -68,7 +68,7 @@ describe('rendering — host cells on the shared ramp, honest absence', () => {
   it('a ZERO-count cell wears the honest neutral (never ramp step 1) + the no-rows tooltip', () => {
     const { container } = renderHeatmap();
     const empty = container.querySelector('[data-cell="50|Casual"]')!;
-    expect(empty.getAttribute('fill')).toBe('var(--vzf-map-empty)');
+    expect(empty.getAttribute('fill')).toBe('var(--vzf-map-empty, var(--vzf-surface-2))');
     expect(empty.getAttribute('class') ?? '').toContain('vzf-heatcell-empty');
     expect(empty.querySelector('title')!.textContent).toContain('no rows under the current selection');
   });
@@ -96,7 +96,7 @@ describe('rendering — host cells on the shared ramp, honest absence', () => {
     const { container } = renderHeatmap({ data: sparse });
     expect(container.querySelectorAll('rect.vzf-heatcell')).toHaveLength(4);
     const missing = container.querySelector('[data-cell="50|Formal"]')!;
-    expect(missing.getAttribute('fill')).toBe('var(--vzf-map-empty)');
+    expect(missing.getAttribute('fill')).toBe('var(--vzf-map-empty, var(--vzf-surface-2))');
   });
 
   it('a custom className rides the svg (the shared chart-class contract)', () => {

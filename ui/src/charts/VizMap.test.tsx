@@ -159,7 +159,7 @@ describe('VizMap — the sequential ramp and the honest empty state', () => {
   it('a region with no rows gets the NEUTRAL empty fill, the dashed class, and a tooltip note — never ramp step 1', () => {
     const { container } = render(<VizMap geo={GEO} regionField="region" data={DATA} valueLabel="rows" />);
     const isles = container.querySelector('[data-region="Isles"]')!;
-    expect(isles.getAttribute('fill')).toBe('var(--vzf-map-empty)');
+    expect(isles.getAttribute('fill')).toBe('var(--vzf-map-empty, var(--vzf-surface-2))');
     expect(isles.getAttribute('class')).toContain('vzf-region-empty');
     expect(isles.querySelector('title')!.textContent).toBe('Isles · no rows under the current selection');
     expect(isles.getAttribute('aria-label')).toBe('Isles · no rows');
@@ -169,7 +169,7 @@ describe('VizMap — the sequential ramp and the honest empty state', () => {
     const { container } = render(
       <VizMap geo={GEO} regionField="region" data={[...DATA, { region: 'Isles', value: 0 }]} />,
     );
-    expect(container.querySelector('[data-region="Isles"]')!.getAttribute('fill')).toBe('var(--vzf-map-empty)');
+    expect(container.querySelector('[data-region="Isles"]')!.getAttribute('fill')).toBe('var(--vzf-map-empty, var(--vzf-surface-2))');
   });
 
   it('when EVERY region is empty (max 0) all fills are neutral and the legend says so', () => {
@@ -177,7 +177,7 @@ describe('VizMap — the sequential ramp and the honest empty state', () => {
       <VizMap geo={GEO} regionField="region" data={[{ region: 'North', value: 0 }]} valueLabel="rows" />,
     );
     for (const p of container.querySelectorAll('path.vzf-region')) {
-      expect(p.getAttribute('fill')).toBe('var(--vzf-map-empty)');
+      expect(p.getAttribute('fill')).toBe('var(--vzf-map-empty, var(--vzf-surface-2))');
     }
     expect(container.querySelector('.vzf-map-note')!.textContent).toBe('no rows under the current selection');
     // a "0 to 0" domain would be noise — the absence line replaces the min/max labels

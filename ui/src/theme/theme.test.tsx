@@ -4,27 +4,60 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { render } from '@testing-library/react';
-import { TOKEN_VARS, tokensToCSSVars, mergeTokens, slateLight, slateDark, themePresets, accentColors, VizTheme, type ThemeTokens } from './index.js';
+import { TOKEN_VARS, FOLLOWING_TOKENS, tokensToCSSVars, mergeTokens, slateLight, slateDark, themePresets, accentColors, VizTheme, type ThemeTokens } from './index.js';
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CSS = readFileSync(path.join(SRC, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
-/** The custom properties one rule declares, found by the rule's exact selector text. */
-function declared(selector: string): Record<string, string> {
-  const at = CSS.indexOf(`${selector} {`);
-  if (at < 0) throw new Error(`no rule: ${selector}`);
-  const body = CSS.slice(CSS.indexOf('{', at) + 1, CSS.indexOf('}', at));
-  const out: Record<string, string> = {};
-  for (const m of body.matchAll(/(--vzf-[a-z0-9-]+)\s*:\s*([^;]+);/g)) out[m[1]!] = m[2]!.trim();
-  return out;
+interface Rule {
+  readonly selector: string;
+  /** The at-rule the rule sits inside, or '' at the top level. */
+  readonly media: string;
+  readonly declares: Readonly<Record<string, string>>;
 }
 
-const ROOT = ':is(.vzf, .vzf-theme)';
-const LIGHT_RULE = `${ROOT}:not(${ROOT} *),\n${ROOT}[data-theme="light"]`;
-const DARK_AUTO_RULE = `${ROOT}:not([data-theme="light"]):not(${ROOT} *)`;
-const DARK_RULE = `${ROOT}[data-theme="dark"]`;
+/** Every style rule of the stylesheet, with the custom properties it declares. One level of at-rule nesting is read. */
+function rulesOf(css: string, media = ''): Rule[] {
+  const rules: Rule[] = [];
+  let at = 0;
+  while (at < css.length) {
+    const open = css.indexOf('{', at);
+    if (open < 0) break;
+    const prelude = css.slice(at, open).trim();
+    let depth = 1;
+    let close = open + 1;
+    while (depth > 0) {
+      if (css[close] === '{') depth += 1;
+      if (css[close] === '}') depth -= 1;
+      close += 1;
+    }
+    const body = css.slice(open + 1, close - 1);
+    if (prelude.startsWith('@')) {
+      if (media === '' && /^@(media|supports|container)/.test(prelude)) rules.push(...rulesOf(body, prelude));
+    } else {
+      const declares: Record<string, string> = {};
+      for (const m of body.matchAll(/(--vzf-[a-z0-9-]+)\s*:\s*([^;]+);/g)) declares[m[1]!] = m[2]!.trim();
+      rules.push({ selector: prelude.replace(/\s+/g, ' '), media, declares });
+    }
+    at = close;
+  }
+  return rules;
+}
 
-const tokenVars = Object.values(TOKEN_VARS).flatMap((group) => Object.values(group));
+const RULES = rulesOf(CSS);
+const W = ':where(.vzf, .vzf-theme)';
+const ROOT_RULE = `${W}:not(${W} *)`;
+const DARK_AUTO_RULE = `${W}:not([data-theme="light"]):not(${W} *)`;
+const DARK_RULE = `${W}[data-theme="dark"]`;
+const LIGHT_RULE = `${W}[data-theme="light"]`;
+
+function declared(selector: string, media = ''): Readonly<Record<string, string>> {
+  const found = RULES.filter((r) => r.selector === selector && r.media === media);
+  if (found.length !== 1) throw new Error(`expected one rule "${selector}"${media && ` in ${media}`}, found ${found.length}`);
+  return found[0]!.declares;
+}
+
+const tokenVars: string[] = Object.values(TOKEN_VARS).flatMap((group) => Object.values(group));
 
 /** Every non-test source file under `dir`. */
 function sources(dir: string): string[] {
@@ -36,8 +69,7 @@ function sources(dir: string): string[] {
 }
 
 /**
- * Properties the stylesheet or a component declares for itself and no theme
- * names yet. Each one is a value a consumer cannot reach through `ThemeTokens`.
+ * Properties a component declares or reads for itself and no theme names yet. Each one is a value a consumer cannot reach through `ThemeTokens`.
  * The list only shrinks: a feature leaves it when its sizes become tokens.
  */
 const COMPONENT_VARS = new Set([
@@ -56,7 +88,7 @@ const COMPONENT_VARS = new Set([
   '--vzf-tl-bar-head',
   '--vzf-tl-bar-cursor',
   '--vzf-tl-bar-line',
-  // the sheet's scroll ceiling, declared on the sheet
+  // a scroll box's height ceiling: declared nowhere, read by `.vzf-scroll-y` with a 320px fallback, for a host to set
   '--vzf-scroll-max',
 ]);
 
@@ -65,17 +97,52 @@ describe('the token table and the stylesheet agree', () => {
     expect(new Set(tokenVars).size).toBe(tokenVars.length);
   });
 
-  it('the stylesheet declares exactly the default preset on the theme root', () => {
-    expect(declared(LIGHT_RULE)).toEqual(tokensToCSSVars(slateLight));
+  const light = tokensToCSSVars(slateLight);
+  const dark = tokensToCSSVars(slateDark);
+  /** What the dark preset changes, and the light values of the same tokens. */
+  const darkChanges = Object.fromEntries(Object.entries(dark).filter(([name, value]) => light[name] !== value));
+  const lightOfThose = Object.fromEntries(Object.keys(darkChanges).map((name) => [name, light[name]]));
+
+  it('the stylesheet declares exactly the default preset on the outermost theme root', () => {
+    expect(declared(ROOT_RULE)).toEqual(light);
   });
 
-  it('both dark rules declare exactly what the dark preset changes', () => {
-    const light = tokensToCSSVars(slateLight);
-    const dark = tokensToCSSVars(slateDark);
-    const changed = Object.fromEntries(Object.entries(dark).filter(([name, value]) => light[name] !== value));
-    expect(Object.keys(changed).length).toBeGreaterThan(0);
-    expect(declared(DARK_AUTO_RULE)).toEqual(changed);
-    expect(declared(DARK_RULE)).toEqual(changed);
+  it('the two dark rules declare exactly what the dark preset changes, and the automatic one only under a dark preference', () => {
+    expect(Object.keys(darkChanges).length).toBeGreaterThan(0);
+    expect(declared(DARK_AUTO_RULE, '@media (prefers-color-scheme: dark)')).toEqual(darkChanges);
+    expect(declared(DARK_RULE)).toEqual(darkChanges);
+  });
+
+  it('a forced light element re-declares the same tokens at their light values, and no others', () => {
+    expect(declared(LIGHT_RULE)).toEqual(lightOfThose);
+  });
+
+  it('no other rule declares a token: a component that did would reset its ancestor\u2019s theme', () => {
+    const themeRules = new Set([ROOT_RULE, DARK_AUTO_RULE, DARK_RULE, LIGHT_RULE]);
+    const elsewhere = RULES.filter((r) => !themeRules.has(r.selector)).flatMap((r) => Object.keys(r.declares).filter((name) => tokenVars.includes(name)).map((name) => `${r.selector} declares ${name}`));
+    expect(elsewhere).toEqual([]);
+  });
+
+  it('the theme rules carry no specificity of their own beyond the mode attribute, so a host rule wins', () => {
+    // `:where()` is zero specificity; nothing in these selectors names a class outside it
+    for (const selector of [ROOT_RULE, DARK_AUTO_RULE, DARK_RULE, LIGHT_RULE]) {
+      expect(selector.replaceAll(W, '').replace(/\[data-theme="(light|dark)"\]/g, '')).toMatch(/^(:not\(( \*)?\))*$/);
+    }
+  });
+
+  it('a theme wrapper takes no box', () => {
+    expect(CSS.replace(/\s+/g, ' ')).toContain(':where(.vzf-theme) { display: contents; }');
+  });
+
+  it('a token that follows another has no declaration and carries its fallback at every read', () => {
+    const text = CSS + sources(SRC).map((f) => readFileSync(f, 'utf8')).join('\n');
+    for (const [name, source] of Object.entries(FOLLOWING_TOKENS)) {
+      expect(RULES.filter((r) => name in r.declares)).toEqual([]);
+      const reads = [...text.matchAll(new RegExp(`var\\(${name}[^a-z0-9-][^)]*\\)?\\)`, 'g'))].map((m) => m[0]);
+      expect(reads.length).toBeGreaterThan(0);
+      for (const read of reads) expect(read).toBe(`var(${name}, var(${source}))`);
+      expect(Object.keys(light)).not.toContain(name);
+    }
   });
 
   it('every property the stylesheet or a component names is a token or a listed component property', () => {
@@ -89,9 +156,11 @@ describe('the token table and the stylesheet agree', () => {
     expect([...known].filter((name) => !named.has(name))).toEqual([]);
   });
 
-  it('every preset names every token', () => {
+  it('every preset names every token that has a value of its own, and is frozen', () => {
+    const ownValue = tokenVars.filter((name) => !(name in FOLLOWING_TOKENS)).sort();
     for (const preset of Object.values(themePresets)) {
-      expect(Object.keys(tokensToCSSVars(preset)).sort()).toEqual([...tokenVars].sort());
+      expect(Object.keys(tokensToCSSVars(preset)).sort()).toEqual(ownValue);
+      expect(Object.isFrozen(preset) && Object.values(preset).every((group) => Object.isFrozen(group))).toBe(true);
     }
   });
 });
@@ -103,15 +172,26 @@ describe('tokensToCSSVars', () => {
 
   it('treats no theme, an undefined group and an undefined field as omissions', () => {
     expect(tokensToCSSVars()).toEqual({});
-    expect(tokensToCSSVars({ colors: undefined, radii: { sm: undefined, md: '4px' } } as ThemeTokens)).toEqual({ '--vzf-r-md': '4px' });
+    expect(tokensToCSSVars(null)).toEqual({});
+    expect(tokensToCSSVars({ colors: undefined, fontFamily: null, radii: { sm: undefined, lg: null, md: '4px' } } as unknown as ThemeTokens)).toEqual({ '--vzf-r-md': '4px' });
+    expect(tokensToCSSVars(Object.assign(Object.create(null) as object, { radii: { md: '4px' } }))).toEqual({ '--vzf-r-md': '4px' });
   });
 
   it.each([
     ['an unknown group', { colours: { brand: '#000' } }, 'unknown token group "colours"'],
     ['an inherited group name', { constructor: { brand: '#000' } }, 'unknown token group "constructor"'],
-    ['a group that is not an object', { colors: '#000' }, 'token group "colors" must be an object'],
-    ['a null group', { colors: null }, 'token group "colors" must be an object'],
-    ['an array group', { colors: ['#000'] }, 'token group "colors" must be an object'],
+    ['a theme that is not a plain object', new Map([['colors', {}]]), 'a theme must be a plain object'],
+    ['an array as the theme', [{ colors: {} }], 'a theme must be a plain object'],
+    ['a string as the theme', 'dark', 'a theme must be a plain object'],
+    ['a group that is not an object', { colors: '#000' }, 'token group "colors" must be a plain object'],
+    ['an array group', { colors: ['#000'] }, 'token group "colors" must be a plain object'],
+    ['a class instance as a group', { colors: new Date(0) }, 'token group "colors" must be a plain object'],
+    ['an own __proto__ group', JSON.parse('{"__proto__":{"brand":"#000"}}'), 'unknown token group "__proto__"'],
+    ['an open quote', { fontFamily: { body: '"Inter' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
+    ['a newline inside a quote', { fontFamily: { body: '"In\nter"' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
+    ['an open bracket', { colors: { brand: 'rgb(1, 2, 3' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['a stray closing bracket', { colors: { brand: 'red)' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['a trailing backslash', { colors: { brand: 'red\\' } }, 'token "colors.brand" must be one non-empty CSS value'],
     ['an unknown field', { colors: { brnad: '#000' } }, 'unknown token "colors.brnad"'],
     ['an inherited field name', { colors: { toString: '#000' } }, 'unknown token "colors.toString"'],
     ['a number', { typography: { scale: 1.2 } }, 'token "typography.scale" must be one non-empty CSS value'],
@@ -121,6 +201,18 @@ describe('tokensToCSSVars', () => {
   ])('refuses %s, naming it', (_case, tokens, message) => {
     expect(() => tokensToCSSVars(tokens as unknown as ThemeTokens)).toThrow(message);
     expect(() => tokensToCSSVars(tokens as unknown as ThemeTokens)).toThrow(TypeError);
+  });
+});
+
+describe('one CSS value', () => {
+  it.each([
+    ['a font stack with quotes', { fontFamily: { body: '"Inter", \'Segoe UI\', sans-serif' } }],
+    ['a separator inside a quote', { fontFamily: { body: '"A;B{C}"' } }],
+    ['nested functions', { colors: { brand: 'color-mix(in srgb, var(--x, rgb(1 2 3)) 40%, white)' } }],
+    ['an escaped quote', { fontFamily: { body: '"a\\"b"' } }],
+    ['a bracket inside a quote', { fontFamily: { body: '"a(b"' } }],
+  ])('accepts %s', (_case, tokens) => {
+    expect(Object.keys(tokensToCSSVars(tokens as ThemeTokens))).toHaveLength(1);
   });
 });
 
@@ -135,6 +227,12 @@ describe('mergeTokens', () => {
     const over = { colors: { brand: undefined } } as ThemeTokens;
     expect(mergeTokens(base, over)).toEqual({ colors: { brand: '#111' } });
     expect(base).toEqual({ colors: { brand: '#111' } });
+  });
+
+  it('refuses what the emitter refuses, in either argument', () => {
+    expect(() => mergeTokens({ colours: {} } as unknown as ThemeTokens, {})).toThrow('unknown token group "colours"');
+    expect(() => mergeTokens({}, { colors: { brand: 'a;b' } })).toThrow('token "colors.brand"');
+    expect(mergeTokens({}, null as unknown as ThemeTokens)).toEqual({});
   });
 
   it('the dark preset is the light one with a dark ground', () => {
@@ -160,8 +258,21 @@ describe('accentColors', () => {
     expect(dark.userTint).not.toBe(light.userTint);
   });
 
-  it('puts dark ink over a light fill', () => {
-    expect(accentColors('agent', '#ffee88').onAgent).toBe('#1b2430');
+  it.each([
+    ['#ffee88', '#1b2430'],
+    ['#33ccff', '#1b2430'],
+    ['#ff8800', '#1b2430'],
+    ['#c8c8c8', '#1b2430'],
+    ['#f2a02c', '#1b2430'],
+    ['#7c5cff', '#ffffff'],
+    ['#101826', '#ffffff'],
+  ])('over %s the ink with the higher contrast is %s', (base, ink) => {
+    expect(accentColors('agent', base).onAgent).toBe(ink);
+  });
+
+  it('refuses a role or a mode it does not have', () => {
+    expect(() => accentColors('bogus' as 'brand', '#000')).toThrow('no role "bogus"');
+    expect(() => accentColors('brand', '#000', 'auto' as 'dark')).toThrow('mode must be "light" or "dark"');
   });
 
   it('feeds the token emitter', () => {
@@ -188,10 +299,10 @@ describe('<VizTheme>', () => {
     expect(root.textContent).toBe('inside');
   });
 
-  it('a whole preset declares every token', () => {
+  it('a whole preset declares every token that has a value of its own', () => {
     const { container } = render(<VizTheme tokens={slateDark} />);
     const root = container.firstElementChild as HTMLElement;
-    for (const name of tokenVars) expect(root.style.getPropertyValue(name)).not.toBe('');
+    for (const name of tokenVars) expect(root.style.getPropertyValue(name) === '').toBe(name in FOLLOWING_TOKENS);
     expect(root.style.getPropertyValue('--vzf-paper')).toBe(slateDark.colors.paper);
   });
 

@@ -1,4 +1,4 @@
-export { TOKEN_VARS, tokensToCSSVars, mergeTokens } from './tokens.js';
+export { TOKEN_VARS, FOLLOWING_TOKENS, tokensToCSSVars, mergeTokens } from './tokens.js';
 export type { ThemeTokens, CompleteThemeTokens, ThemeVars, TokenGroup } from './tokens.js';
 export { slateLight, slateDark, themePresets } from './presets.js';
 export type { ThemePresetName } from './presets.js';
