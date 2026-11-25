@@ -27,9 +27,10 @@
  * has adopted the cockpit.
  */
 import { useEffect, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import type { ExploreModel, PresentModel, TimeTravelModel } from './model.js';
 import { useRailTicks, railScope } from './rail.js';
+import { railKeyTarget } from './railKeys.js';
 import { BookmarkModal } from './BookmarkModal.js';
 
 export type TimeMode = 'explore' | 'present';
@@ -137,6 +138,19 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
   );
 }
 
+/**
+ * Move the keyboard along a rail: the bars are the rail's buttons, in order,
+ * and `railKeyTarget` says which one a key lands on. Focus moves; nothing is
+ * sought until the bar is pressed.
+ */
+function walkRail(event: KeyboardEvent<HTMLElement>): void {
+  const bars = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('.vzf-tl-dot'));
+  const to = railKeyTarget(bars.length, bars.indexOf(event.target as HTMLElement), event.key);
+  if (to === null) return;
+  event.preventDefault();
+  bars[to]!.focus();
+}
+
 // ── explore body ────────────────────────────────────────────────────────────────
 interface ExploreBodyProps {
   explore: ExploreModel;
@@ -149,7 +163,7 @@ interface ExploreBodyProps {
   openBookmarkModal: () => void;
 }
 function ExploreBody(p: ExploreBodyProps): JSX.Element {
-  const { bars, back, forward, coverage } = p.explore;
+  const { bars, back, forward, coverage, stop } = p.explore;
   const { rail, tick, dense } = useRailTicks(bars.length);
   // what the rail is showing, in words; null = it shows the whole story
   const scope = railScope(coverage);
@@ -165,7 +179,16 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
             ⟶
           </button>
         </div>
-        <div className="vzf-timeline" data-vzf="timeline" ref={rail} data-dense={dense ? 'true' : undefined} style={{ '--vzf-tick': `${tick}px` } as CSSProperties}>
+        <div
+          className="vzf-timeline"
+          data-vzf="timeline"
+          ref={rail}
+          data-dense={dense ? 'true' : undefined}
+          style={{ '--vzf-tick': `${tick}px` } as CSSProperties}
+          role="group"
+          aria-label="steps on this path — arrow keys move along them, Enter goes to one"
+          onKeyDown={walkRail}
+        >
           {bars.length === 0 ? (
             // "no commits yet" is only true of an empty log; a log with steps and no lineage to draw says that instead
             <span className="vzf-tl-empty">
@@ -179,7 +202,9 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
                 data-actor={c.actor}
                 data-commit={c.id}
                 title={`#${c.id} ${c.label} (${c.actor})${c.intent !== undefined ? ': ' + c.intent : ''}`}
-                aria-label={`#${c.id} ${c.label}`}
+                aria-label={`step ${c.position} of ${bars.length}: #${c.id} ${c.label}${c.bookmarked ? ', bookmarked' : ''}${c.head ? ', now' : ''}`}
+                aria-current={c.cursor ? 'step' : undefined}
+                tabIndex={c.id === stop ? 0 : -1}
                 onClick={() => p.onSeek?.(c.id)}
               >
                 {c.bookmarked ? <span className="vzf-tl-flag">⚑</span> : <span className="vzf-tl-flagslot" aria-hidden="true" />}
@@ -247,9 +272,18 @@ function PresentBody(p: PresentBodyProps): JSX.Element {
             {exact ? '' : ' · (nearest to cursor)'} · #{bookmark.commitId}
           </div>
         </div>
-        <div className="vzf-timeline vzf-bookmark-rail" data-vzf="bookmark-rail" ref={rail} data-dense={dense ? 'true' : undefined} style={{ '--vzf-tick': `${tick}px` } as CSSProperties}>
+        <div
+          className="vzf-timeline vzf-bookmark-rail"
+          data-vzf="bookmark-rail"
+          ref={rail}
+          data-dense={dense ? 'true' : undefined}
+          style={{ '--vzf-tick': `${tick}px` } as CSSProperties}
+          role="group"
+          aria-label="bookmarks — arrow keys move along them, Enter goes to one"
+          onKeyDown={walkRail}
+        >
           {stops.map((c) => (
-            <button key={c.commitId} className={`vzf-tl-dot${c.current ? ' vzf-cursor' : ''}`} data-bookmark-dot={c.commitId} title={c.label} aria-label={c.label} onClick={() => p.onSeek?.(c.target)}>
+            <button key={c.commitId} className={`vzf-tl-dot${c.current ? ' vzf-cursor' : ''}`} data-bookmark-dot={c.commitId} title={c.label} aria-label={`bookmark ${c.position} of ${stops.length}: ${c.label}`} aria-current={c.current ? 'step' : undefined} tabIndex={c.current ? 0 : -1} onClick={() => p.onSeek?.(c.target)}>
               <span className="vzf-tl-flag">⚑</span>
               <span className="vzf-tl-node" />
               {!dense && <span className="vzf-tl-cid">{c.label}</span>}

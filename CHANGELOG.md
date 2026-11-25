@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### UI: the time-travel rail is one keyboard stop
+
+- Every bar on the rail was a tab stop. The rail is now one: Tab lands on the
+  cursor's bar, Left/Right/Home/End move along the bars without travelling,
+  and Enter or Space goes to the bar. Present mode's bookmark rail does the
+  same.
+- A bar's spoken name says where it stands: `step 3 of 40: #c2 select c2`,
+  with `bookmarked` and `now` when they apply (it was `#c2 select c2`). The
+  cursor's bar carries `aria-current="step"`. Code that finds a bar by its
+  exact `aria-label` must change; `data-commit` is unchanged.
+- `timeTravelModel`: `explore.stop`, `RailBar.position`, `PresentStop.position`.
+  New export: `railKeyTarget`.
+
 ### A test records the row it got, and a replay checks it
 
 - A test's commit now carries `ledgerRow` beside its p-value: the position,
