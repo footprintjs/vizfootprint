@@ -54,7 +54,7 @@ import { judgeAnalysisReads, neighbourhoodEndpoints, relationEdgeId } from '../d
 // (with the id ceiling), so the door below judges and lands while the walking
 // stays pure functions anybody can read.
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
-import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
+import { isPValue, isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
 import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, mintFilledTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type ResolvedColumn, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type FilledTable, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
@@ -5030,23 +5030,51 @@ class InteractionSessionImpl implements InteractionSession {
       const fills = tableFilledBy(this.runtime.def, id);
       let hypothesis: AnalysisCommit['hypothesis'];
       let fdrStep: FdrStep | undefined;
+      // THE SINK JUDGES AND HOLDS; THE BUDGET IS SPENT AFTER THE RUN.
+      //
+      // The sink is called from inside the analysis, while code this library did
+      // not write is still running. It used to step the error budget right there,
+      // so anything that happened next was too late to matter: a module that
+      // reported a result and then threw had spent a step with no commit behind
+      // it, and one that reported twice had spent two steps for one commit.
+      //
+      // So the sink only judges what it is handed and keeps ONE result:
+      //  - a value that is not a p-value is refused (`defineAnalysis` already
+      //    refuses its own judge's; a hand-written module is not built by it,
+      //    and a `NaN` would spend budget on a number that can never reject);
+      //  - a second result is refused — one declared test, one result.
+      // A refusal is thrown from the sink and thrown again after the run, so a
+      // module that swallows it cannot land the act as an ordinary analysis. The
+      // stepper is stepped once, below, only when the run came back with a result.
+      let sinkRefusal: Error | undefined;
+      const refuse = (why: string): never => {
+        sinkRefusal ??= new Error(`vizfootprint: analysis "${id}" ${why}`);
+        throw sinkRefusal;
+      };
       const run = await analysis.run(input, {
         related,
         timestamp: ++this.testClock,
         sink: (h) => {
+          if (hypothesis !== undefined) refuse('reported a second test result — one declared test has one result');
+          if (!isPValue(h.pValue)) refuse(`reported the p-value ${String(h.pValue)} — a p-value is a finite number in [0,1]`);
           hypothesis = h;
-          fdrStep = this.fdrStepper.step(h); // step L4 exactly once per declared test
-          // frozen where it LANDS, like a commit and like a gap row: an audit row
-          // is finished the moment it is written, and `ledger()` copies the list
-          // but shares the rows
-          this._ledger.push(deepFreeze(fdrStep));
         },
       });
+      if (sinkRefusal !== undefined) throw sinkRefusal;
 
       // R14: a degenerate result lands NOTHING (no commit) and spends NO wealth
       // (the sink never fired) — the honest flag is the whole answer.
       if (!run.result.ok) {
         return { analysisId: id, kind: analysis.kind, result: run.result };
+      }
+
+      // the test produced a result and nothing refused it: spend the budget now, exactly once
+      if (hypothesis !== undefined) {
+        fdrStep = this.fdrStepper.step(hypothesis);
+        // frozen where it LANDS, like a commit and like a gap row: an audit row
+        // is finished the moment it is written, and `ledger()` copies the list
+        // but shares the rows
+        this._ledger.push(deepFreeze(fdrStep));
       }
 
       // Land ONE cause-tagged provenance commit for the invocation.

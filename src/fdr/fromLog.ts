@@ -91,6 +91,15 @@ export type UnreadableTestReason =
   | 'bad-p-value';
 
 /**
+ * THE ONE RULE for a p-value: a finite number in [0,1]. Every door a p-value
+ * comes through asks it — the analysis builder's judge, the session's sink and
+ * the log reader — so no door can spend budget on a number another refuses.
+ */
+export function isPValue(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+/**
  * THE ONE READER of the test lane's value: the act, or the first reason it is
  * not one. `testActOf` and the unreadable count both ask it, so the shape is
  * spelled once and a new rule cannot be honoured by one and missed by the other.
@@ -100,7 +109,7 @@ function readTestAct(value: unknown): TestAct | UnreadableTestReason {
   const { id, table, pValue } = value as { id?: unknown; table?: unknown; pValue?: unknown };
   if (typeof id !== 'string' || id.length === 0) return 'unnamed-act';
   if (typeof table !== 'string' || table.length === 0) return 'unnamed-act';
-  if (typeof pValue !== 'number' || !Number.isFinite(pValue) || pValue < 0 || pValue > 1) return 'bad-p-value';
+  if (!isPValue(pValue)) return 'bad-p-value';
   return { id, table, pValue };
 }
 

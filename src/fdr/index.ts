@@ -40,6 +40,7 @@ export {
   branchIdFromLog,
   isTestAnalogCommit,
   testActOf,
+  isPValue,
   TEST_ANALOG_FIELD,
   type TestAct,
   type TestEmissions,
