@@ -149,32 +149,85 @@ export function branchIdFromLog(
   return out;
 }
 
+/** Why a commit on the reserved test field could not be read as a test. */
+export type UnreadableTestReason =
+  /** The value is not an object: the bare p-value this lane used to carry, or something else entirely. */
+  | 'not-an-act'
+  /** No analysis id, or no table: the act cannot be named. */
+  | 'unnamed-act'
+  /** The p-value is not a finite number in [0,1]. */
+  | 'bad-p-value';
+
+/** A commit that DECLARES a test (a point commit on the reserved field) and whose value cannot be read as one. */
+export interface UnreadableTest {
+  readonly commitId: string;
+  readonly reason: UnreadableTestReason;
+}
+
+/** What a log holds for the online-FDR steppers, and what it holds that they cannot be given. */
+export interface TestEmissions {
+  /** The readable tests, in arrival order: the stream the steppers consume. */
+  readonly hypotheses: readonly HypothesisRecord[];
+  /**
+   * Tests the log declares and nobody can read. Each one RAN, or the commit
+   * would not exist, and none is in `hypotheses` — so an error rate computed
+   * from `hypotheses` alone leaves out tests that were made. A consumer that
+   * states that rate must state this count beside it.
+   */
+  readonly unreadable: readonly UnreadableTest[];
+}
+
+function unreadableReason(value: unknown): UnreadableTestReason {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return 'not-an-act';
+  const { id, table } = value as { id?: unknown; table?: unknown };
+  if (typeof id !== 'string' || id.length === 0 || typeof table !== 'string' || table.length === 0) return 'unnamed-act';
+  return 'bad-p-value';
+}
+
 /**
- * Adapt a real L1 commit log into the arrival-ordered `HypothesisRecord`
- * stream L4's steppers consume. Non-test-analog commits (ordinary brushes)
- * are silently skipped — that IS R6 (a brush is not a test) enforced at the
- * L1 rail. Output order follows `records` (the log's own append/arrival
- * order): `CauseSelectionSession.commit()` always pushes, so "records order
- * == arrival order" already, matching `HypothesisRecord.timestamp`'s
- * "monotone within a run" contract.
+ * Read a real L1 commit log for the online-FDR steppers: the arrival-ordered
+ * `HypothesisRecord` stream, and the test commits that could not be read.
+ *
+ * A commit that is not a point commit on the reserved field (an ordinary
+ * brush) is not a test and appears in neither list — that IS R6 (a brush is
+ * not a test) enforced at the L1 rail. A commit that IS on the reserved field
+ * and carries no readable act used to be skipped the same way, without a
+ * count: the stream was then short by a test that had run, and the error-rate
+ * guarantee computed from it was overstated with nothing to show for it.
+ *
+ * Output order follows `records` (the log's own append/arrival order):
+ * `CauseSelectionSession.commit()` always pushes, so "records order == arrival
+ * order" already, matching `HypothesisRecord.timestamp`'s "monotone within a
+ * run" contract.
  */
-export function hypothesisRecordsFromLog(
-  records: readonly CommitRecord[],
-): HypothesisRecord[] {
+export function testEmissionsFromLog(records: readonly CommitRecord[]): TestEmissions {
   const branchOf = branchIdFromLog(records);
-  const out: HypothesisRecord[] = [];
+  const hypotheses: HypothesisRecord[] = [];
+  const unreadable: UnreadableTest[] = [];
   for (const r of records) {
-    if (!isTestAnalogCommit(r)) continue;
-    // The predicate above IS `testActOf` over the same value — one owner of the
-    // shape, read twice rather than spelled twice.
-    const act = testActOf(r.value) as TestAct;
+    if (r.kind !== 'point' || r.field !== TEST_ANALOG_FIELD) continue;
+    const act = testActOf(r.value);
+    if (act === undefined) {
+      unreadable.push({ commitId: r.id, reason: unreadableReason(r.value) });
+      continue;
+    }
     const branchId = branchOf.get(r.id);
-    out.push({
+    hypotheses.push({
       hypothesisId: r.correlationId ?? r.id,
       pValue: act.pValue,
       timestamp: r.ts,
       ...(branchId !== undefined ? { branchId } : {}),
     });
   }
-  return out;
+  return { hypotheses, unreadable };
+}
+
+/**
+ * The readable tests of a log, and nothing else — `testEmissionsFromLog(…).hypotheses`.
+ * Use it to feed a stepper. To STATE an error rate over a log, call
+ * {@link testEmissionsFromLog} and read `unreadable` too: this function cannot
+ * tell you a test was left out.
+ */
+export function hypothesisRecordsFromLog(records: readonly CommitRecord[]): HypothesisRecord[] {
+  return [...testEmissionsFromLog(records).hypotheses];
 }
