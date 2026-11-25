@@ -125,8 +125,8 @@ describe('timeTravelModel — present', () => {
   it('orders the bookmarks along the presented lineage and marks the one the cursor stands on', () => {
     const m = timeTravelModel({ ...base, cursor: 'b' });
     expect(m.present.stops).toEqual([
-      { target: 'r', commitId: 'r', label: 'start', current: false, position: 1 },
-      { target: 'b', commitId: 'b', label: 'mid', current: true, position: 2 },
+      { target: 'r', commitId: 'r', label: 'start', current: false, position: 1, of: 2 },
+      { target: 'b', commitId: 'b', label: 'mid', current: true, position: 2, of: 2 },
     ]);
     expect(m.present).toMatchObject({ index: 1, exact: true, previous: 'r', next: null });
   });
@@ -143,7 +143,7 @@ describe('timeTravelModel — present', () => {
 
   it('a bookmark seeks to the moment it NAMES, not to the act of naming it', () => {
     const m = timeTravelModel({ ...base, cursor: 'b', bookmarks: [{ label: 'named', commitId: 'b', at: 'a', ts: 1, ...at }] });
-    expect(m.present.stops).toEqual([{ target: 'a', commitId: 'b', label: 'named', current: true, position: 1 }]);
+    expect(m.present.stops).toEqual([{ target: 'a', commitId: 'b', label: 'named', current: true, position: 1, of: 1 }]);
   });
 
   it('bookmarks off the presented lineage are not stops; with no head the cursor is the tip', () => {

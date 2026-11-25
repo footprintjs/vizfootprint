@@ -9,6 +9,11 @@
  * | the case                                    | what happens                                           |
  * |---------------------------------------------|--------------------------------------------------------|
  * | Tab into the rail                           | lands on the cursor's bar: the only bar in tab order   |
+ * | focus moved along the rail by an arrow      | THAT bar is the stop now, so Tab leaves in one press    |
+ * | focus left the rail                         | the stop is the cursor's bar again                     |
+ * | the focused bar is no longer drawn          | the stop is the model's: never no stop                 |
+ * | Alt, Ctrl or Meta with an arrow             | not the rail's: the browser's Back, the system's       |
+ * | a handled key                               | goes no further: a host's arrow handler does not act   |
  * | the cursor is not on the rail               | the head's bar; with no head on it, the last bar       |
  * | an empty rail                               | no stop                                                |
  * | ArrowRight / ArrowLeft                      | focus moves one bar; nothing is sought                 |
@@ -21,10 +26,10 @@
  * | present mode                                | the same, over the bookmarks                           |
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, fireEvent, cleanup } from '@testing-library/react';
+import { render, fireEvent, cleanup, act } from '@testing-library/react';
 import { RawBar } from './rawBar.test.helper.js';
 import { timeTravelModel } from './model.js';
-import { railKeyTarget } from './railKeys.js';
+import { railKeyTarget, railTabStop } from './railKeys.js';
 import type { BookmarkView, CommitView } from '../adapter/types.js';
 
 afterEach(cleanup);
@@ -63,6 +68,18 @@ describe('railKeyTarget — an index in, an index out', () => {
   });
 });
 
+describe('railTabStop — the one bar in the tab order', () => {
+  it.each([
+    ['nothing focused: the model\u2019s stop', ['a', 'b', 'c'], null, 'b', 'b'],
+    ['a bar focused: that bar', ['a', 'b', 'c'], 'a', 'b', 'a'],
+    ['the focused bar is no longer drawn: the model\u2019s stop', ['a', 'b', 'c'], 'gone', 'b', 'b'],
+    ['an empty rail: none', [], null, null, null],
+    ['an empty rail with a stale focus: none', [], 'a', null, null],
+  ] as const)('%s', (_what, ids, focused, stop, expected) => {
+    expect(railTabStop(ids, focused, stop)).toBe(expected);
+  });
+});
+
 describe('the model names the one bar the keyboard enters on', () => {
   const line = LINE.slice(0, 4);
   it('the cursor’s bar', () => {
@@ -94,7 +111,10 @@ describe('the rail in explore mode', () => {
     const { container } = render(<RawBar commits={LINE} cursor="c2" head="c39" bookmarks={BOOKMARKS} />);
     const rail = container.querySelector('[data-vzf="timeline"]')!;
     expect(rail.getAttribute('role')).toBe('group');
-    expect(rail.getAttribute('aria-label')).toContain('arrow keys');
+    expect(rail.getAttribute('aria-label')).toBe('steps on this path');
+    // how the keys work is a description, not part of the name: it is not read on every entry
+    const hint = container.ownerDocument.getElementById(rail.getAttribute('aria-describedby')!)!;
+    expect(hint.textContent).toContain('arrow keys');
     const bar = (id: string): HTMLElement => container.querySelector(`[data-commit="${id}"]`)!;
     expect(bar('c2').getAttribute('aria-label')).toBe('step 3 of 40: #c2 select c2, bookmarked');
     expect(bar('c39').getAttribute('aria-label')).toBe('step 40 of 40: #c39 select c39, bookmarked, now');
@@ -122,8 +142,80 @@ describe('the rail in explore mode', () => {
     press('ArrowLeft');
     expect(document.activeElement).toBe(bar('c0'));
     expect(onSeek).not.toHaveBeenCalled();
-    // …and the tab stop has not moved: leaving the rail and coming back lands on the cursor again
+  });
+
+  it('the tab stop follows the focus, so Tab leaves the rail in one press; outside the rail it is the cursor\u2019s again', () => {
+    const { container } = render(
+      <>
+        <button data-testid="before">before</button>
+        <RawBar commits={LINE} cursor="c7" head="c39" />
+      </>,
+    );
+    const bar = (id: string): HTMLElement => container.querySelector(`[data-commit="${id}"]`)!;
     expect(inTabOrder(container)).toEqual(['c7']);
+    fireEvent.focus(bar('c7'));
+    bar('c7').focus();
+    fireEvent.keyDown(bar('c7'), { key: 'ArrowLeft' });
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(bar('c5'));
+    // a browser's Tab moves on from the focused element: were c7 still a stop, Tab from c5 would land on it
+    expect(inTabOrder(container)).toEqual(['c5']);
+    // focus leaves the rail…
+    act(() => (container.querySelector('[data-testid="before"]') as HTMLElement).focus());
+    expect(inTabOrder(container)).toEqual(['c7']);
+  });
+
+  it('focus moving between two bars of the rail is not leaving it', () => {
+    const { container } = render(<RawBar commits={LINE} cursor="c7" head="c39" />);
+    const bar = (id: string): HTMLElement => container.querySelector(`[data-commit="${id}"]`)!;
+    act(() => bar('c3').focus());
+    expect(inTabOrder(container)).toEqual(['c3']);
+    fireEvent.focusOut(bar('c3'), { relatedTarget: bar('c4') });
+    expect(inTabOrder(container)).toEqual(['c3']);
+    fireEvent.focusOut(bar('c3'), { relatedTarget: null });
+    expect(inTabOrder(container)).toEqual(['c7']);
+  });
+
+  it('focus on the rail itself, off any bar, names no bar: the stop stays the model\u2019s', () => {
+    const { container } = render(<RawBar commits={LINE} cursor="c7" head="c39" />);
+    fireEvent.focusIn(container.querySelector('[data-vzf="timeline"]')!);
+    expect(inTabOrder(container)).toEqual(['c7']);
+  });
+
+  it('a key with Alt, Ctrl or Meta is not the rail\u2019s', () => {
+    const { container } = render(<RawBar commits={LINE} cursor="c7" head="c39" />);
+    const c7: HTMLElement = container.querySelector('[data-commit="c7"]')!;
+    c7.focus();
+    for (const mod of [{ altKey: true }, { ctrlKey: true }, { metaKey: true }]) {
+      expect(fireEvent.keyDown(c7, { key: 'ArrowLeft', ...mod })).toBe(true); // not prevented
+      expect(document.activeElement).toBe(c7);
+    }
+    // Shift is no shortcut here: the arrow still moves
+    fireEvent.keyDown(c7, { key: 'ArrowRight', shiftKey: true });
+    expect(document.activeElement).toBe(container.querySelector('[data-commit="c8"]'));
+  });
+
+  it('a handled key goes no further; one the rail leaves alone does', () => {
+    const outer = vi.fn();
+    const { container } = render(
+      <div onKeyDown={outer}>
+        <RawBar commits={LINE} cursor="c7" head="c39" />
+      </div>,
+    );
+    const c7: HTMLElement = container.querySelector('[data-commit="c7"]')!;
+    c7.focus();
+    fireEvent.keyDown(c7, { key: 'ArrowRight' });
+    expect(outer).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(outer).toHaveBeenCalledTimes(1);
+  });
+
+  it('a key pressed on a part of a bar counts as pressed on the bar', () => {
+    const { container } = render(<RawBar commits={LINE} cursor="c7" head="c39" />);
+    const c7: HTMLElement = container.querySelector('[data-commit="c7"]')!;
+    c7.focus();
+    fireEvent.keyDown(c7.querySelector('.vzf-tl-node')!, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(container.querySelector('[data-commit="c8"]'));
   });
 
   it('pressing the bar the keyboard is on seeks to it', () => {
@@ -167,6 +259,7 @@ describe('the rail in present mode', () => {
     const dot = (id: string): HTMLElement => container.querySelector(`[data-bookmark-dot="${id}"]`)!;
     expect(dot('c20').getAttribute('aria-label')).toBe('bookmark 2 of 3: middle');
     expect(dot('c20').getAttribute('aria-current')).toBe('step');
+    expect(rail.getAttribute('aria-label')).toBe('bookmark tour');
     expect(dot('c2').getAttribute('aria-current')).toBeNull();
     dot('c20').focus();
     fireEvent.keyDown(dot('c20'), { key: 'ArrowRight' });
@@ -174,5 +267,20 @@ describe('the rail in present mode', () => {
     fireEvent.keyDown(document.activeElement!, { key: 'Home' });
     expect(document.activeElement).toBe(dot('c2'));
     expect(onSeek).not.toHaveBeenCalled();
+  });
+
+  it('before every bookmark: the first one takes the stop, and is NOT called the current step', () => {
+    const later: BookmarkView[] = BOOKMARKS.slice(1);
+    const { container } = render(<RawBar mode="present" commits={LINE} cursor="c5" head="c39" bookmarks={later} />);
+    expect(inTabOrder(container)).toEqual(['c20']);
+    expect(dots(container).filter((d) => d.getAttribute('aria-current') !== null)).toEqual([]);
+  });
+
+  it('two bookmarks on one moment are two bars, one stop', () => {
+    const twice = [...BOOKMARKS, { label: 'again', commitId: 'c20', at: 'c20', ...at }] as unknown as BookmarkView[];
+    const { container } = render(<RawBar mode="present" commits={LINE} cursor="c20" head="c39" bookmarks={twice} />);
+    expect(dots(container)).toHaveLength(4);
+    expect(dots(container).filter((d) => d.tabIndex === 0)).toHaveLength(1);
+    expect(new Set(dots(container).map((d) => d.getAttribute('data-rail-bar'))).size).toBe(4);
   });
 });

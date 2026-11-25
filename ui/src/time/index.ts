@@ -1,7 +1,7 @@
 export { TimeTravelBar } from './TimeTravelBar.js';
 export type { TimeTravelBarProps, TimeMode } from './TimeTravelBar.js';
 export { timeTravelModel } from './model.js';
-export { railKeyTarget, type RailKey } from './railKeys.js';
+export { railKeyTarget, railTabStop, type RailKey } from './railKeys.js';
 export type { TimeTravelInput, TimeTravelModel, ExploreModel, PresentModel, PresentStop, RailBar, RailCoverage } from './model.js';
 export { useTimeTravel, timeTravelOf } from './useTimeTravel.js';
 export type { TimeTravel } from './useTimeTravel.js';

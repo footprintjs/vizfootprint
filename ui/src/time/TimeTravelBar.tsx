@@ -26,11 +26,11 @@
  * old demo-agent dashboard's only consumer) is gone now that every consumer
  * has adopted the cockpit.
  */
-import { useEffect, useState } from 'react';
-import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
+import { useEffect, useId, useState } from 'react';
+import type { CSSProperties, FocusEvent, KeyboardEvent, ReactNode } from 'react';
 import type { ExploreModel, PresentModel, TimeTravelModel } from './model.js';
 import { useRailTicks, railScope } from './rail.js';
-import { railKeyTarget } from './railKeys.js';
+import { railKeyTarget, railTabStop } from './railKeys.js';
 import { BookmarkModal } from './BookmarkModal.js';
 
 export type TimeMode = 'explore' | 'present';
@@ -138,18 +138,45 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
   );
 }
 
+/** The bar an event happened on or inside (a rail's events come from its own elements). */
+const barOf = (target: EventTarget): HTMLElement | null => (target as Element).closest<HTMLElement>('.vzf-tl-dot');
+
 /**
  * Move the keyboard along a rail: the bars are the rail's buttons, in order,
  * and `railKeyTarget` says which one a key lands on. Focus moves; nothing is
- * sought until the bar is pressed.
+ * sought until the bar is pressed. A handled key goes no further, so a host's
+ * own arrow-key handler does not also act on it.
  */
 function walkRail(event: KeyboardEvent<HTMLElement>): void {
+  if (event.altKey || event.ctrlKey || event.metaKey) return; // the browser's or the system's, never the rail's
   const bars = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('.vzf-tl-dot'));
-  const to = railKeyTarget(bars.length, bars.indexOf(event.target as HTMLElement), event.key);
+  const from = barOf(event.target);
+  const to = from === null ? null : railKeyTarget(bars.length, bars.indexOf(from), event.key);
   if (to === null) return;
   event.preventDefault();
+  event.stopPropagation();
   bars[to]!.focus();
 }
+
+/**
+ * The rail's one tab stop, as the bar wears it. While the keyboard is inside
+ * the rail the stop is the focused bar (`railTabStop` says why); once it leaves,
+ * the stop is the model's again, so coming back lands on the cursor.
+ */
+function useRailStop(ids: readonly string[], stop: string | null): { tabStop: string | null; onFocus: (e: FocusEvent<HTMLElement>) => void; onBlur: (e: FocusEvent<HTMLElement>) => void } {
+  const [focused, setFocused] = useState<string | null>(null);
+  return {
+    tabStop: railTabStop(ids, focused, stop),
+    onFocus: (e) => setFocused(barOf(e.target)?.dataset['railBar'] ?? null),
+    onBlur: (e) => {
+      // focus moving between two bars of this rail is not leaving it
+      if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setFocused(null);
+    },
+  };
+}
+
+/** How the rail's keys work, said once and kept out of the rail's own name so it is not read on every entry. */
+const RAIL_KEYS_HINT = 'Left and Right arrow keys move along the rail, Home and End jump to its ends, Enter goes to the one you are on.';
 
 // ── explore body ────────────────────────────────────────────────────────────────
 interface ExploreBodyProps {
@@ -164,6 +191,8 @@ interface ExploreBodyProps {
 }
 function ExploreBody(p: ExploreBodyProps): JSX.Element {
   const { bars, back, forward, coverage, stop } = p.explore;
+  const keys = useRailStop(bars.map((b) => b.id), stop);
+  const hint = useId();
   const { rail, tick, dense } = useRailTicks(bars.length);
   // what the rail is showing, in words; null = it shows the whole story
   const scope = railScope(coverage);
@@ -179,6 +208,9 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
             ⟶
           </button>
         </div>
+        <span id={hint} className="vzf-sr-only">
+          {RAIL_KEYS_HINT}
+        </span>
         <div
           className="vzf-timeline"
           data-vzf="timeline"
@@ -186,8 +218,11 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
           data-dense={dense ? 'true' : undefined}
           style={{ '--vzf-tick': `${tick}px` } as CSSProperties}
           role="group"
-          aria-label="steps on this path — arrow keys move along them, Enter goes to one"
+          aria-label="steps on this path"
+          aria-describedby={hint}
           onKeyDown={walkRail}
+          onFocus={keys.onFocus}
+          onBlur={keys.onBlur}
         >
           {bars.length === 0 ? (
             // "no commits yet" is only true of an empty log; a log with steps and no lineage to draw says that instead
@@ -202,9 +237,10 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
                 data-actor={c.actor}
                 data-commit={c.id}
                 title={`#${c.id} ${c.label} (${c.actor})${c.intent !== undefined ? ': ' + c.intent : ''}`}
-                aria-label={`step ${c.position} of ${bars.length}: #${c.id} ${c.label}${c.bookmarked ? ', bookmarked' : ''}${c.head ? ', now' : ''}`}
+                aria-label={`step ${c.position} of ${c.of}: #${c.id} ${c.label}${c.bookmarked ? ', bookmarked' : ''}${c.head ? ', now' : ''}`}
                 aria-current={c.cursor ? 'step' : undefined}
-                tabIndex={c.id === stop ? 0 : -1}
+                tabIndex={c.id === keys.tabStop ? 0 : -1}
+                data-rail-bar={c.id}
                 onClick={() => p.onSeek?.(c.id)}
               >
                 {c.bookmarked ? <span className="vzf-tl-flag">⚑</span> : <span className="vzf-tl-flagslot" aria-hidden="true" />}
@@ -250,6 +286,10 @@ interface PresentBodyProps {
 function PresentBody(p: PresentBodyProps): JSX.Element {
   const { stops, index, exact, previous, next } = p.present;
   const { rail, tick, dense } = useRailTicks(stops.length);
+  // a bookmark is named here by its place in the tour: two bookmarks may name one moment
+  const railId = (position: number): string => `bookmark-${position}`;
+  const keys = useRailStop(stops.map((b) => railId(b.position)), stops[index] === undefined ? null : railId(stops[index].position));
+  const hint = useId();
   const bookmark = stops[index];
   if (bookmark === undefined) {
     return <div className="vzf-present-empty">No bookmarks on this lineage yet — name one in Explore mode to build the guided tour.</div>;
@@ -272,6 +312,9 @@ function PresentBody(p: PresentBodyProps): JSX.Element {
             {exact ? '' : ' · (nearest to cursor)'} · #{bookmark.commitId}
           </div>
         </div>
+        <span id={hint} className="vzf-sr-only">
+          {RAIL_KEYS_HINT}
+        </span>
         <div
           className="vzf-timeline vzf-bookmark-rail"
           data-vzf="bookmark-rail"
@@ -279,11 +322,14 @@ function PresentBody(p: PresentBodyProps): JSX.Element {
           data-dense={dense ? 'true' : undefined}
           style={{ '--vzf-tick': `${tick}px` } as CSSProperties}
           role="group"
-          aria-label="bookmarks — arrow keys move along them, Enter goes to one"
+          aria-label="bookmark tour"
+          aria-describedby={hint}
           onKeyDown={walkRail}
+          onFocus={keys.onFocus}
+          onBlur={keys.onBlur}
         >
           {stops.map((c) => (
-            <button key={c.commitId} className={`vzf-tl-dot${c.current ? ' vzf-cursor' : ''}`} data-bookmark-dot={c.commitId} title={c.label} aria-label={`bookmark ${c.position} of ${stops.length}: ${c.label}`} aria-current={c.current ? 'step' : undefined} tabIndex={c.current ? 0 : -1} onClick={() => p.onSeek?.(c.target)}>
+            <button key={c.position} className={`vzf-tl-dot${c.current ? ' vzf-cursor' : ''}`} data-bookmark-dot={c.commitId} title={c.label} data-rail-bar={railId(c.position)} aria-label={`bookmark ${c.position} of ${c.of}: ${c.label}`} aria-current={c.current && exact ? 'step' : undefined} tabIndex={railId(c.position) === keys.tabStop ? 0 : -1} onClick={() => p.onSeek?.(c.target)}>
               <span className="vzf-tl-flag">⚑</span>
               <span className="vzf-tl-node" />
               {!dense && <span className="vzf-tl-cid">{c.label}</span>}

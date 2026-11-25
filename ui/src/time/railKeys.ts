@@ -9,6 +9,9 @@
  * Why not one tab stop per bar: a history of two hundred steps put two hundred
  * stops between the mode switch and the bookmark button.
  *
+ * A key pressed with Alt, Ctrl or Meta is the browser's or the system's (Alt+Left
+ * is Back), never the rail's: the caller does not ask about those.
+ *
  * Data logic only: an index in, an index out. The component moves the focus.
  */
 
@@ -34,4 +37,18 @@ export function railKeyTarget(count: number, at: number, key: string): number | 
     case 'End':
       return count - 1;
   }
+}
+
+/**
+ * The bar that holds the rail's ONE place in the tab order.
+ *
+ * It is the bar the keyboard is on while the keyboard is inside the rail, and
+ * the model's stop otherwise. It has to follow the focus: a browser's Tab moves
+ * on from where the focus IS, so a tab stop left behind on another bar is a
+ * second stop on the way out. A focused bar that is no longer drawn (the rail
+ * changed lane) gives the place back to the model's stop, so the rail never has
+ * no stop at all.
+ */
+export function railTabStop(ids: readonly string[], focused: string | null, stop: string | null): string | null {
+  return focused !== null && ids.includes(focused) ? focused : stop;
 }

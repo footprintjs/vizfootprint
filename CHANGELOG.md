@@ -12,8 +12,13 @@
   with `bookmarked` and `now` when they apply (it was `#c2 select c2`). The
   cursor's bar carries `aria-current="step"`. Code that finds a bar by its
   exact `aria-label` must change; `data-commit` is unchanged.
-- `timeTravelModel`: `explore.stop`, `RailBar.position`, `PresentStop.position`.
-  New export: `railKeyTarget`.
+- While the keyboard is inside the rail the tab stop is the focused bar, so
+  Tab leaves the rail in one press; outside it the stop is the cursor's again.
+  Arrow keys with Alt, Ctrl or Meta are left to the browser.
+- Present mode: when the cursor stands on no bookmark and has none behind it,
+  no bookmark is marked as the current step (the first one was).
+- `timeTravelModel`: `explore.stop`, `RailBar.position` and `.of`,
+  `PresentStop.position` and `.of`. New exports: `railKeyTarget`, `railTabStop`.
 
 ### Security: the DuckDB worker address is written into its script as data
 

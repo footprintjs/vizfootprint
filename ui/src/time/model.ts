@@ -43,6 +43,8 @@ export interface RailBar {
   readonly bookmarked: boolean;
   /** Where this bar stands on the rail, counted from 1. */
   readonly position: number;
+  /** How many bars the rail draws. */
+  readonly of: number;
 }
 
 /** What the rail is showing — the inputs of the sentence beside the bars (`railScope`). */
@@ -90,6 +92,8 @@ export interface PresentStop {
   readonly current: boolean;
   /** Where this bookmark stands in the tour, counted from 1. */
   readonly position: number;
+  /** How many bookmarks the tour has. */
+  readonly of: number;
 }
 
 /** Present mode: the bookmarks of the presented lineage, in story order. */
@@ -145,6 +149,7 @@ function exploreModel(input: TimeTravelInput, bookmarks: readonly BookmarkView[]
       ahead: cursorAt >= 0 && i > cursorAt,
       bookmarked: flagged.has(c.id),
       position: i + 1,
+      of: lineage.length,
     })),
     stop: cursorAt >= 0 ? lineage[cursorAt]!.id : (lineage.find((c) => c.id === head) ?? lineage.at(-1))?.id ?? null,
     back: stepBackTarget(commits, cursor),
@@ -169,7 +174,7 @@ function presentModel(input: TimeTravelInput, bookmarks: readonly BookmarkView[]
   const found = currentBookmarkIndex(bookmarks, commits, cursor, tip);
   const index = found < 0 ? 0 : found;
   // `orderedBookmarks` keeps only bookmarks that name a commit, so a target is always a string here
-  const stops = ordered.map((b, i) => ({ target: bookmarkTarget(b) as string, commitId: b.commitId, label: b.label, current: i === index, position: i + 1 }));
+  const stops = ordered.map((b, i) => ({ target: bookmarkTarget(b) as string, commitId: b.commitId, label: b.label, current: i === index, position: i + 1, of: ordered.length }));
   return {
     stops,
     index,
