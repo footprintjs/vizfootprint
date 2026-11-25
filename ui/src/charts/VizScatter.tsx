@@ -27,7 +27,7 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { roundTicks, roundToAxis, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { roundTicks, roundToAxis, ticksThatFit, squeezedLength, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
@@ -225,8 +225,11 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // a round step, each labelled to that step's precision — the same rule whether the span is the
   // chart's own or a frame's. A LOGARITHMIC axis is ticked at decades (`logTicks`), read off the
   // scale's own clamped domain rather than the raw pair, because that is the span the marks were placed on.
-  const xTicks: readonly RoundTick[] = xKind === 'log' ? logTicks(x.domain[0], x.domain[1], 5).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(xlo, xhi, 5);
-  const yTicks: readonly RoundTick[] = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 5).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(ylo, yhi, 5);
+  // …and only the ticks whose labels do not touch are drawn (`ticksThatFit`), first and last always
+  const xTicks: readonly RoundTick[] = ticksThatFit(xKind === 'log' ? logTicks(x.domain[0], x.domain[1], 5).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(xlo, xhi, 5), x, 'width');
+  const yTicks: readonly RoundTick[] = ticksThatFit(yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 5).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(ylo, yhi, 5), y, 'height');
+  // the room a y label has between its anchor and the edge of the drawing, on the side the axis stands
+  const yLabelRoom = (props.axisSide === 'right' ? pad.r : pad.l) - 8;
 
   // ZERO IS A PLACE ON THE AXIS (law 12): one line inside the plot where a signed scale crosses zero,
   // drawn whenever the chart was TOLD to — a Ramachandran plot's φ and ψ both ask for one.
@@ -283,7 +286,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         {drawY && yTicks.map((t, i) => (
           <g key={`yt${i}`} style={hueStyle}>
             <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(t.value)} x2={yAxisX} y2={y(t.value)} />
-            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(t.value) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'}>
+            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(t.value) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'} textLength={squeezedLength(t.label, yLabelRoom)} lengthAdjust="spacingAndGlyphs">
               {t.label}
             </text>
           </g>

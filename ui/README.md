@@ -504,7 +504,23 @@ roundTicks(-3_710_000, -3_704_000, 4).map((t) => t.label); // ['-3.710M', '-3.70
 
 A declared `domain` is drawn as declared, with no room added, and ticked by the same rule. A logarithmic axis is unchanged: no room, decade ticks.
 
-Not done here: the left margin does not yet grow with the longest label, and ticks are not yet thinned when their labels would touch. The frame's shared axes, the box plot and the bar chart still use the older even cuts.
+Two more rules keep the labels readable, on the same charts:
+
+- **Two labels do not touch** (`ticksThatFit`). When neighbouring labels would run together, every second (or third, …) tick is kept, with the first and the last always kept. A dropped tick takes its mark with it. A horizontal axis is judged by the longest label's width, a vertical one by a line of text.
+- **A label is shown whole** (`squeezedLength`). A value label wider than the chart's margin used to be cut off by the edge of the drawing: "12345.0010" was drawn as "345.0010", which is another number. It is now squeezed into the margin with every character kept.
+
+```ts
+import { roundTicks, ticksThatFit, squeezedLength } from 'vizfootprint-ui';
+
+const ticks = roundTicks(1.7e12, 1.7e12 + 60_000, 5);          // seven 13-character labels
+ticksThatFit(ticks, xScale, 'width').map((t) => t.label);      // every other one on a 360 px axis; first and last kept
+squeezedLength('12345.0010', 44);                              // 44: draw it with textLength={44}
+squeezedLength('-3.710M', 44);                                 // undefined: it fits as written
+```
+
+Widths are estimated at 6 px a character, the stylesheet's 10 px mono tick font (6.02 measured in Chromium). A theme that changes the tick font or size makes the estimate wrong until chart text sizes are theme tokens.
+
+Not done here: the margin does not grow with its labels. A chart's margin is also read by the frame that stacks charts, so that change belongs with the frame; until then a long label is squeezed, which is harder to read than a wider margin would be. The frame's shared axes, the box plot and the bar chart still use the older even cuts.
 
 ## A mark you are meant to press must be REACHABLE
 
