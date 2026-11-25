@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Correction: the session refuses a test result that is not a p-value
+
+- An analysis module written by hand (not built by `defineAnalysis`) could
+  report a p-value such as `NaN`. The session spent error budget on it and
+  landed a test commit no reader can read. The session now refuses it, as
+  `defineAnalysis` always has for its own modules: `analyze` rejects, no budget
+  is spent and nothing lands. One rule, `isPValue`, is asked at every door.
+
 ### Correction: a `why` answer carries what the record could not establish
 
 - `why()`'s kernel tier gains `kernel.limits` (`KernelSliceLimits`): whether a

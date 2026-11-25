@@ -25,7 +25,7 @@
 
 import { FlowChartExecutor } from 'footprintjs';
 import type { FlowChart } from 'footprintjs';
-import type { HypothesisRecord } from '../fdr/index.js';
+import { isPValue, type HypothesisRecord } from '../fdr/index.js';
 import {
   ANALYSIS_KINDS,
   INPUT_ROLES,
@@ -253,7 +253,7 @@ export function defineAnalysis<I = unknown, O extends AnalysisOutput = AnalysisO
         // then carries a number that was never a p-value. The other door into
         // this record type (`../fdr/fromLog.ts`) already applies this rule; a
         // refused act does not happen, so no step is spent.
-        if (typeof pValue !== 'number' || !Number.isFinite(pValue) || pValue < 0 || pValue > 1) {
+        if (!isPValue(pValue)) {
           throw new Error(`vizfootprint: analysis "${def.id}" judged "${def.test.statistic}" with ${String(pValue)} — a p-value is a finite number in [0,1]`);
         }
         hypothesis = {

@@ -54,7 +54,7 @@ import { judgeAnalysisReads, neighbourhoodEndpoints, relationEdgeId } from '../d
 // (with the id ceiling), so the door below judges and lands while the walking
 // stays pure functions anybody can read.
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
-import { isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
+import { isPValue, isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
 import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, mintFilledTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type ResolvedColumn, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type FilledTable, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
@@ -5030,10 +5030,22 @@ class InteractionSessionImpl implements InteractionSession {
       const fills = tableFilledBy(this.runtime.def, id);
       let hypothesis: AnalysisCommit['hypothesis'];
       let fdrStep: FdrStep | undefined;
+      // THE SINK JUDGES WHAT IT IS HANDED. `defineAnalysis` already refuses a
+      // judge's answer that is not a p-value, but an analysis module need not be
+      // built by it: a hand-written one could report `NaN`, and the stepper would
+      // spend budget on a number that never rejects while the commit recorded a
+      // test nobody can read. A refused test does not happen — no step, no commit
+      // — and the refusal is thrown again after the run, so a module that
+      // swallowed it cannot land the act as an ordinary analysis either.
+      let refusedPValue: Error | undefined;
       const run = await analysis.run(input, {
         related,
         timestamp: ++this.testClock,
         sink: (h) => {
+          if (!isPValue(h.pValue)) {
+            refusedPValue = new Error(`vizfootprint: analysis "${id}" reported the p-value ${String(h.pValue)} — a p-value is a finite number in [0,1]`);
+            throw refusedPValue;
+          }
           hypothesis = h;
           fdrStep = this.fdrStepper.step(h); // step L4 exactly once per declared test
           // frozen where it LANDS, like a commit and like a gap row: an audit row
@@ -5042,6 +5054,8 @@ class InteractionSessionImpl implements InteractionSession {
           this._ledger.push(deepFreeze(fdrStep));
         },
       });
+
+      if (refusedPValue !== undefined) throw refusedPValue;
 
       // R14: a degenerate result lands NOTHING (no commit) and spends NO wealth
       // (the sink never fired) — the honest flag is the whole answer.
