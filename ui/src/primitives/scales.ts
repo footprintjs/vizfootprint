@@ -684,6 +684,61 @@ export function roundToAxis(value: number, span: number): number {
   return Number(value.toFixed(decimals));
 }
 
+/** The width one character of a tick label takes, in CSS pixels: the stylesheet draws ticks in the mono font at 10px. An estimate, used only to decide whether labels fit. */
+export const TICK_CHAR_PX = 6;
+/** The height of one line of tick label, and the least gap two labels keep between them. */
+export const TICK_LINE_PX = 10;
+export const TICK_GAP_PX = 4;
+
+/**
+ * THE TICKS AN AXIS HAS ROOM TO LABEL. Given each tick's place along the axis
+ * in pixels, it keeps every `k`-th tick, for the smallest `k` at which two
+ * neighbouring labels no longer touch, and always keeps the first and the
+ * last. Labels that already fit are all kept, in the same array.
+ *
+ * `along` says how much of the axis one label takes: its WIDTH on a
+ * horizontal axis (the longest label decides, so the kept ticks keep their
+ * rhythm), its line height on a vertical one. The gap is the smallest one
+ * between two neighbouring ticks, so the rule holds on an axis whose ticks are
+ * not evenly spaced.
+ *
+ * WHY thin, and not shrink or slant: an axis that reads "2.5 2.4 2.4" run
+ * together is worse than one with three labels a person can read, and a tick
+ * that is dropped takes its mark with it, so nothing is drawn unlabelled.
+ */
+export function ticksThatFit<T extends RoundTick>(ticks: readonly T[], place: (value: number) => number, along: 'width' | 'height'): readonly T[] {
+  if (ticks.length < 3) return ticks;
+  const size = along === 'height' ? TICK_LINE_PX : Math.max(...ticks.map((t) => t.label.length)) * TICK_CHAR_PX;
+  // THE SMALLEST gap between neighbours decides. Round ticks are evenly spaced, but a logarithmic
+  // axis's are not (its last decades, and its 1-2-5 run, stand closer than its first), and any k
+  // neighbouring gaps are at least k times the smallest one — so thinning by it holds everywhere.
+  let spacing = Infinity;
+  for (let i = 1; i < ticks.length; i++) spacing = Math.min(spacing, Math.abs(place(ticks[i]!.value) - place(ticks[i - 1]!.value)));
+  if (!(spacing > 0) || !Number.isFinite(spacing)) return ticks;
+  const every = Math.ceil((size + TICK_GAP_PX) / spacing);
+  if (every <= 1) return ticks;
+  const last = ticks.length - 1;
+  // every k-th from the first; the last is always kept, and the kept tick it would crowd gives way to it
+  const kept = ticks.filter((_, i) => i % every === 0 && (i === 0 || last - i >= every || i === last));
+  return kept.at(-1) === ticks[last] ? kept : [...kept, ticks[last]!];
+}
+
+/**
+ * THE LENGTH A LABEL MUST BE SQUEEZED TO so that all of it is drawn, or
+ * `undefined` when it fits as written. `room` is the pixels between where the
+ * label is anchored and the edge of the drawing.
+ *
+ * A LABEL IS SHOWN WHOLE OR NOT AT ALL. A label wider than the margin used to
+ * be cut off by the edge of the drawing: "12345.0010" was drawn as "345.0010",
+ * which is another number. Squeezed, it is harder to read and still says what
+ * it says. (A margin that grows with its labels is the better answer and is
+ * not this one: a chart's margin is also read by the frame that stacks charts.)
+ */
+export function squeezedLength(label: string, room: number): number | undefined {
+  const natural = label.length * TICK_CHAR_PX;
+  return room > 0 && natural > room ? room : undefined;
+}
+
 /** The share of its own span a chart leaves empty at each end of an axis it sizes itself. */
 export const EXTENT_ROOM = 0.05;
 

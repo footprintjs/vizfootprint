@@ -84,3 +84,48 @@ describe('what the tighter axis must still say truthfully', () => {
   });
 });
 
+describe('labels are shown whole and do not touch', () => {
+  const tickTexts = (root: HTMLElement): SVGTextElement[] => [...root.querySelectorAll<SVGTextElement>('text.vzf-tick')];
+
+  it('a y label wider than the margin is squeezed into it, every digit kept: it used to be cut off at the edge', () => {
+    const { container } = render(<VizScatter data={points([[1, 12_345], [2, 12_345.001]])} width={420} height={300} />);
+    const long = tickTexts(container).filter((t) => (t.textContent ?? '').startsWith('12345.'));
+    expect(long.length).toBeGreaterThanOrEqual(2);
+    for (const t of long) {
+      expect(t.textContent).toMatch(/^12345\.\d{4}$/);
+      expect(t.getAttribute('textLength')).toBe('44'); // the margin's 52 px, less the 8 px the label stands off the axis
+      expect(t.getAttribute('lengthAdjust')).toBe('spacingAndGlyphs');
+    }
+  });
+
+  it('a label that fits is drawn as written', () => {
+    const { container } = render(<VizScatter data={points([[0, 0], [1000, 1000]])} width={420} height={300} />);
+    for (const t of tickTexts(container)) expect(t.hasAttribute('textLength')).toBe(false);
+  });
+
+  it('long x labels on a narrow axis are thinned: first and last kept, none touching', () => {
+    const { container } = render(<VizScatter data={points([[1_700_000_000_000, 1], [1_700_000_060_000, 2]])} width={420} height={300} />);
+    const x = tickTexts(container).filter((t) => (t.textContent ?? '').startsWith('17'));
+    const at = x.map((t) => Number(t.getAttribute('x')));
+    expect(x.length).toBeGreaterThanOrEqual(2);
+    expect(x.length).toBeLessThan(7);
+    for (let i = 1; i < at.length; i++) expect(at[i]! - at[i - 1]!).toBeGreaterThanOrEqual(13 * 6 + 4);
+    expect(x[0]!.textContent).toBe('1700000000000');
+    expect(x.at(-1)!.textContent).toBe('1700000060000');
+  });
+
+  it('a line squeezes a long value label too, and a short chart thins its value ticks', () => {
+    const data = [10_000_000, 10_000_010].map((value, i) => ({ date: `2026-04-0${i + 1}`, value }));
+    const { container } = render(<VizLine data={data} width={520} />);
+    const long = tickTexts(container).filter((t) => /^100000\d\d$/.test(t.textContent ?? ''));
+    expect(long.length).toBeGreaterThan(0);
+    for (const t of long) expect(t.getAttribute('textLength')).toBe('44');
+    const short = render(<VizLine data={[2.4, 2.5].map((value, i) => ({ date: `2026-04-0${i + 1}`, value }))} width={520} height={110} />);
+    const y = tickTexts(short.container).filter((t) => /^2\.\d\d$/.test(t.textContent ?? ''));
+    const ys = y.map((t) => Number(t.getAttribute('y')));
+    for (let i = 1; i < ys.length; i++) expect(Math.abs(ys[i]! - ys[i - 1]!)).toBeGreaterThanOrEqual(14);
+    expect(y[0]!.textContent).toBe('2.40');
+    expect(y.at(-1)!.textContent).toBe('2.50');
+  });
+});
+

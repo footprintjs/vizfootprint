@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Charts: a value label is shown whole, and two tick labels do not touch
+
+- A value label wider than a scatter's or a line's margin was cut off at the
+  edge of the drawing: "12345.0010" was drawn as "345.0010". It is now squeezed
+  into the margin (`textLength`), every character kept.
+- Tick labels that would run together are thinned to every second (third, …)
+  tick, first and last always kept, on a scatter's two axes and a line's value
+  axis, logarithmic axes included. A dropped tick is not drawn at all.
+- New exports: `ticksThatFit`, `squeezedLength`, `TICK_CHAR_PX`,
+  `TICK_LINE_PX`, `TICK_GAP_PX`.
+- Not in this change: the last label of a horizontal axis can still run past
+  the right edge and lose its last characters; and a margin that grows with
+  its labels.
+
 ### Correction: `VizTheme` alone is enough for charts to draw
 
 - A chart inside `<VizTheme>` with no `.vzf` element above it had no layout
@@ -77,9 +91,7 @@
   `roundToAxis`,
   `EXTENT_ROOM`, type `RoundTick`.
 - Not in this change: a left margin that grows with the longest label, and
-  thinning ticks whose labels would touch. Until then a long label can be cut
-  off at the left edge ("12345.0010" showing as "345.0010") and long labels
-  on a narrow axis can overlap.
+  thinning ticks whose labels would touch (see the entry above).
 
 ### Security: a selection value is never written into the recorded SQL unquoted (behaviour change)
 

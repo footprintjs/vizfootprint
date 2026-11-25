@@ -129,7 +129,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, roundTicks, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { linearScale, extent, roundTicks, ticksThatFit, squeezedLength, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
@@ -670,6 +670,8 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // WHERE THE Y AXIS STANDS: the plot edge on its side. The ticks read away from the plot (leftward on
   // the left, rightward on the right) and the label rotates to face its edge — the mirror, nothing else.
   const yAxisX = props.axisSide === 'right' ? width - pad.r : pad.l;
+  // the room a y label has between its anchor and the edge of the drawing, on the side the axis stands
+  const yLabelRoom = (props.axisSide === 'right' ? pad.r : pad.l) - 8;
   const yTickDir = props.axisSide === 'right' ? 1 : -1;
   // THE INK OF THIS SCALE, on the parts of the y axis this chart draws: one inherited variable the
   // stylesheet spends per element (`scaleHueStyle`), and nothing at all when no hue was handed
@@ -848,7 +850,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // a LINEAR value axis is ticked at round values inside the span it drew (`roundTicks`), each labelled
   // to the step's precision; a LOGARITHMIC one at decades, read off the scale's own clamped domain
   // (the span the marks were actually placed on) rather than the raw pair
-  const yTicks: readonly RoundTick[] = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 4).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(vlo, vhi, 4);
+  const yTicks: readonly RoundTick[] = ticksThatFit(yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 4).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(vlo, vhi, 4), y, 'height');
 
   // ZERO IS A PLACE ON THE AXIS (law 12), and on a line it is a place on the VALUE axis only: a difference,
   // a log ratio or a z-score over time crosses zero and the sign is the reading. Its x does not take one —
@@ -922,7 +924,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
         {drawY && yTicks.map((t, i) => (
           <g key={`yt${i}`} style={hueStyle}>
             <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(t.value)} x2={yAxisX} y2={y(t.value)} />
-            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(t.value) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'}>
+            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(t.value) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'} textLength={squeezedLength(t.label, yLabelRoom)} lengthAdjust="spacingAndGlyphs">
               {t.label}
             </text>
           </g>
