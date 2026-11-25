@@ -177,8 +177,9 @@ describe('VizScatter — the figure that asked: a guide on x, on y, and on both'
     expect(guide.getAttribute('class')).toBe('vzf-zero');
     // the stylesheet, read from either suite's own working directory (the `SelectionChips` precedent)
     const css = readFileSync(process.cwd().endsWith('/ui') ? 'src/styles.css' : 'ui/src/styles.css', 'utf8');
-    expect(css).toContain('--vzf-zero:');
-    expect(css).toMatch(/\.vzf-zero \{\n\s+stroke: var\(--vzf-zero\);/);
+    // its own token, with NO declaration: it follows the faint ink wherever that changes (a forced mode, a nested theme) unless a theme names it
+    expect(css).not.toMatch(/^\s*--vzf-zero:/m);
+    expect(css).toMatch(/\.vzf-zero \{\n\s+stroke: var\(--vzf-zero, var\(--vzf-ink-faint\)\);/);
     // and it does NOT fall back to the scale hue the way an axis line does — a hue names marks, not furniture
     expect(css).not.toMatch(/\.vzf-zero \{[^}]*--vzf-scale-hue/);
     expect(css).toContain('.vzf-zero-note {');

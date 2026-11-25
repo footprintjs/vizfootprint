@@ -171,7 +171,7 @@ line, and the two report panels whose words are the desk's.
 
 They do **not** govern the charts, the cockpit shell, the modals, the time strip,
 the branch map or the sheet. That is `vizfootprint-ui`'s look, it wears
-`--vzf-*` from its own stylesheet, and it has its own `ThemeConfig`. This is not
+`--vzf-*` from its own stylesheet, and it has its own `ThemeTokens`. This is not
 a design system and is not trying to become one; it is the smallest set of names
 that makes today's look a default rather than a hard-code.
 

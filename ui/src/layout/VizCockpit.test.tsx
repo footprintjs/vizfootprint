@@ -291,7 +291,7 @@ describe('VizCockpit — the single-viewport shell', () => {
   });
 
   it('applies theme variables + data-theme + className on the scoping root', () => {
-    const { container } = render(<VizCockpit theme={{ mode: 'dark', colors: { brand: '#112233' } }} className="branded" />);
+    const { container } = render(<VizCockpit mode="dark" theme={{ colors: { brand: '#112233' } }} className="branded" />);
     const root = container.querySelector('.vzf-cockpit-root') as HTMLElement;
     expect(root.getAttribute('data-theme')).toBe('dark');
     expect(root.style.getPropertyValue('--vzf-brand')).toBe('#112233');

@@ -41,7 +41,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedCell } from '../contract/selection.js';
-import { epochOf, dayOf, rampStep, SEQ_RAMP_STEPS, domainOr, scaleFor, placeable, excludedNote, type ChartDomain } from '../primitives/scales.js';
+import { EMPTY_FILL, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS, domainOr, scaleFor, placeable, excludedNote, type ChartDomain } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { keyActivates } from '../primitives/pointSelect.js';
 import { slotPress } from '../primitives/slotValues.js';
@@ -321,7 +321,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
                 width={Math.max(1, px1 - px0 - 2)}
                 height={Math.max(1, rowH - 2)}
                 rx={2}
-                fill={hasData ? `var(--vzf-seq-${rampStep(count, max)})` : 'var(--vzf-map-empty)'}
+                fill={hasData ? `var(--vzf-seq-${rampStep(count, max)})` : EMPTY_FILL}
                 role="button"
                 tabIndex={0}
                 aria-pressed={sel}

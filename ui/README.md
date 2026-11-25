@@ -1179,7 +1179,7 @@ hand-bound run over a real two-table session that proves the loop closes.
 
 | module | job |
 |---|---|
-| `tokens/` | design tokens + theme engine — scoped CSS variables on the `.vzf` root (never `:root`), light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways |
+| `theme/` | the typed design tokens (`ThemeTokens`, `TOKEN_VARS`), the shipped themes (`slateLight`, `slateDark`) and `<VizTheme>` — replace the theme as a whole, override part of it, or set the same `--vzf-*` properties in plain CSS. Tokens are declared on the OUTERMOST `.vzf` / `.vzf-theme` (never `:root`), so a themed ancestor reaches every component inside it; light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways. See [`src/theme/README.md`](src/theme/README.md) |
 | `adapter/` | `createSessionView(source)` — the framework-light store (getState/subscribe + action methods incl. `navigate`; **every door that lands an act answers `DescribeOutcome`** — see “A door hands back what the session said”) over EITHER a live `InteractionSession` (`sessionSource`) OR a polled `/api/state` endpoint (`pollingSource`); React binds via `useSessionView`; `ViewView.layers` projected from the overview and `layerRowsFor(session, address)` — the one door for a layer's rows (1.2) |
 | `contract/` | the versioned renderer protocol (see above): `RENDERER_PROTOCOL_VERSION` (1.11 — 1.1 added the `cell` kind; 1.2 added layers: `RenderState.layers`, `canLayer`, per-layer callback bundles, the `layers-unsupported` gap, and the address helpers re-exported from `vizfootprint/def`; 1.3 added the `neighbourhood` kind; 1.4 added WHICH walk on a neighbourhood emission; 1.5 added `RenderState.frame`, the layers' shared scales folded by the host; 1.6 the logarithmic axis on it; 1.7 `SelectionClauseView.narrowed`; 1.8 `RenderLayer.selection`; 1.9 `SelectionClauseView.via`; 1.10 `HostHandshake.resources`; 1.11 the SECOND INBOUND CALL — `bringIntoView(keys)` with `canBringIntoView` and its two typed gaps, the framing that records nothing), `bindRenderer` + typed gaps, `selectionForView`/`keepPredicate`/`brightPredicate`/`selfSelectedValue`/`selfSelectedInterval`/`selfSelectedSet`/`selfSelectedCell`, the ten reference renderers (`networkRenderer` the first to declare `canLayer`, `layeredRenderer` the generic frame over the 2D marks), `runConformance` (the cell and layers arms), and the capability-honesty law in `src/contract/README.md` |
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
@@ -1268,7 +1268,7 @@ claim the session never made.
 ## CSS scoping — and its honest limit
 
 Every rule is scoped under the root class `.vzf` at **zero specificity**
-(`:where(.vzf …)`), and theme variables land on the component's own element,
+(`:where(.vzf …)`), and theme variables land on the outermost theme root,
 so nothing leaks **out** into the host app and two dashboards can wear
 different brands on one page. The flip side (the same limitation
 agentthinkingui documents): host **global** rules — a bare `button { … }`, a

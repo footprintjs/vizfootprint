@@ -64,6 +64,13 @@ export function dayOf(iso: string): string {
 export const SEQ_RAMP_STEPS = 5;
 
 /**
+ * The fill of the EMPTY state. `--vzf-map-empty` has no value of its own: it
+ * follows the raised surface wherever that changes (a forced mode, a nested
+ * theme) unless a theme names it — see `FOLLOWING_TOKENS` in `src/theme/tokens.ts`.
+ */
+export const EMPTY_FILL = 'var(--vzf-map-empty, var(--vzf-surface-2))';
+
+/**
  * Ramp step 1..{@link SEQ_RAMP_STEPS} for a value in (0, max]. A 0/absent
  * value is the EMPTY state (`--vzf-map-empty`, the honest neutral), never
  * step 1 — step 1 means "low", not "none". Shared by VizMap and VizHeatmap
