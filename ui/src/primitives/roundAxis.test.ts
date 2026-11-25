@@ -154,6 +154,25 @@ describe('roundTicks — round values, labelled to the step', () => {
     expect(labels(0, 2.76e-15, 3)).toEqual(['0', '1.0e-15', '2.0e-15']);
   });
 
+  it('a bound that is a multiple of the step is a tick, on every engine: the arithmetic is in whole numbers', () => {
+    // Node 22 and Node 24 disagreed on the first of these: `10 ** -4` differs in its last bit between them
+    for (const [lo, hi, first, last] of [
+      [12_345, 12_345.001, '12345.0000', '12345.0010'],
+      [0.3, 0.9, '0.3', '0.9'],
+      [1.1, 1.7, '1.1', '1.7'],
+      [-0.7, -0.1, '-0.7', '-0.1'],
+      [1e-7, 7e-7, '1.0e-7', '7.0e-7'],
+      [61_725, 61_725.005, '61725.000', '61725.005'],
+    ] as const) {
+      const said = labels(lo, hi, 6);
+      expect([said[0], said.at(-1)], `${lo} … ${hi}`).toEqual([first, last]);
+    }
+    // the step itself is exact: a tenth of a thousandth, not a neighbour of it
+    expect(roundStep(0.001, 5)).toBe(0.0002);
+    expect(roundStep(0.6, 6)).toBe(0.1);
+    expect(roundTicks(0, 0.001, 5).map((t) => t.value)).toEqual([0, 0.0002, 0.0004, 0.0006, 0.0008, 0.001]);
+  });
+
   it('a narrow span far from zero is written in full: every tick reads differently', () => {
     expect(labels(1.7e9, 1.7e9 + 10)).toEqual(['1700000000', '1700000002', '1700000004', '1700000006', '1700000008', '1700000010']);
     expect(labels(12_345, 12_345.001)).toEqual(['12345.0000', '12345.0002', '12345.0004', '12345.0006', '12345.0008', '12345.0010']);
@@ -208,9 +227,10 @@ describe('roundTicks — round values, labelled to the step', () => {
       const said = ticks.map((t) => t.label);
       expect(new Set(said).size, `${where} → ${said.join(' ')}`).toBe(said.length);
       for (const [i, t] of ticks.entries()) {
-        // inside the span, to within a thousandth of a step (the arithmetic's own rounding at thirteen digits)
-        expect(t.value, where).toBeGreaterThanOrEqual(lo - step * 1e-3);
-        expect(t.value, where).toBeLessThanOrEqual(hi + step * 1e-3);
+        // inside the span, to within a thirtieth of a step: the allowance a bound gets to count as a tick
+        // when the division's last bit says it is not one (it is a fiftieth at thirteen digits)
+        expect(t.value, where).toBeGreaterThanOrEqual(lo - step * 0.03);
+        expect(t.value, where).toBeLessThanOrEqual(hi + step * 0.03);
         if (i > 0) expect(t.value, where).toBeGreaterThan(ticks[i - 1]!.value);
         // what the label says is the tick, to within half a step
         expect(Math.abs(read(t.label) - t.value), `${where} → "${t.label}" for ${t.value}`).toBeLessThanOrEqual(step / 2);

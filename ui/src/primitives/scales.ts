@@ -517,12 +517,43 @@ export function extentFor<T>(rows: readonly T[], get: (r: T) => number, pad: num
  * across.
  */
 export function roundStep(span: number, target: number): number {
-  if (!(span > 0) || !Number.isFinite(span) || !(target > 0)) return 0;
+  const parts = stepParts(span, target);
+  return parts === undefined ? 0 : stepValue(parts, 1);
+}
+
+/** A round step as the two whole numbers it is made of: `lead` (1, 2 or 5) times ten to the `exponent`. */
+interface StepParts {
+  readonly lead: number;
+  readonly exponent: number;
+}
+
+function stepParts(span: number, target: number): StepParts | undefined {
+  if (!(span > 0) || !Number.isFinite(span) || !(target > 0)) return undefined;
   const raw = span / target;
-  const power = 10 ** Math.floor(Math.log10(raw));
-  const lead = raw / power; // 1 ≤ lead < 10
+  const exponent = Math.floor(Math.log10(raw));
+  const lead = raw / 10 ** exponent; // about 1 ≤ lead < 10
   // the cut points are the geometric middles between 1, 2, 5 and 10 (the usual rule)
-  return (lead < Math.SQRT2 ? 1 : lead < Math.sqrt(10) ? 2 : lead < Math.sqrt(50) ? 5 : 10) * power;
+  if (lead < Math.SQRT2) return { lead: 1, exponent };
+  if (lead < Math.sqrt(10)) return { lead: 2, exponent };
+  if (lead < Math.sqrt(50)) return { lead: 5, exponent };
+  return { lead: 1, exponent: exponent + 1 };
+}
+
+/**
+ * `index` steps, as a number. WHOLE-NUMBER ARITHMETIC, on purpose: a step
+ * below one is reached by DIVIDING by a whole power of ten, never by
+ * multiplying by a fractional one. A whole power of ten is an exact number and
+ * a division is rounded once, so every JavaScript engine gives the same tick;
+ * `10 ** -4` is not exact, differs in its last bit between engine versions,
+ * and that bit decided whether an axis starting at 12,345 had a tick there.
+ */
+function stepValue({ lead, exponent }: StepParts, index: number): number {
+  return exponent < 0 ? (index * lead) / 10 ** -exponent : index * lead * 10 ** exponent;
+}
+
+/** How many steps `value` is from zero: the inverse of {@link stepValue}, by the same arithmetic. */
+function stepIndex({ lead, exponent }: StepParts, value: number): number {
+  return exponent < 0 ? (value * 10 ** -exponent) / lead : value / (lead * 10 ** exponent);
 }
 
 /** How many decimals a step needs to be written exactly: 0.2 → 1, 0.05 → 2, 25 → 0. Capped, so a step with float noise in it cannot ask for sixteen. */
@@ -586,9 +617,15 @@ export function roundTicks(lo: number, hi: number, target: number): RoundTick[] 
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [];
   const [a, b] = lo <= hi ? [lo, hi] : [hi, lo];
   if (a === b) return [{ value: a, label: String(a) }];
-  const step = roundStep(b - a, target);
-  const first = Math.ceil(a / step - 1e-9);
-  const count = Math.floor(b / step + 1e-9) - first;
+  const parts = stepParts(b - a, target);
+  const step = parts === undefined ? 0 : stepValue(parts, 1);
+  // a bound that IS a multiple of the step must count as one, whatever the last bit of the division
+  // says: the allowance grows with the index (its rounding does), and at the thirteen digits a run of
+  // ticks may need it is still only a fiftieth of a step
+  const fromIndex = parts === undefined ? Number.NaN : stepIndex(parts, a);
+  const toIndex = parts === undefined ? Number.NaN : stepIndex(parts, b);
+  const first = Math.ceil(fromIndex - (1e-9 + Math.abs(fromIndex) * 2e-15));
+  const count = Math.floor(toIndex + (1e-9 + Math.abs(toIndex) * 2e-15)) - first;
   // how many significant digits it takes to tell one tick from the next
   const largestBound = Math.max(Math.abs(a), Math.abs(b));
   const digits = Math.ceil(Math.log10(largestBound / step) + 1e-9) + 1;
@@ -601,11 +638,11 @@ export function roundTicks(lo: number, hi: number, target: number): RoundTick[] 
   //  - the ticks would differ only past the thirteenth digit: a number here holds fifteen or
   //    sixteen, and two are kept back so a tick's own rounding stays far below one step.
   // `String` writes a number so that it reads back as itself: two different ends never read alike.
-  if (!(step > 0) || !Number.isFinite(step) || !Number.isSafeInteger(first) || !Number.isSafeInteger(first + count) || count < 0 || count > MAX_TICKS || digits > MAX_TICK_DIGITS) {
+  if (parts === undefined || !(step > 0) || !Number.isFinite(step) || !Number.isSafeInteger(first) || !Number.isSafeInteger(first + count) || count < 0 || count > MAX_TICKS || digits > MAX_TICK_DIGITS) {
     return [a, b].map((value) => ({ value, label: String(value) }));
   }
   // a round step is 1, 2 or 5 times a power of ten: its decimals are that power's
-  const power = Math.floor(Math.log10(step) + 1e-9);
+  const power = parts.exponent;
   const decimals = Math.max(0, -power);
   const largest = Math.max(Math.abs(first), Math.abs(first + count)) * step;
   // ONE WAY OF WRITING FOR THE WHOLE AXIS, chosen so that neighbouring ticks never read alike:
@@ -626,7 +663,8 @@ export function roundTicks(lo: number, hi: number, target: number): RoundTick[] 
   for (let i = 0; i <= count; i++) {
     const index = first + i;
     // the multiple at index zero IS zero, and is written "0" whatever the axis's way of writing
-    ticks.push(index === 0 ? { value: 0, label: '0' } : { value: index * step, label: write(index * step) });
+    const value = stepValue(parts, index);
+    ticks.push(index === 0 ? { value: 0, label: '0' } : { value, label: write(value) });
   }
   return ticks;
 }
