@@ -33,7 +33,7 @@ describe('the rail in the bar', () => {
     // jsdom lays nothing out (width 0) ⇒ comfortable ticks with ids, not dense
     expect(rail.getAttribute('data-dense')).toBeNull();
     expect(rail.querySelectorAll('.vzf-tl-cid')).toHaveLength(40);
-    expect(rail.querySelector('[data-commit="c4"]')!.getAttribute('aria-label')).toBe('#c4 select c4');
+    expect(rail.querySelector('[data-commit="c4"]')!.getAttribute('aria-label')).toBe('step 5 of 40: #c4 select c4');
   });
 
   it('each bar says where it stands: the cursor, the head, and everything AHEAD of the cursor — and only a bookmark carries a flag', () => {
