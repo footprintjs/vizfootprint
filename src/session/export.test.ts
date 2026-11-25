@@ -401,19 +401,81 @@ describe('exportWindows — the walk', () => {
     });
   });
 
-  it('a count that is not a whole number of rows is not a count: the receipt says one that survives JSON', async () => {
-    const { ask } = makeAsk(Number.NaN, { rows: [{ id: 0, name: 'r0' }] });
-    const res = await exportWindows(ask, { table: 'cells', format: 'csv', now: pinned });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-    // NaN would be written as `null` by JSON.stringify — a receipt claiming no count at all
-    expect(res.receipt.count).toBe(0);
-    expect((JSON.parse(JSON.stringify(res.receipt)) as { count: unknown }).count).toBe(0);
-    expect(res.receipt.exported).toEqual({ start: 0, rows: 0 });
+  // A bad count used to be READ AS ZERO: the door had delivered a row, and the receipt said the
+  // view was empty and the file complete. A count is refused, never repaired.
+  it.each([
+    ['NaN', Number.NaN, 'NaN'],
+    ['a negative number', -3, '-3'],
+    ['an infinity', Number.POSITIVE_INFINITY, 'Infinity'],
+    ['a fraction', 2.7, '2.7'],
+    ['a number past the safe integers', 2 ** 53, String(2 ** 53)],
+    ['a string', '5' as unknown as number, 'a value of type string'],
+    ['nothing', undefined as unknown as number, 'a value of type undefined'],
+  ])('refuses a count that is %s, and never reads it as an empty view', async (_case, count, shown) => {
+    const { ask, calls } = makeAsk(5, { onPage: { 0: { count } } });
+    const res = await exportWindows(ask, { table: 'cells', format: 'csv', pageRows: 2, now: pinned });
+    expect(res).toEqual({ ok: false, reason: 'count', rejected: `the table answered a count of ${shown}, which is not a whole number of rows this file can state exactly — nothing was exported` });
+    expect(calls).toHaveLength(1);
+  });
 
-    const negative = makeAsk(-3, { rows: [{ id: 0, name: 'r0' }] });
-    const res2 = await exportWindows(negative.ask, { table: 'cells', format: 'csv', now: pinned });
-    expect(res2.ok && [res2.receipt.count, res2.receipt.exported.rows]).toEqual([0, 0]);
+  it('refuses a count that does not cover the rows the door itself answered', async () => {
+    const { ask } = makeAsk(5, { onPage: { 0: { count: 1 } } });
+    const res = await exportWindows(ask, { table: 'cells', format: 'csv', pageRows: 2, now: pinned });
+    expect(res).toEqual({ ok: false, reason: 'count', rejected: 'the table answered 2 rows at offset 0 against a count of 1 — its count does not cover its own rows' });
+  });
+
+  it.each([
+    ['grows', 4, 10],
+    ['shrinks', 10, 4],
+  ])('refuses the whole export when the count %s between pages', async (_case, firstCount, laterCount) => {
+    const { ask } = makeAsk(10, { onPage: { 0: { count: firstCount }, 1: { count: laterCount } } });
+    const res = await exportWindows(ask, { table: 'cells', format: 'csv', pageRows: 2, now: pinned });
+    expect(res).toEqual({ ok: false, reason: 'moved', rejected: `the table moved while exporting (count ${firstCount} → ${laterCount}) — export again` });
+  });
+
+  it('refuses a page holding more rows than were asked for, on the first page and on a later one', async () => {
+    const tenRows = Array.from({ length: 10 }, (_, i) => ({ id: i, name: `r${i}` }));
+    const first = makeAsk(10, { onPage: { 0: { rows: tenRows } } });
+    expect(await exportWindows(first.ask, { table: 'cells', format: 'csv', pageRows: 2, now: pinned })).toEqual({
+      ok: false,
+      reason: 'misaligned',
+      rejected: 'the table answered 10 rows where at most 2 were asked for — the rows cannot be walked in order',
+    });
+    const later = makeAsk(10, { onPage: { 1: { rows: tenRows.slice(2, 7) } } });
+    expect(await exportWindows(later.ask, { table: 'cells', format: 'csv', pageRows: 2, now: pinned })).toEqual({
+      ok: false,
+      reason: 'misaligned',
+      rejected: 'the table answered 5 rows where at most 2 were asked for — the rows cannot be walked in order',
+    });
+  });
+
+  it.each([
+    ['through the ceiling', { pageRows: 4, rowCeiling: 6 }, 2],
+    ['through the remainder', { pageRows: 4 }, 2],
+  ])('refuses a TAIL page holding more rows than its smaller limit, %s', async (_case, opts, limit) => {
+    // the last window is smaller than a page; a door that always answers a full page would push rows past the ceiling or the count
+    const all = Array.from({ length: 10 }, (_, i) => ({ id: i, name: `r${i}` }));
+    const count = 'rowCeiling' in opts ? 10 : 6;
+    const { ask, calls } = makeAsk(count, { onPage: { 1: { rows: all.slice(4, 8) } } });
+    const res = await exportWindows(ask, { table: 'cells', format: 'csv', now: pinned, ...opts });
+    expect(calls[1]).toEqual({ offset: 4, limit });
+    expect(res).toEqual({ ok: false, reason: 'misaligned', rejected: `the table answered 4 rows where at most ${limit} were asked for — the rows cannot be walked in order` });
+  });
+
+  it.each([
+    ['NaN', Number.NaN, 'NaN'],
+    ['a string that looks equal', '10' as unknown as number, 'a value of type string'],
+    ['an object with no toString', Object.create(null) as unknown as number, 'a value of type object'],
+  ])('a LATER page whose count is %s is a bad count, not a table that moved', async (_case, laterCount, shown) => {
+    const { ask } = makeAsk(10, { onPage: { 1: { count: laterCount } } });
+    const res = await exportWindows(ask, { table: 'cells', format: 'csv', pageRows: 2, now: pinned });
+    expect(res).toEqual({ ok: false, reason: 'count', rejected: `the table answered a count of ${shown}, which is not a whole number of rows this file can state exactly — nothing was exported` });
+  });
+
+  it('a first page larger than the ceiling is still cut to the ceiling, and the receipt says it truncated', async () => {
+    const { ask } = makeAsk(8);
+    const res = await exportWindows(ask, { table: 'cells', format: 'csv', pageRows: 5, rowCeiling: 3, now: pinned });
+    expect(res.ok && [res.receipt.exported.rows, res.receipt.truncated, res.receipt.count]).toEqual([3, true, 8]);
   });
 
   it('an empty view exports a header and a receipt that says nothing was in it', async () => {

@@ -19,14 +19,16 @@
  * not, so this rides the `session` barrel). The UI's whole job is to place a
  * form beside the grid and hand the files somewhere.
  *
- * **Two versions never share a file.** A version, a cursor or the PROJECTION
- * that changes between pages refuses the WHOLE export (`reason: 'moved'`) — the
+ * **Two versions never share a file.** A version, a cursor, the PROJECTION or
+ * the COUNT that changes between pages refuses the WHOLE export (`reason: 'moved'`) — the
  * same all-or-nothing discipline `README.md`, Law 1 states for acts. Half of one
  * version stapled to half of the next is a file no receipt can address. More
  * words refuse it for the same reason (`ExportWalkRefusal`): a page answered at
- * an offset nobody asked for cannot be walked in order (`'misaligned'`), and one
- * answered short of the count it promised cannot be walked to the end
- * (`'short'`).
+ * an offset nobody asked for, or with more rows than were asked for, cannot be
+ * walked in order (`'misaligned'`); one answered short of the count it promised
+ * cannot be walked to the end (`'short'`); a count that is not a whole number of
+ * rows, or does not cover the door's own rows, cannot be stated (`'count'`); and
+ * a row option that is not a number leaves no window to ask for (`'option'`).
  *
  * **No cell may abort an export.** `cellString` names every value shape a row can
  * hold and throws for none — an invalid `Date`, a nested `BigInt` and a circular
@@ -128,20 +130,23 @@ export interface ExportWindow {
 
 /**
  * The words the WALK itself mints, when the door refused nothing but the walk
- * cannot make one file: three about the pages, one about its own options. A door's own code (`ViewQueryRefusal` over
+ * cannot make one file: three about the pages, one about its own options and
+ * one about the door's count. A door's own code (`ViewQueryRefusal` over
  * a session, `unreachable` over the sheet's HTTP port) rides through unchanged
  * beside them, which is why `reason` stays a `string` — this union names what
  * THIS file can be the author of.
  */
 export type ExportWalkRefusal =
-  /** A version, a cursor or the projection changed between pages: two shapes never share a file. */
+  /** A version, a cursor, the projection or the count changed between pages: two shapes never share a file. */
   | 'moved'
   /** A page answered no rows while rows remained: the end the count promised cannot be reached. */
   | 'short'
-  /** A page answered a window starting somewhere other than where it was asked: the rows cannot be walked in order. */
+  /** A page answered a window starting somewhere other than where it was asked, or holding more rows than were asked for: the rows cannot be walked in order. */
   | 'misaligned'
   /** `pageRows` or `rowCeiling` was given and is not a finite number: there is no window to ask for, so no page was asked for. */
-  | 'option';
+  | 'option'
+  /** The door's count is not a whole number of rows, or does not cover the rows the door itself answered. */
+  | 'count';
 
 /** A window that was refused: the code to branch on, beside the sentence to show. */
 export interface ExportRefusal {
@@ -230,11 +235,26 @@ export type ExportResult =
 const label = (value: string | null): string => value ?? 'none';
 
 /**
- * A count is a door's word. The walk needs a whole, non-negative number of rows,
- * and the receipt needs one that survives the trip through JSON — `NaN` would be
- * written as `null`, a receipt claiming no count at all.
+ * A count is a door's word, and the receipt repeats it. It must be a whole,
+ * non-negative number of rows. Anything else is refused, never repaired: a
+ * count read as 0 would write "this view is empty, and this file is all of it"
+ * over rows the door had just delivered.
  */
-const rowCount = (value: number): number => (Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0);
+function countSentence(count: unknown): string | null {
+  if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) return null;
+  const shown = typeof count === 'number' ? String(count) : `a value of type ${typeof count}`;
+  return `the table answered a count of ${shown}, which is not a whole number of rows this file can state exactly — nothing was exported`;
+}
+
+/**
+ * Did the page hold more rows than its own count has room for? Then the count
+ * is understated, and a walk that stopped at it would drop rows the door holds
+ * under a receipt saying the file is complete.
+ */
+function overCountSentence(page: ExportWindow, offset: number, count: number): string | null {
+  if (offset + page.rows.length <= count) return null;
+  return `the table answered ${page.rows.length} rows at offset ${offset} against a count of ${count} — its count does not cover its own rows`;
+}
 
 /**
  * Did the ground move under the walk? Compared against the FIRST page, because
@@ -246,6 +266,10 @@ function movedSentence(first: ExportWindow, page: ExportWindow): string | null {
   }
   if (page.cursor !== first.cursor) {
     return `the table moved while exporting (cursor ${label(first.cursor)} → ${label(page.cursor)}) — export again`;
+  }
+  // the COUNT is part of the ground too: the receipt states page 1's, and the walk stops at it
+  if (page.count !== first.count) {
+    return `the table moved while exporting (count ${String(first.count)} → ${String(page.count)}) — export again`;
   }
   // the PROJECTION is part of the ground: every line of the body is written in
   // page 1's columns, so a page answering different ones would ride into the file
@@ -263,9 +287,15 @@ function movedSentence(first: ExportWindow, page: ExportWindow): string | null {
  * while the two agree: a door that ignores `offset` would otherwise be walked
  * into a file of one page repeated, under a receipt claiming the whole range.
  */
-function misalignedSentence(page: ExportWindow, offset: number): string | null {
-  if (page.start === offset) return null;
-  return `the table answered a window starting at row ${page.start} where row ${offset} was asked for — the rows cannot be walked in order`;
+function misalignedSentence(page: ExportWindow, offset: number, limit: number): string | null {
+  if (page.start !== offset) {
+    return `the table answered a window starting at row ${page.start} where row ${offset} was asked for — the rows cannot be walked in order`;
+  }
+  // more rows than were asked for is a window nobody asked for, too: cutting it to fit would hide that the door ignores `limit`
+  if (page.rows.length > limit) {
+    return `the table answered ${page.rows.length} rows where at most ${limit} were asked for — the rows cannot be walked in order`;
+  }
+  return null;
 }
 
 /**
@@ -300,28 +330,35 @@ export async function exportWindows(ask: ExportAsk, opts: ExportOptions): Promis
 
   const first = await ask(0, pageRows);
   if (!first.ok) return { ok: false, reason: first.reason, rejected: first.rejected };
-  const askedElsewhere = misalignedSentence(first, 0);
+  const askedElsewhere = misalignedSentence(first, 0, pageRows);
   if (askedElsewhere !== null) return { ok: false, reason: 'misaligned', rejected: askedElsewhere };
+  const badCount = countSentence(first.count) ?? overCountSentence(first, 0, first.count);
+  if (badCount !== null) return { ok: false, reason: 'count', rejected: badCount };
 
-  const count = rowCount(first.count);
+  const count = first.count;
   // the ceiling bounds the WALK, never the count: the receipt keeps saying how many rows the view holds
   const target = Math.min(count, ceiling);
   const rows: Row[] = first.rows.slice(0, target);
 
   while (rows.length < target) {
     const offset = rows.length;
-    const page = await ask(offset, Math.min(pageRows, target - offset));
+    const limit = Math.min(pageRows, target - offset);
+    const page = await ask(offset, limit);
     if (!page.ok) return { ok: false, reason: page.reason, rejected: page.rejected };
+    // a later page's count is judged by the same rule as the first, BEFORE it is compared: a count
+    // of NaN or "10" is a bad count, not a table that moved
+    const badPageCount = countSentence(page.count);
+    if (badPageCount !== null) return { ok: false, reason: 'count', rejected: badPageCount };
     const moved = movedSentence(first, page);
     if (moved !== null) return { ok: false, reason: 'moved', rejected: moved };
-    const elsewhere = misalignedSentence(page, offset);
+    const elsewhere = misalignedSentence(page, offset, limit);
     if (elsewhere !== null) return { ok: false, reason: 'misaligned', rejected: elsewhere };
     if (page.rows.length === 0) {
       // a port that answers no rows where rows were promised cannot be walked to the end;
       // refusing says so, where a short body would look like a complete one
       return { ok: false, reason: 'short', rejected: `the table answered no rows at offset ${offset} while ${target - offset} of ${count} remained — export again` };
     }
-    rows.push(...page.rows.slice(0, target - offset));
+    rows.push(...page.rows);
   }
 
   // the engine's projection, key included — never the columns ASKED for, which may have left the key out
