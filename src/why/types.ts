@@ -204,6 +204,18 @@ export interface WhyFlags {
    * design — execution indices reset per run).
    */
   readonly kernelRunIdAvailable: boolean;
+  /**
+   * `true` when the record reader reported at least one thing it could not
+   * establish about the kernel chain ({@link KernelSliceLimits}): a cut slice,
+   * no recorded reads, an untracked input, a value from before the run, an
+   * uncertain edge, any note.
+   *
+   * `false` means the reader reported NONE — not that the chain is complete.
+   * The reader cannot see a value that came through a closure, a module
+   * constant or an outside call, and reports nothing for one. It is also
+   * `false` when there is no kernel slice at all; that case is in `misses`.
+   */
+  readonly kernelLimitsReported: boolean;
 }
 
 /**
@@ -268,6 +280,34 @@ export interface CrossTierMiss {
 }
 
 /**
+ * WHAT THE KERNEL SLICE COULD NOT ESTABLISH. `commitIds` is the chain the
+ * record can prove; this says where the proof stops. Every field repeats what
+ * the record reader (foottrace) reported about its own slice — nothing here is
+ * inferred by this library, and nothing the reader reported is left out.
+ *
+ * An answer with any limit is still an answer. It is not a complete one:
+ * {@link WhyFlags.kernelLimitsReported} is `true`, and a consumer that shows
+ * the chain must show that too. The reverse does not hold: no reported limit
+ * is not proof of a complete chain (see the flag).
+ */
+export interface KernelSliceLimits {
+  /** A budget cut the slice: commits upstream of the cut are missing from `commitIds`. `null` = not cut. */
+  readonly truncated: { readonly byDepth: boolean; readonly byNodes: boolean } | null;
+  /** How the reads behind the chain's edges were known — the reader's own word (`'execution-tree'`, …). */
+  readonly readsKind: string;
+  /** Steps the reader saw, and how many had a recorded read. `null` = it reported no coverage. Zero steps with reads = reads were not recorded: dependencies are then unknowable, not absent. */
+  readonly readsCoverage: { readonly steps: number; readonly stepsWithReads: number } | null;
+  /** Commits that took input the run did not track (`'args'`, `'env'`, `'silent'`): what flowed in through it is not in the chain. */
+  readonly untracked: readonly { readonly commitId: string; readonly sources: readonly string[] }[];
+  /** Commits that read, or built on, a value from BEFORE the run: no commit in the chain wrote it. */
+  readonly preRun: readonly { readonly commitId: string; readonly keys: readonly string[] }[];
+  /** How many of the chain's edges are not certain: a possible source, or one resting on nested rows where the reader of a key may not have read the part that changed. */
+  readonly uncertainEdges: number;
+  /** The reader's own statements about the slice, verbatim. */
+  readonly notes: readonly { readonly code: string; readonly detail: string }[];
+}
+
+/**
  * The composed answer — the MINIMAL commit set the target depends on, as flat
  * `{tier, id, kind}` records plus per-tier honest misses. No prose fields (A2).
  */
@@ -291,6 +331,8 @@ export interface CrossTierSlice {
     readonly stageIds: readonly string[];
     /** `snapshot.runId` — `null` only for a pre-9.11.0 snapshot (see {@link WhyFlags.kernelRunIdAvailable}). */
     readonly runId: string | null;
+    /** What the record could NOT establish about `commitIds` (see {@link KernelSliceLimits}). Always present. */
+    readonly limits: KernelSliceLimits;
   } | null;
   /** The flat, tier-tagged union of every commit in the composed set. */
   readonly commits: readonly TierCommit[];

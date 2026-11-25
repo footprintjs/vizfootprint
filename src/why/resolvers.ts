@@ -20,7 +20,7 @@
 
 import { keysReadFromExecutionTree, sliceForKey, sliceToJSON } from 'foottrace';
 import type { AgentCallIdentity, CommitRecord } from '../log/index.js';
-import type { AgentEventFrame, CrossTierMiss, RuntimeSnapshot } from './types.js';
+import type { AgentEventFrame, CrossTierMiss, KernelSliceLimits, RuntimeSnapshot } from './types.js';
 
 /** A resolver either returns its tier's payload or a typed {@link CrossTierMiss}. */
 type Resolved<T> = T | { readonly miss: CrossTierMiss };
@@ -85,6 +85,76 @@ export interface KernelResolution {
   readonly stageIds: readonly string[];
   /** `snapshot.runId` — `null` only when the snapshot predates fp 9.11.0 (field absent; see resolver header). */
   readonly runId: string | null;
+  /** What the reader could not establish about the chain. */
+  readonly limits: KernelSliceLimits;
+}
+
+/** The part of the reader's slice JSON the limits are read from. Structural, so no reader type is re-exported. */
+interface ReportedSlice {
+  readonly keysReadKind: string;
+  readonly readsCoverage?: { readonly steps: number; readonly stepsWithReads: number };
+  readonly nodes?: Readonly<
+    Record<
+      string,
+      {
+        readonly incompleteSources?: readonly string[];
+        readonly preRunReads?: { readonly keys: readonly string[] };
+        readonly preRunBase?: { readonly keys: readonly string[] };
+        readonly preRunView?: { readonly keys: readonly string[] };
+      }
+    >
+  >;
+  readonly edges?: readonly { readonly overlap?: unknown; readonly basis?: unknown }[];
+  readonly truncated?: { readonly byDepth: boolean; readonly byNodes: boolean };
+  readonly notes?: readonly { readonly code: string; readonly detail: string }[];
+}
+
+/**
+ * Everything the reader said its slice could not establish, in this library's
+ * own plain shape. A field the reader left out is an empty answer here, never
+ * a guess. This is the ONE place the reader's caveats are read: `why()` used to
+ * keep the commit ids and drop every one of them, so a slice cut by its budget
+ * or fed by an untracked input came back looking complete.
+ */
+export function sliceLimits(json: ReportedSlice): KernelSliceLimits {
+  const nodes = Object.entries(json.nodes ?? {});
+  const untracked = nodes.flatMap(([commitId, n]) => (n.incompleteSources !== undefined && n.incompleteSources.length > 0 ? [{ commitId, sources: [...n.incompleteSources] }] : []));
+  const preRun = nodes.flatMap(([commitId, n]) => {
+    const keys = [...new Set([...(n.preRunReads?.keys ?? []), ...(n.preRunBase?.keys ?? []), ...(n.preRunView?.keys ?? [])])];
+    return keys.length > 0 ? [{ commitId, keys }] : [];
+  });
+  return {
+    truncated: json.truncated !== undefined ? { byDepth: json.truncated.byDepth, byNodes: json.truncated.byNodes } : null,
+    readsKind: json.keysReadKind,
+    readsCoverage: json.readsCoverage !== undefined ? { steps: json.readsCoverage.steps, stepsWithReads: json.readsCoverage.stepsWithReads } : null,
+    untracked,
+    preRun,
+    // `overlap`: a possible source. `basis`: the edge rests on nested rows, so the reader of the key may not
+    // have read the part that changed. (`builtOn` is exact by the reader's own account, so it is not counted.)
+    uncertainEdges: (json.edges ?? []).filter((e) => e.overlap !== undefined || e.basis !== undefined).length,
+    notes: (json.notes ?? []).map((n) => ({ code: n.code, detail: n.detail })),
+  };
+}
+
+/**
+ * Did the reader report anything it could not establish?
+ *
+ * A run where NO step had a recorded read counts: the reader then cannot see
+ * any dependency (its own formatter prints "reads were not recorded …
+ * dependencies below are unknowable, NOT absent"), and every caveat that
+ * depends on reads disappears with them — so zero coverage is the only sign
+ * left. Some steps without reads is not a limit: a step may simply read nothing.
+ */
+export function sliceHasLimits(limits: KernelSliceLimits): boolean {
+  return (
+    limits.truncated !== null ||
+    limits.readsCoverage === null ||
+    limits.readsCoverage.stepsWithReads === 0 ||
+    limits.untracked.length > 0 ||
+    limits.preRun.length > 0 ||
+    limits.uncertainEdges > 0 ||
+    limits.notes.length > 0
+  );
 }
 
 /**
@@ -115,5 +185,5 @@ export function resolveKernelTier(
   // older/duck-typed kernel degrades to the honest `null` fallback instead of
   // a crash — `why()` turns that into `flags.kernelRunIdAvailable: false`.
   const runId = (snapshot as { readonly runId?: string }).runId ?? null;
-  return { writerId: json.writerId ?? '', commitIds, stageIds, runId };
+  return { writerId: json.writerId ?? '', commitIds, stageIds, runId, limits: sliceLimits(json) };
 }

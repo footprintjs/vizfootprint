@@ -118,6 +118,49 @@ Two consequences worth stating plainly:
 
 The whole chain stays **synchronous**: judging this needs no engine and no `await`, because a definition is a declaration.
 
+## The kernel chain says where its proof stops
+
+`kernel.commitIds` is the chain the record reader found. `kernel.limits` is
+what the reader reported it could **not** establish about that chain, and
+`flags.kernelLimitsReported` is `true` when it reported anything.
+
+Why: the reader (foottrace's slice) is careful about its own gaps. It says when
+a budget cut the slice, when no reads were recorded, when a step took input the
+run did not track, when a value came from before the run, and when an edge is
+not certain. `why()` used to keep the commit ids and drop all of that, so a cut
+or partly-blind chain came back as a clean list. A view never shows more
+certainty than the record holds, so the answer now carries every one of them.
+
+```ts
+const answer = why({ kind: 'column', column: 'rowCount' }, sources);
+if (answer.ok && answer.kernel) {
+  answer.kernel.commitIds;          // ['count#3', 'filter#2', 'load#0']
+  answer.kernel.limits.untracked;   // [{ commitId: 'load#0', sources: ['args'] }]
+  answer.flags.kernelLimitsReported; // true: the chain ends at an input nobody tracked
+}
+```
+
+| `limits` field | what it means for the chain |
+|---|---|
+| `truncated` | a budget cut the slice: commits upstream of the cut are missing |
+| `readsKind`, `readsCoverage` | how the reads behind the edges were known, and how many steps had any. `null` coverage, or zero steps with reads, means reads were not recorded: dependencies are then unknowable, not absent |
+| `untracked` | a commit took input the run did not track (`args`, `env`, `silent`); what came in through it is not in the chain |
+| `preRun` | a commit read, or built on, a value from before the run; no commit in the chain wrote it |
+| `uncertainEdges` | edges that are not certain: a possible source, or one resting on nested rows; the commits they reach are possible sources, not proven ones |
+| `notes` | the reader's own statements, verbatim |
+
+Nothing here is inferred by this library. A guard in `limits.test.ts` stops the
+file compiling when the reader's slice gains a field at the top level, on a
+node, on an edge, or inside its truncation and coverage records, so a new
+caveat there cannot be ignored by accident.
+
+**What the flag does not say.** `kernelLimitsReported: false` means the reader
+reported no limit. It is not proof the chain is complete: a value that reached a
+stage through a closure, a module constant or an outside call leaves no mark the
+reader can see. And every built-in analysis reads its inputs from the run's
+args, so for those the flag is always `true`; the `untracked` entry says so, and
+does not distinguish "the chain ends at the declared run input" from a real gap.
+
 ## What it cannot yet explain
 
 - **A chart the agent PROPOSED.** `ChartView.commitId` names the proposal that minted a chart, and nothing here reads it: `why({kind:'chart'})` answers about a chart the *definition* declared, shaped by acts. Asking why an agent's own chart exists — which proposal, under which words, accepted by whom — is the next gap.
