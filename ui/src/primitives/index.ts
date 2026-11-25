@@ -90,7 +90,7 @@ export type { SlotRow } from './slotValues.js';
 // the logarithmic axis (protocol 1.6): `scaleFor` is the ONE owner of which builder a channel gets,
 // and the rest are what a host drawing its own guide over a logarithmic channel needs — the ticks,
 // their labels, the placeability predicate and the words for what a transform could not place
-export { logScale, logDomain, extentFor, scaleFor, placeable, padFor, logTicks, logTickLabel, excludedNote } from './scales.js';
+export { logScale, logDomain, extentFor, roomyExtent, EXTENT_ROOM, roundTicks, roundStep, stepDecimals, roundToAxis, scaleFor, placeable, padFor, logTicks, logTickLabel, excludedNote } from './scales.js';
 // the second axis of a frame: `padOnSide` is the ONE owner of where a chart keeps its y-axis room
 // when that axis stands on the right, read by the chart (its plot) and by `VizFrame` (its margin union)
 export { padOnSide } from './scales.js';
@@ -134,3 +134,4 @@ export { useReencodePicker } from './reencode.js';
 export type { ReencodePicker } from './reencode.js';
 
 export { announce } from './announce.js';
+export type { RoundTick } from './scales.js';

@@ -27,7 +27,7 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { ticks, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
+import { roundTicks, roundToAxis, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
@@ -181,15 +181,14 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   const drawable = curved ? data.filter((d) => placeable(xKind, d.x) && placeable(yKind, d.y)) : data;
   const excluded = data.length - drawable.length;
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
-  // the chart's own breathing room, which a LOGARITHMIC axis takes none of (`padFor`); `extentFor` is
-  // LOG-AWARE about an empty `drawable` — see its own doc for why `extent`'s plain [0,1] default would
-  // otherwise mislead `logDomain` into lifting a low bound that was never really there
+  // the chart's own room at each end is a SHARE of the data's span (`roomyExtent`), which a LOGARITHMIC
+  // axis takes none of; that helper is also log-aware about an empty `drawable`
   // THE MARGIN THIS INSTANCE DRAWS INSIDE: `PAD` with its y-axis room on the side the axis stands
   // on (`padOnSide`, the one owner of that swap). With no side asked it IS `PAD`, so nothing moves.
   const pad = padOnSide(PAD, props.axisSide);
-  const [xlo, xhi] = domainOr(props.domain?.x, extentFor(drawable, (d) => d.x, padFor(xKind, 5), xKind));
+  const [xlo, xhi] = domainOr(props.domain?.x, roomyExtent(drawable, (d) => d.x, xKind));
   const x = scaleFor(xKind)(xlo, xhi, pad.l, width - pad.r);
-  const [ylo, yhi] = domainOr(props.domain?.y, extentFor(drawable, (d) => d.y, padFor(yKind, 0.5), yKind));
+  const [ylo, yhi] = domainOr(props.domain?.y, roomyExtent(drawable, (d) => d.y, yKind));
   const y = scaleFor(yKind)(ylo, yhi, height - pad.b, pad.t);
   const axes = props.axes ?? true;
   // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its y
@@ -215,18 +214,19 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
     plotRight: width - pad.r,
     width,
     field: xField,
-    snap: (loPx, hiPx) => [Math.round(x.invert(loPx) * 100) / 100, Math.round(x.invert(hiPx) * 100) / 100],
+    // rounded to what THIS axis can show (`roundToAxis`): a hundredth for an axis of ten or more, finer for a smaller one
+    snap: (loPx, hiPx) => [roundToAxis(x.invert(loPx), xhi - xlo), roundToAxis(x.invert(hiPx), xhi - xlo)],
     onEmit,
   });
 
   const { pickerChannel, openPicker, closePicker } = useReencodePicker(onReencodeRequest);
 
-  // the chart's OWN extents are padded (5 on x, 0.5 on y), so its ticks step inside that padding;
-  // a frame's domain carries no padding of ours, so its ticks span exactly what the axis claims
-  // a LOGARITHMIC axis is ticked at decades instead (`logTicks`), read off the scale's own clamped
-  // domain rather than the raw pair, because that is the span the marks were actually placed on
-  const xTicks = xKind === 'log' ? logTicks(x.domain[0], x.domain[1], 5) : ticks(props.domain?.x === undefined ? xlo + 5 : xlo, props.domain?.x === undefined ? xhi - 5 : xhi, 4);
-  const yTickVals = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 5) : props.domain?.y === undefined ? ticks(Math.ceil(ylo + 0.5), Math.floor(yhi - 0.5), 4) : ticks(ylo, yhi, 4);
+  // A LINEAR axis is ticked at ROUND values inside the span it drew (`roundTicks`): the multiples of
+  // a round step, each labelled to that step's precision — the same rule whether the span is the
+  // chart's own or a frame's. A LOGARITHMIC axis is ticked at decades (`logTicks`), read off the
+  // scale's own clamped domain rather than the raw pair, because that is the span the marks were placed on.
+  const xTicks: readonly RoundTick[] = xKind === 'log' ? logTicks(x.domain[0], x.domain[1], 5).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(xlo, xhi, 5);
+  const yTicks: readonly RoundTick[] = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 5).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(ylo, yhi, 5);
 
   // ZERO IS A PLACE ON THE AXIS (law 12): one line inside the plot where a signed scale crosses zero,
   // drawn whenever the chart was TOLD to — a Ramachandran plot's φ and ψ both ask for one.
@@ -271,20 +271,20 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         {drawX && <line className="vzf-axis" x1={pad.l} y1={height - pad.b} x2={width - pad.r} y2={height - pad.b} />}
         {drawY && <line className="vzf-axis" x1={yAxisX} y1={pad.t} x2={yAxisX} y2={height - pad.b} style={hueStyle} />}
         {/* x ticks */}
-        {drawX && xTicks.map((v, i) => (
+        {drawX && xTicks.map((t, i) => (
           <g key={`xt${i}`}>
-            <line className="vzf-axis" x1={x(v)} y1={height - pad.b} x2={x(v)} y2={height - pad.b + 4} />
-            <text className="vzf-tick" x={x(v)} y={height - pad.b + 16} textAnchor="middle">
-              {xKind === 'log' ? logTickLabel(v) : Math.round(v)}
+            <line className="vzf-axis" x1={x(t.value)} y1={height - pad.b} x2={x(t.value)} y2={height - pad.b + 4} />
+            <text className="vzf-tick" x={x(t.value)} y={height - pad.b + 16} textAnchor="middle">
+              {t.label}
             </text>
           </g>
         ))}
         {/* y ticks — on the axis's side, reading away from the plot */}
-        {drawY && yTickVals.map((v, i) => (
+        {drawY && yTicks.map((t, i) => (
           <g key={`yt${i}`} style={hueStyle}>
-            <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(v)} x2={yAxisX} y2={y(v)} />
-            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(v) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'}>
-              {yKind === 'log' ? logTickLabel(v) : v}
+            <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(t.value)} x2={yAxisX} y2={y(t.value)} />
+            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(t.value) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'}>
+              {t.label}
             </text>
           </g>
         ))}

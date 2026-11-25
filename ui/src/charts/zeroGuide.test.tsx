@@ -119,10 +119,10 @@ describe('VizScatter — the figure that asked: a guide on x, on y, and on both'
   });
 
   it('the refusal quotes THE AXIS IT DREW ON — the chart’s own padded extent when no frame handed it a domain', () => {
-    // no `domain.x`: the chart folds its own extent and pads it by 5, so the axis runs [7, 105] and that is
+    // no `domain.x`: the chart folds its own extent and leaves 5% of the span at each end, so the axis runs [7.6, 104.4] and that is
     // the span the sentence has to quote — the reason the CHART owns this verdict and no door upstream can
     const { container } = render(<VizScatter data={[{ id: 'a', x: 12, y: 3 }, { id: 'b', x: 100, y: 4 }]} domain={{ zeroGuide: { x: true } }} />);
-    expect(notesOf(container)).toEqual(['x was asked for a zero guide, but its axis runs [7, 105] — zero is not a place on it, so there is no line to draw']);
+    expect(notesOf(container)).toEqual(['x was asked for a zero guide, but its axis runs [7.6, 104.4] — zero is not a place on it, so there is no line to draw']);
   });
 
   it('A LOGARITHMIC AXIS HAS NO ZERO AT ALL — refused in the logarithm’s own existing vocabulary, not a new sentence about a domain', () => {
@@ -324,9 +324,9 @@ describe('zeroGuideFor — the one owner of the verdict and the words', () => {
     });
   });
 
-  it('spells a bound to a hundredth, so a padded extent reads as a number rather than a float’s tail', () => {
+  it('spells a bound to four significant digits, so a padded extent reads as a number rather than a float’s tail — at any size of axis', () => {
     expect(zeroGuideFor({ channel: 'y', asked: true, domain: [0.10000000000000009, 3.3333333333], place })).toEqual({
-      refused: 'y was asked for a zero guide, but its axis runs [0.1, 3.33] — zero is not a place on it, so there is no line to draw',
+      refused: 'y was asked for a zero guide, but its axis runs [0.1, 3.333] — zero is not a place on it, so there is no line to draw',
     });
   });
 

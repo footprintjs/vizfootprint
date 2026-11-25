@@ -129,7 +129,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf, domainOr, scaleFor, placeable, padFor, extentFor, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide } from '../primitives/scales.js';
+import { linearScale, extent, roundTicks, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
@@ -658,10 +658,9 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const placed = yKind === 'log' ? series.map((s) => ({ ...s, points: s.points.filter((p) => placeable(yKind, p.mean)) })) : series;
   const allMeans = placed.flatMap((s) => s.points);
   const excluded = series.reduce((n, s) => n + s.points.length, 0) - allMeans.length;
-  // the chart's own breathing room, which a LOGARITHMIC axis takes none of (`padFor`); `extentFor` is
-  // LOG-AWARE about an empty `allMeans` (see its own doc) so an all-excluded series gets the
-  // placeholder decade rather than `extent`'s plain [0,1] default read as a real low bound to lift
-  const [vlo, vhi] = domainOr(props.domain?.y, extentFor(allMeans, (p) => p.mean, padFor(yKind, 0.5), yKind));
+  // the chart's own room at each end is a share of the data's span (`roomyExtent`), which a LOGARITHMIC
+  // axis takes none of; that helper is also log-aware about a chart with nothing placeable
+  const [vlo, vhi] = domainOr(props.domain?.y, roomyExtent(allMeans, (p) => p.mean, yKind));
   const axes = props.axes ?? true;
   // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its y
   // alone (`'y'` — its own scale on a frame whose x is drawn once by the frame). Two flags, so the
@@ -846,12 +845,10 @@ export function VizLine(props: VizLineProps): JSX.Element {
    * number spelled by a date formatter is a lie about what the axis holds.
    */
   const nameOf = (key: string): string => (kind === 'dates' ? formatDate(key) : key);
-  // the chart's OWN y extent is padded by 0.5, so its ticks step inside that padding; a frame's
-  // domain carries no padding of ours, so its ticks span exactly what the axis claims
-  const yPad = props.domain?.y === undefined ? 0.5 : 0;
-  // a LOGARITHMIC value axis is ticked at decades instead, read off the scale's own clamped domain
+  // a LINEAR value axis is ticked at round values inside the span it drew (`roundTicks`), each labelled
+  // to the step's precision; a LOGARITHMIC one at decades, read off the scale's own clamped domain
   // (the span the marks were actually placed on) rather than the raw pair
-  const yTickVals = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 4) : ticks(vlo + yPad, vhi - yPad, 3);
+  const yTicks: readonly RoundTick[] = yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 4).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(vlo, vhi, 4);
 
   // ZERO IS A PLACE ON THE AXIS (law 12), and on a line it is a place on the VALUE axis only: a difference,
   // a log ratio or a z-score over time crosses zero and the sign is the reading. Its x does not take one —
@@ -922,11 +919,11 @@ export function VizLine(props: VizLineProps): JSX.Element {
           );
         })}
         {/* y ticks — on the axis's side, reading away from the plot */}
-        {drawY && yTickVals.map((v, i) => (
+        {drawY && yTicks.map((t, i) => (
           <g key={`yt${i}`} style={hueStyle}>
-            <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(v)} x2={yAxisX} y2={y(v)} />
-            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(v) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'}>
-              {yKind === 'log' ? logTickLabel(v) : Math.round(v * 10) / 10}
+            <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(t.value)} x2={yAxisX} y2={y(t.value)} />
+            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(t.value) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'}>
+              {t.label}
             </text>
           </g>
         ))}

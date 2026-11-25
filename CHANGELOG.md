@@ -52,6 +52,35 @@
   `null`, or a stream of another kind) is still read whole, and the cap is
   checked afterwards.
 
+### Charts: an axis a chart sizes itself follows the data (changes how charts look)
+
+- A scatter padded its own x axis by 5 data units and its y by 0.5, and a line
+  its value axis by 0.5. Data near zero was drawn as a thin blob in the middle
+  of the plot. The room is now 5% of the data's span at each end.
+- Ticks on those axes stand at round values (multiples of 1, 2 or 5 times a
+  power of ten) instead of even cuts of the span, and each label is written
+  to the step's precision. A −0.5…0.5 axis reads −0.4, −0.2, 0, 0.2, 0.4; it
+  read "0 0 0 0 1" on x and "0 0 0 0 0" on y. Large values are written against one unit:
+  −3.710M … −3.704M.
+- Every scatter and line with no declared `domain` changes: data in the
+  hundreds gets slightly more room than before, tick positions and their
+  number change, and a line's labels are no longer rounded to one decimal.
+  A declared `domain` keeps its span and is ticked by the new rule.
+- A drag across a scatter records its two ends rounded to what the axis can
+  show: a hundredth for an axis of ten or more (as before, except a value
+  exactly on a half, which now rounds by its true value), finer for a smaller
+  one. A drag across an axis from 0 to 0.001 would have recorded [0, 0].
+- A zero guide that cannot be drawn names its axis to four significant digits.
+  It rounded to a hundredth, which wrote an axis from 0.001 to 0.002 as
+  "[0, 0]".
+- New exports: `roomyExtent`, `roundTicks`, `roundStep`, `stepDecimals`,
+  `roundToAxis`,
+  `EXTENT_ROOM`, type `RoundTick`.
+- Not in this change: a left margin that grows with the longest label, and
+  thinning ticks whose labels would touch. Until then a long label can be cut
+  off at the left edge ("12345.0010" showing as "345.0010") and long labels
+  on a narrow axis can overlap.
+
 ### Security: a selection value is never written into the recorded SQL unquoted (behaviour change)
 
 - A point select accepted any value. An array was written into the commit's

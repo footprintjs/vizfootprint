@@ -85,7 +85,12 @@ export function zeroGuideNotes(...guides: readonly (ZeroGuide | undefined)[]): r
   return guides.flatMap((guide) => (guide !== undefined && 'refused' in guide ? [guide.refused] : []));
 }
 
-/** A bound as the refusal spells it: to a hundredth, so a padded extent reads as a number and not as a float's tail (`tickText`'s rule, one place further). */
+/**
+ * A bound as the refusal spells it: to four significant digits, so a padded
+ * extent reads as a number and not as a float's tail, whatever size the axis
+ * is. It used to be rounded to a hundredth, which wrote an axis from 0.001 to
+ * 0.002 as "[0, 0]" and then said zero was not on it.
+ */
 function axisNumber(value: number): string {
-  return String(Math.round(value * 100) / 100);
+  return String(Number(value.toPrecision(4)));
 }
