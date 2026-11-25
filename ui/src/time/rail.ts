@@ -58,6 +58,8 @@ export interface RailScope {
   readonly pathCount?: number;
   /** True when the rail is drawing a lane the HEAD is not on — "now" is elsewhere. */
   readonly offLane?: boolean;
+  /** True when the cursor names a commit that is not in the log, so no bar carries it. */
+  readonly cursorMissing?: boolean;
 }
 
 /**
@@ -77,12 +79,14 @@ export interface RailScope {
  * read.
  */
 export function railScope(scope: RailScope): string | null {
-  const { shown, total, pathName, pathCount = 1, offLane = false } = scope;
-  if (shown >= total && pathCount <= 1 && !offLane) return null;
+  const { shown, total, pathName, pathCount = 1, offLane = false, cursorMissing = false } = scope;
+  if (shown >= total && pathCount <= 1 && !offLane && !cursorMissing) return null;
   const path = pathName !== undefined && pathName !== '' ? `path “${pathName}”` : 'this path';
   const of = pathCount > 1 ? ` of ${String(pathCount)}` : '';
   const now = offLane ? ' · now is on another path' : '';
-  return `${String(shown)} of ${String(total)} steps · ${path}${of}${now}`;
+  // said in words because the mark a reader navigates by is absent: no bar is the cursor's
+  const lost = cursorMissing ? ' · the cursor is not among the recorded steps' : '';
+  return `${String(shown)} of ${String(total)} steps · ${path}${of}${now}${lost}`;
 }
 
 /** The rail's CONTENT width: what the bars may share — the padding is the rail's, not theirs. */

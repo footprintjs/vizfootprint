@@ -38,6 +38,7 @@ import {
   createSessionView,
   sessionSource,
   useSessionView,
+  useTimeTravel,
   selectionForView,
   keepPredicate,
   type AdoptSummaryView,
@@ -61,6 +62,7 @@ import { equalWidthBins, recountBins, boxSummary } from '../../src/data/index.js
 function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Element {
   const { view, rows } = props;
   const state: SessionViewState = useSessionView(view);
+  const time = useTimeTravel(view);
   const [mode, setMode] = useState<TimeMode>('explore');
   const readOnly = mode === 'present';
 
@@ -229,22 +231,11 @@ function App(props: { view: SessionView; rows: readonly GalleryRow[] }): JSX.Ele
       onLayoutChange={(change) => void view.setLayout(change)}
       top={
         <TimeTravelBar
+          {...time}
           compact
           mode={mode}
           onModeChange={setMode}
-          commits={state.commits}
-          cursor={state.cursor}
-          head={state.head}
-          bookmarks={state.bookmarks}
-          branches={state.branches}
-          viewingPast={state.viewingPast}
-          {...(state.paths.current !== null ? { pathName: state.paths.current } : {})}
           pathPill={<BranchPill paths={state.paths} onClick={() => setPathsOpen(true)} />}
-          onSeek={(id) => void view.seek(id)}
-          onStepBack={() => void view.stepBack()}
-          onStepForward={() => void view.stepForward()}
-          onNameBookmark={(label) => void view.bookmark(label)}
-          onReturnToNow={() => void view.returnToNow()}
         />
       }
       toast={

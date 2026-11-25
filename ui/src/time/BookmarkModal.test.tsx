@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { mapPollState, type RawPollState } from '../adapter/sessionView.js';
 import { BookmarkModal } from './BookmarkModal.js';
-import { TimeTravelBar } from './TimeTravelBar.js';
+import { RawBar } from './rawBar.test.helper.js';
 
 afterEach(cleanup);
 
@@ -96,7 +96,7 @@ const S = mapPollState(RAW);
 
 describe('TimeTravelBar — bookmark naming always rides the modal', () => {
   it('there is no inline composer; ⚑ opens the glass prompt showing the cursor commit', () => {
-    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} />);
+    const { container } = render(<RawBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} />);
     expect(container.querySelector('.vzf-bookmark-input')).toBeNull(); // the inline field never existed here
     fireEvent.click(container.querySelector('[data-vzf="bookmark-open"]')!);
     expect(document.querySelector('[data-vzf-modal="bookmark"]')).not.toBeNull();
@@ -106,7 +106,7 @@ describe('TimeTravelBar — bookmark naming always rides the modal', () => {
   it('naming through the modal fires onNameBookmark and closes; the default name is cp-N', () => {
     const onNameBookmark = vi.fn();
     const { container } = render(
-      <TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onNameBookmark={onNameBookmark} />,
+      <RawBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onNameBookmark={onNameBookmark} />,
     );
     fireEvent.click(container.querySelector('[data-vzf="bookmark-open"]')!);
     const input = screen.getByLabelText('bookmark name');
@@ -118,14 +118,14 @@ describe('TimeTravelBar — bookmark naming always rides the modal', () => {
   });
 
   it('saving without an onNameBookmark handler is a safe no-op (still closes)', () => {
-    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} />);
+    const { container } = render(<RawBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} />);
     fireEvent.click(container.querySelector('[data-vzf="bookmark-open"]')!);
     fireEvent.click(screen.getByRole('button', { name: 'Save bookmark' }));
     expect(document.querySelector('[data-vzf-modal="bookmark"]')).toBeNull();
   });
 
   it('compact folds the bar into the slim cockpit strip (class only — same controls)', () => {
-    const { container } = render(<TimeTravelBar compact mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} />);
+    const { container } = render(<RawBar compact mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} />);
     expect(container.querySelector('.vzf-timebar')?.classList.contains('vzf-compact')).toBe(true);
     expect(container.querySelector('[data-vzf="bookmark-open"]')).not.toBeNull();
   });

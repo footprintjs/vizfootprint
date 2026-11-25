@@ -11,7 +11,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, cleanup } from '@testing-library/react';
 import { mapPollState, type RawPollState } from '../adapter/sessionView.js';
 import { BranchMap, undoBlockReason } from './BranchMap.js';
-import { TimeTravelBar } from './TimeTravelBar.js';
+import { RawBar } from './rawBar.test.helper.js';
 import { BranchPill } from '../branches/BranchPill.js';
 import { emptyPaths } from '../adapter/types.js';
 import type { PathView } from '../adapter/types.js';
@@ -181,7 +181,7 @@ describe('BranchMap — the per-commit glass context menu (opt-in)', () => {
 describe('TimeTravelBar — the pathPill slot (BR-2 cockpit integration)', () => {
   it('renders the pill beside the Explore/Present toggle', () => {
     const { container } = render(
-      <TimeTravelBar
+      <RawBar
         compact
         commits={S.commits}
         cursor="b"
