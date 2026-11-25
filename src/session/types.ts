@@ -17,7 +17,7 @@ import type { ReachRelation } from '../links/reach.js';
 import type { AgentCallIdentity, CommitRecord } from '../log/index.js';
 import type { CauseClause, SelectionPort } from '../selection/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
-import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
+import type { FdrStep, HypothesisRecord, UnreadableTest } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, MatchClause, PredicateClause, Row, SortSpec, WalkAsk } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
@@ -463,6 +463,26 @@ export type ReplayResult =
        * of it lives outside the log.
        */
       readonly reran: number;
+      /**
+       * The error budget carried from the log. Every test the log holds was fed
+       * through this session's budget in the order it arrived, WITHOUT being run
+       * again, so the session, in the dashboard that made the log, stands where
+       * the one that made it stood.
+       *
+       * The carried rows are computed by THIS session's procedure and settings
+       * from the recorded p-values. The log records neither the settings it was
+       * made under nor the verdicts it got, so a log replayed into a dashboard
+       * configured differently gets that dashboard's verdicts, which may differ
+       * from the original's.
+       *
+       * `unreadable` lists the test commits whose result could not be read. Each
+       * was entered at p = 1 — it costs what a test costs and can never be a
+       * discovery — and is counted in `carried`. Under LORD++ that is the
+       * cautious side; under alpha-investing it is not guaranteed to be. A
+       * consumer that states an error rate over a replayed session must say how
+       * many of these there are.
+       */
+      readonly tests: { readonly carried: number; readonly unreadable: readonly UnreadableTest[] };
       /** How many gaps this replay filed — one per act it could not re-perform. */
       readonly filed: number;
       /** The fold at the tip the replayed log ends on — detached, like every fold this library hands out. */

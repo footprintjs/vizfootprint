@@ -39,9 +39,11 @@
  *    was standing. After a fork the walked session's head is the old tip and
  *    the replayed session's head is the last record it committed. Neither is a
  *    claim about the data.
- *  - THE AUDIT TRAILS beside the log: the FDR ledger and the gap ledger. Both
- *    are session-local records of what this walker asked for and was refused;
- *    neither is derived from the log and neither is on screen.
+ *  - THE GAP LEDGER beside the log: a session-local record of what this walker
+ *    asked for and was refused. It is not derived from the log. (The FDR ledger
+ *    used to be listed here too. It is carried by `session.replay` now, and
+ *    compared below — all of it but each row's `timestamp`, which is the
+ *    session's own clock.)
  *  - THE STORES beside the log: saved pictures, bookmarks, the data journal.
  *    They live on the DASHBOARD, not in the log, which is the whole reason they
  *    have their own persistence doors (`restoreSaved` / `restoreBookmarks`).
@@ -194,6 +196,11 @@ describe('conformance: folding as you walk equals folding a replay', () => {
     await replayInto(replayed, records, tip.cursor);
 
     expect(foldOf(await replayed.overview(), replayed.cursor())).toEqual(tip.fold);
+    // …and the error budget stands where the walk left it: same steps, names, p-values,
+    // thresholds, verdicts and wealth. Only the session's own clock differs.
+    const spent = (s: typeof walked) => s.ledger().map(({ timestamp: _clock, ...row }) => row);
+    expect(walked.ledger().length).toBeGreaterThan(0);
+    expect(spent(replayed)).toEqual(spent(walked));
   });
 
   it('…and at EVERY moment of the walk, against the fold the doors built as it happened', async () => {

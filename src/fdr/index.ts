@@ -37,6 +37,7 @@ export {
 export {
   hypothesisRecordsFromLog,
   testEmissionsFromLog,
+  loggedTests,
   branchIdFromLog,
   isTestAnalogCommit,
   testActOf,
@@ -44,6 +45,7 @@ export {
   TEST_ANALOG_FIELD,
   type TestAct,
   type TestEmissions,
+  type LoggedTest,
   type UnreadableTest,
   type UnreadableTestReason,
 } from './fromLog.js';

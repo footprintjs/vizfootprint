@@ -336,9 +336,11 @@ describe('a replay re-performs the acts it can', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect({ reran: res.reran, filed: res.filed }).toEqual({ reran: 0, filed: 0 });
-    // and no alpha was re-spent by walking the log
-    expect(res.overview.fdr.tests).toBe(0);
-    expect(s.ledger()).toEqual([]);
+    // …and the error budget came with the log: the test is not run again, and it is not forgotten
+    // either — the replayed session has spent exactly what the one that made the log spent
+    expect(res.tests).toEqual({ carried: 1, unreadable: [] });
+    expect(res.overview.fdr.tests).toBe(1);
+    expect(res.overview.fdr.wealth).toBe((await source.overview()).fdr.wealth);
   });
 
   it('a declaration the log carries for an analysis that made NO column is registered, not discarded — and no gap is filed for it', async () => {
@@ -696,11 +698,10 @@ describe('a test analysis that also writes columns is replayed like any other ac
     expect(replayedWhy.viz).toEqual(walkedWhy.viz);
     expect(replayedWhy.viz.commitId).toBe(made.commit!.id);   // the id survived the replay
     expect(replayedWhy.commits.filter((c) => c.tier === 'viz')).toEqual(walkedWhy.commits.filter((c) => c.tier === 'viz'));
-    // …and the ONE thing that deliberately does NOT come back: the ledger row.
-    // A replay never re-spends alpha (law 6), so the step belongs to the walker
-    // who ran the test, not to the log.
+    // …and the ledger row comes back with it. The budget each test spent is carried from the log,
+    // so the replayed session answers with the same step and the same verdict the walk did.
     expect(walkedWhy.fdr).toEqual({ step: 1, reject: made.fdrStep!.reject });
-    expect(replayedWhy.fdr).toBeUndefined();
+    expect(replayedWhy.fdr).toEqual(walkedWhy.fdr);
 
     // ③ the COLUMN — re-performed over THE TABLE THE RECORD NAMED
     expect(await columnAt(replayed, 'risk', 'other')).toEqual(walkedColumn);
