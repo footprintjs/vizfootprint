@@ -59,6 +59,28 @@ import 'vizfootprint-ui/styles.css';
 Your own complete theme has the type `CompleteThemeTokens`; the compiler tells
 you which token is missing.
 
+## `VizTheme` is a root
+
+A chart, a panel or a sheet placed inside `<VizTheme>` and nothing else is
+styled and laid out. Every component rule in the stylesheet is written under
+`.vzf`, and the wrapper carries that class beside its own:
+
+```tsx
+<VizTheme tokens={slateDark}>
+  <VizScatter data={points} />   {/* draws: no className="vzf" needed above it */}
+</VizTheme>
+```
+
+It did not at first. The wrapper carried only `vzf-theme`, which declared the
+tokens and matched none of the component rules, so a chart inside it had no
+layout and drew nothing unless the host also wrote `className="vzf"` above it.
+
+Two things follow from being a root. The wrapper still takes no box
+(`display: contents`), so it paints no background and changes no layout. And
+what it wraps inherits the theme's ink colour and type, as under any `.vzf`:
+host content you place inside `<VizTheme>` takes them too. Keep host content
+outside it if it should keep the host's own.
+
 ## Override part of it
 
 Only the tokens you name are declared. The rest keep the value already in force.

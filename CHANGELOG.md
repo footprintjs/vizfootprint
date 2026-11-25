@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Correction: `VizTheme` alone is enough for charts to draw
+
+- A chart inside `<VizTheme>` with no `.vzf` element above it had no layout
+  and drew nothing: the wrapper declared the tokens and matched none of the
+  component rules, which are all written under `.vzf`. The wrapper now carries
+  `vzf` beside `vzf-theme`.
+- What `<VizTheme>` wraps now inherits the theme's ink colour and type, as
+  under any `.vzf`. Host content placed inside it takes them too. The wrapper
+  still takes no box and paints no background.
+
 ### Security: a selection value is never written into the recorded SQL unquoted (behaviour change)
 
 - A point select accepted any value. An array was written into the commit's
