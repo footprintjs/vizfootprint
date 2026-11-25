@@ -201,23 +201,26 @@ describe('a real server — the three declarations, and what a report may say ab
     const stopped = await refusalOf(withReports.snap);
     expect(stopped).toMatch(new RegExp(`^too-large: resource "structure" http source ${base}/gzip: too-large — \\d+ UTF-16 units arrived and the read was stopped there `));
     expect(stopped.endsWith(tail)).toBe(true);
-    // …and the read that asks nothing — the whole body in one act — measures all of it and refuses in the same tail
+    // …and the read that asks nothing is stopped at the same place, with the same sentence: it
+    // used to take the whole decoded body into memory first and measure all of it afterwards
     const plainHandle = await httpSource({ maxBytes: 1000 }).openResource!({ format: 'text', via: 'http', at: `${base}/gzip` }, { resource: 'structure' });
-    expect(await refusalOf(plainHandle.snapshot())).toBe(`too-large: resource "structure" http source ${base}/gzip: too-large — ${String(PLAIN.length)} UTF-16 units arrived ${tail}`);
+    const silent = await refusalOf(plainHandle.snapshot());
+    expect(silent).toMatch(new RegExp(`^too-large: resource "structure" http source ${base}/gzip: too-large — \\d+ UTF-16 units arrived and the read was stopped there `));
+    expect(silent.endsWith(tail)).toBe(true);
   });
 
-  it('a cap over a body with NO declaration keeps the sentence it always had — word for word on the whole read', async () => {
+  it('a cap over a body with NO declaration stops the read where it crosses, observer or none', async () => {
     const plainHandle = await httpSource({ maxBytes: 100 }).openResource!({ format: 'text', via: 'http', at: `${base}/chunked` }, { resource: 'structure' });
-    expect(await refusalOf(plainHandle.snapshot())).toBe(
-      `too-large: resource "structure" http source ${base}/chunked: too-large — ${String(PLAIN.length)} UTF-16 units arrived (the server declared no length), the cap is 100`,
+    expect(await refusalOf(plainHandle.snapshot())).toMatch(
+      new RegExp(`^too-large: .*: too-large — \\d+ UTF-16 units arrived and the read was stopped there \\(the server declared no length\\), the cap is 100$`),
     );
-    // …and the progressive read stops early, with the same reason, the same cap and the same tail
+    // …and the read with an observer says the same
     expect(await refusalOf((await read('text', '/chunked', { maxBytes: 100 })).snap)).toMatch(
       new RegExp(`^too-large: .*: too-large — \\d+ UTF-16 units arrived and the read was stopped there \\(the server declared no length\\), the cap is 100$`),
     );
   });
 
-  it('BYTE IDENTITY: a read that passes no observer and no signal takes the whole body in one act and lands exactly what it always did', async () => {
+  it('BYTE IDENTITY: a read that passes no observer and no signal lands exactly what it always did', async () => {
     const asked = await read('bytes', '/declared', {}, 'logo');
     const told = await asked.snap;
     const plainHandle = await httpSource().openResource!({ format: 'bytes', via: 'http', at: `${base}/declared` }, { resource: 'logo' });
@@ -465,20 +468,49 @@ describe('a report is not a record', () => {
   });
 });
 
-describe('the whole-body strategy is untouched', () => {
-  it('a read with no observer never touches `res.body` at all', async () => {
+describe('one way to read a body, observer or none', () => {
+  it('a read with no observer goes through the stream too, and is capped as it arrives', async () => {
     const { answer, fetched } = await readFake({ chunks: ['HEADER'], headers: { etag: '"v1"' } });
     expect((await answer).body).toBe('HEADER');
-    expect(fetched.usedWhole()).toBe(true);
-    expect(fetched.usedStream()).toBe(false);
-    expect(fetched.delivered()).toBe(0);
+    expect(fetched.usedStream()).toBe(true);
+    expect(fetched.usedWhole()).toBe(false);
     expect(fetched.aborted()).toBe(false);
   });
 
-  it('…and a read that carries ONLY a signal is still that read — the strategy turns on the observer alone', async () => {
-    const { answer, fetched } = await readFake({ chunks: ['HEADER'] }, { signal: new AbortController().signal });
-    expect((await answer).body).toBe('HEADER');
-    expect(fetched.usedStream()).toBe(false);
+  it('a body over the cap is cut off at the chunk that crosses it: the rest is never pulled, and the transfer is aborted', async () => {
+    const chunks = Array.from({ length: 50 }, () => 'x'.repeat(10));
+    const fetched = fakeFetch({ chunks });
+    const handle = await httpSource({ fetch: fetched.fetch, maxBytes: 25 }).openResource!({ format: 'text', via: 'http', at: AT }, { resource: 'structure' });
+    const said = await refusalOf(handle.snapshot());
+    expect(said).toContain('too-large — 30 UTF-16 units arrived and the read was stopped there');
+    expect(fetched.usedWhole()).toBe(false);
+    expect(fetched.delivered()).toBeLessThan(chunks.length);
+    expect(fetched.aborted()).toBe(true);
+  });
+
+  it('a response with no readable stream is still read whole, and still refused over the cap — after the fact', async () => {
+    const fetched = fakeFetch({ chunks: ['HEADER COMPLEX'], noStream: true });
+    const handle = await httpSource({ fetch: fetched.fetch, maxBytes: 5 }).openResource!({ format: 'text', via: 'http', at: AT }, { resource: 'structure' });
+    expect(await refusalOf(handle.snapshot())).toContain('too-large — 14 UTF-16 units arrived (the server declared no length), the cap is 5');
+    expect(fetched.usedWhole()).toBe(true);
+    const small = fakeFetch({ chunks: ['HEADER'], noStream: true });
+    const ok = await httpSource({ fetch: small.fetch }).openResource!({ format: 'text', via: 'http', at: AT }, { resource: 'structure' });
+    expect((await ok.snapshot()).body).toBe('HEADER');
+  });
+
+  it('a read that carries only a signal is cut off by it mid-body', async () => {
+    const cut = new AbortController();
+    const fetched = fakeFetch({ chunks: ['a', 'b', 'c'] });
+    // the caller aborts once the answer's headers are in and before its first chunk is read
+    const thenCut = (async (...args: Parameters<typeof fetch>) => {
+      const res = await fetched.fetch(...args);
+      cut.abort();
+      return res;
+    }) as typeof fetch;
+    const handle = await httpSource({ fetch: thenCut }).openResource!({ format: 'text', via: 'http', at: AT }, { resource: 'structure' });
+    expect(await refusalOf(handle.snapshot({ signal: cut.signal }))).toContain('cancelled — the request was aborted');
+    expect(fetched.usedWhole()).toBe(false);
+    expect(fetched.delivered()).toBeLessThan(3);
   });
 });
 

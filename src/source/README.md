@@ -82,6 +82,17 @@ Every way a source can fail has one name from a closed vocabulary, `SOURCE_REFUS
 
 `httpSource({ fetch?, timeoutMs?, headers?, maxBytes? })` (its own module, `src/source/http.ts`) fetches `at` with the caller's abort signal and its own timeout over headers AND body; a RESOURCE read that carries an `onProgress` observer is read through the response's own stream instead, reported as it arrives and landed only when it is whole ("Bytes may arrive progressively", below); a 2xx with an empty body is `unavailable` (the place answered without data); the version is the server's ETag as sent (a weak `W/` stays weak), else Last-Modified, else a hash of the bytes; it declares `{ live: false, pushdown: false }`.
 
+**The size cap is asked as the body arrives.** A body is read through the response's stream, chunk by chunk, and the read is cut off and the transfer aborted at the chunk that crosses `maxBytes` (default 64 MiB). That holds for a table and for a resource, with a progress observer or without. Why: both doors used to read the whole body first (`res.text()`, `res.arrayBuffer()`) and compare its size afterwards, so a server that declared no length (or a false one, under a fetch that does not hold a body to its declared length) had its whole body in the host's memory before anything refused it. What can still be held is the cap plus one chunk.
+
+```ts
+const source = httpSource({ maxBytes: 1_000_000 });
+const handle = await source.open({ format: 'csv', via: 'http', at: 'https://example.org/rows.csv' }, { table: 'rows' });
+await handle.snapshot();
+// SourceRefusal 'too-large': "… too-large — <what had arrived> UTF-16 units arrived and the read was stopped there (the server declared no length), the cap is 1000000"
+```
+
+What it does not do: a host `fetch` whose response has no stream this reader can read in pieces (`res.body` is `null`, or is not a WHATWG stream, such as a Node stream) can only be read whole, so there the cap is checked after the body is in memory. A chunk that is not bytes is refused `malformed`. A plain read does not judge whether a body came up short of its declared length: that stays the transport's to judge, as it was (only a read with a progress observer or a fold holds a body to a length it can trust). The cap counts what the landing is judged in (bytes for `bytes`, UTF-16 units for text), not bytes on the wire. And a fold that holds nothing (`ResourceHandle.fold` with no `whole` fold) has no cap by design.
+
 ## A document is never a table by accident
 
 A `csv` source pointed at a protein structure file **produced a 2,090-row table**, its single column named after the file's 80-character `HEADER` line, a version stamped beside it and no refusal anywhere:
