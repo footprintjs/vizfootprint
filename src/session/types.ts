@@ -17,7 +17,7 @@ import type { ReachRelation } from '../links/reach.js';
 import type { AgentCallIdentity, CommitRecord } from '../log/index.js';
 import type { CauseClause, SelectionPort } from '../selection/index.js';
 import type { AnalysisKind, AnalysisOutput, AnalysisResult } from '../analysis/index.js';
-import type { FdrStep, HypothesisRecord } from '../fdr/index.js';
+import type { FdrStep, HypothesisRecord, UnreadableTest } from '../fdr/index.js';
 import type { CellClause, ColumnFacet, ColumnType, Engine, IntervalClause, MatchClause, PredicateClause, Row, SortSpec, WalkAsk } from '../data/index.js';
 import type { EncodingProblem, Fit, RuleLine, RuleScope } from '../encoding/index.js';
 import type { ProseRecord, ProseSlot, ProseStatus, ProposalStatus } from '../prose/index.js';
@@ -463,6 +463,17 @@ export type ReplayResult =
        * of it lives outside the log.
        */
       readonly reran: number;
+      /**
+       * The error budget carried from the log. Every test the log holds was fed
+       * through this session's budget in the order it arrived, WITHOUT being run
+       * again, so the session stands where the one that made the log stood.
+       *
+       * `unreadable` lists the test commits whose result could not be read. Each
+       * was entered at p = 1 — it costs what a test costs and can never be a
+       * discovery — and is counted in `carried`. A consumer that states an error
+       * rate over a replayed session must say how many of these there are.
+       */
+      readonly tests: { readonly carried: number; readonly unreadable: readonly UnreadableTest[] };
       /** How many gaps this replay filed — one per act it could not re-perform. */
       readonly filed: number;
       /** The fold at the tip the replayed log ends on — detached, like every fold this library hands out. */

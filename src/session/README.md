@@ -1548,8 +1548,9 @@ that made it"). So a replay re-performs the acts it can:
   walk;
 - an analysis on **any other channel** — a statistic, a fit, a summary table —
   is never re-run. Nothing of it lives outside the log, so re-running it would
-  buy nothing and cost real time. No hypothesis sink is passed either: alpha is
-  spent when a test is run, and a replay must never re-spend it;
+  buy nothing and cost real time. No hypothesis sink is passed either: a
+  re-performance is not a new test, and the budget each test spent was already
+  carried from the log (see "The error budget comes with the log" below);
 - everything it **could not** re-perform is a gap (R14), never a silence:
 
 | what happened | the gap |
@@ -1575,6 +1576,48 @@ s.gaps().at(-1);
 (await s.dispatch({ verb: 'select', viewId: 'scatter', field: 'risk', value: 1, cause }));
 // { ok: false, rejection: { code: 'needs-column', … } }
 ```
+
+### The error budget comes with the log
+
+An online error budget is spent test by test and never refunded. That has to
+hold across a save and a replay too, or saving and replaying is a way to get a
+fresh budget.
+
+It used to be one. A replayed session started with the full budget although
+its log held tests, so the next test was judged as the first, at the loosest
+threshold the procedure has.
+
+So `replay` carries the budget. After the records land, every test the log
+holds — a point commit on the reserved test field, in an analysis or chart lane
+(`loggedTests`) — is fed through this session's stepper in arrival order,
+every branch counted. No test is run again and nothing new is spent; the
+replayed session stands where the one that made the log stood.
+`ReplayResult.tests` says how many were carried.
+
+```ts
+const saved = original.log.records;          // holds two tests
+const session = dashboard.createSession();
+const res = await session.replay(saved);
+res.ok && res.tests;                          // { carried: 2, unreadable: [] }
+session.ledger().length;                      // 2 — the next test is step 3, as it would have been
+```
+
+What it will not pretend:
+
+- **A test whose record cannot be read still spent budget.** Its p-value is
+  unknown, so it is entered at p = 1: it costs what a test costs and can never
+  be a discovery, which can only make later thresholds stricter. It is listed in
+  `tests.unreadable` with the reason, so a consumer can say "N tests in this
+  history could not be read".
+- **A carried row's `timestamp` is this session's own clock**, not the
+  original's. The log does not record that clock, and no threshold depends on it.
+- **A carried row is named as the original was only when this session declares
+  the analysis.** The hypothesis name comes from the analysis's own declaration;
+  for an analysis the session does not declare, the row goes under the act's id.
+
+The rebuild table under Law 5 still holds: travelling to another cursor never
+rebuilds the ledger, because walking away must not refund budget. A replay is
+not a walk. It is a beginning, and it begins with what was already spent.
 
 ### A commit records enough of an act to perform it again, or it is not a record of the act
 
@@ -1739,12 +1782,10 @@ Two consequences, both deliberate:
   index alone, so the one question you ask a test — *why this hypothesis?* — had
   no answer for a test that also wrote a column. It is indexed on both channels
   now, on the walk and on the replay.
-- **The ledger row does not come back, and that is law rather than omission.**
-  A replay never re-spends alpha, so `why(...).fdr` is present on the walk and
-  absent on the replay. The arrival STREAM does come back —
-  `hypothesisRecordsFromLog` re-derives the same hypothesis and the same p from
-  the log alone — which is the difference between rebuilding the ledger and
-  re-charging for it.
+- **The ledger row comes back with the log.** A replay runs no test again, and
+  it does not forget one either: the recorded results are fed through the error
+  budget in the order they arrived, so `why(...).fdr` answers on the replay with
+  the step and the verdict it had on the walk.
 
 **The judge did not soften — it became possible.** A record naming a table this
 dashboard does not declare is still refused before anything moves, on either

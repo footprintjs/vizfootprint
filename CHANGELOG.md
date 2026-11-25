@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Correction: a replayed session carries its error budget (behaviour change)
+
+- `session.replay(log)` used to start the replayed session with the full error
+  budget although the log held tests. The next test was then judged as the
+  first, at the loosest threshold: saving and replaying handed out a fresh
+  budget. The recorded test results are now fed through the budget in arrival
+  order, every branch counted, without running any test again. The replayed
+  session stands where the one that made the log stood.
+- `ReplayResult` gains `tests: { carried, unreadable }`. A test whose record
+  cannot be read is entered at p = 1 (it spends budget and can never be a
+  discovery) and listed in `unreadable` with a reason.
+- `why({ kind: 'hypothesis' }).fdr` is now present on a replayed session, as it
+  is on the one that ran the test.
+- A consumer that relied on a replayed session having an empty ledger
+  (`overview().fdr.tests === 0`) must stop: that was the fault.
+
 ### Correction: error budget is spent only for a test that lands
 
 - An analysis module written by hand (not built by `defineAnalysis`) could

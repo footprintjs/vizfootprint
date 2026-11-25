@@ -54,7 +54,7 @@ import { judgeAnalysisReads, neighbourhoodEndpoints, relationEdgeId } from '../d
 // (with the id ceiling), so the door below judges and lands while the walking
 // stays pure functions anybody can read.
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
-import { isPValue, isTestAnalogCommit, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type TestAct } from '../fdr/index.js';
+import { isPValue, isTestAnalogCommit, loggedTests, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type LoggedTest, type TestAct, type UnreadableTest } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
 import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, mintFilledTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type ResolvedColumn, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type FilledTable, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
@@ -1141,6 +1141,16 @@ class InteractionSessionImpl implements InteractionSession {
       // on this session first; one holding module-declared ones still does, and
       // says so in the gap below.
       for (const [analysisId, module] of declared) this.localAnalyses.set(analysisId, module);
+      // THE ERROR BUDGET COMES WITH THE LOG. Every test the log holds was made,
+      // and each one spent budget where it was made. No test is run again here
+      // and nothing new is spent: the recorded results are fed through this
+      // session's stepper in the order they arrived, so the session stands where
+      // the one that made the log stood. It used to start at the full budget
+      // instead, which meant saving and replaying handed out a fresh one — the
+      // one thing an online error budget must never do.
+      // (After the registrations above: a carried row is named by its analysis's
+      // own declaration, exactly as the row the walk wrote was.)
+      const carried = this.carryErrorBudget(records);
       // Where `landed` left both pointers — the same place a walk of these acts
       // would have ended, and where the fold is rebuilt once the acts below have
       // been re-performed at their own positions.
@@ -1165,9 +1175,9 @@ class InteractionSessionImpl implements InteractionSession {
         // act live outside the log?" is asked once, in `actToReperform`, and
         // never restated here. Every other channel — a statistic, a fit, a
         // summary table — leaves nothing outside the log, so it is not in the map
-        // and is not re-run. (No `sink` is passed either: the FDR ledger records
-        // what THIS walker asked for, and law 3 names it a legitimate walk/replay
-        // difference. A replay must never re-spend alpha.)
+        // and is not re-run. (No `sink` is passed either: a re-performance is not
+        // a new test. The budget each test spent was carried from the log above,
+        // once; stepping again here would charge for it twice.)
         const act = acts.get(rec.id);
         if (act === undefined) continue;
         // …and with the declaration ITS OWN commit carried, when it carried one:
@@ -1236,26 +1246,64 @@ class InteractionSessionImpl implements InteractionSession {
           inputSelectionCommitIds: this.relatedSelectionCommitIds(input.related),
           ...(run.snapshot ? { snapshot: run.snapshot } : {}),
           ...(rec.correlationId !== undefined ? { correlationId: rec.correlationId } : {}),
+          // the ledger row this test was carried into, so `why().fdr` answers on a replay as it does on a walk
+          ...(carried.steps.has(rec.id) ? { fdrStep: carried.steps.get(rec.id)! } : {}),
         };
         this.noteColumnProvenance(slots, prov);
         // …and the hypothesis channel beside it, on the same rule the walk uses:
         // a declared test is answerable by `why({kind:'hypothesis'})` whichever
-        // channel it produced on. It carries NO `fdrStep`, and that is the law
-        // rather than an omission — a replay never re-spends alpha, so the
-        // ledger row belongs to the walker who ran the test, not to the log.
+        // channel it produced on.
         if (performing.kind === 'test') this.noteAnalysisProvenance(analysisId, prov);
         reran += 1;
       }
       // The invocation's finally restores the CURRENT head before any listener
       // runs, even if a re-performance exits while visiting an earlier record.
-      return { reran };
+      return { reran, tests: { carried: carried.steps.size, unreadable: carried.unreadable } };
     }, true);
 
     // Publication has attempted its effects before these reads, so observer
     // failures are included; a later overview failure cannot strand records.
     const filed = this.gapLedger.size - gapsBefore;
     const overview = await this.overview();
-    return { ok: true, landed: records.length, reran: completed.reran, filed, overview };
+    return { ok: true, landed: records.length, reran: completed.reran, tests: completed.tests, filed, overview };
+  }
+
+  /**
+   * The name a carried ledger row goes under: the one the lane's own writer
+   * used when the test was made. An analysis names its hypothesis by its
+   * module's declared id (`def.id`), which the log does not repeat, so it is
+   * read from the analysis this session declares under the act's id — and is
+   * the act's id itself when the session declares none. A chart claim is named
+   * by its correlation id, or its own. A test nobody can read has only its commit.
+   */
+  private carriedHypothesisId(test: LoggedTest): string {
+    if (test.act === undefined) return test.correlationId ?? test.commitId;
+    if (test.viewId.startsWith(CHART_VIEW_PREFIX)) return test.correlationId ?? test.act.id;
+    return this.analysis(test.act.id)?.def.id ?? test.act.id;
+  }
+
+  /**
+   * Feed the tests a log holds through this session's stepper, in arrival
+   * order, and write the ledger rows. Called once, by `replay`, on a session
+   * that holds nothing yet.
+   *
+   * A test whose record cannot be read still happened and still spent budget.
+   * Its p-value is unknown, so it is entered at p = 1: it costs what a test
+   * costs and can never be a discovery — the same rule an untested chart claim
+   * enters on, and the side that can only make later thresholds stricter. It
+   * is returned in `unreadable` so the caller can say so.
+   */
+  private carryErrorBudget(records: readonly CommitRecord[]): { readonly steps: Map<string, FdrStep>; readonly unreadable: UnreadableTest[] } {
+    const steps = new Map<string, FdrStep>();
+    const unreadable: UnreadableTest[] = [];
+    for (const test of loggedTests(records)) {
+      const hypothesisId = this.carriedHypothesisId(test);
+      if (test.unreadable !== undefined) unreadable.push({ commitId: test.commitId, reason: test.unreadable });
+      const step = deepFreeze(this.fdrStepper.step({ hypothesisId, pValue: test.act?.pValue ?? 1, timestamp: ++this.testClock }));
+      this._ledger.push(step);
+      steps.set(test.commitId, step);
+    }
+    return { steps, unreadable };
   }
 
   /** Every (view, emission kind) this dashboard can be acted on with — see `./offers.ts`. */

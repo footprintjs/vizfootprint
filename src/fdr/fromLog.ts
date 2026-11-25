@@ -208,6 +208,38 @@ export interface TestEmissions {
 const TEST_LANES: readonly string[] = [ANALYSIS_VIEW_PREFIX, CHART_VIEW_PREFIX];
 const inTestLane = (viewId: string): boolean => TEST_LANES.some((prefix) => viewId.startsWith(prefix));
 
+/** One commit in a test lane that declares a test: its act when readable, the reason when not. */
+export interface LoggedTest {
+  readonly commitId: string;
+  readonly viewId: string;
+  readonly correlationId?: string;
+  /** The act, or `undefined` when the value cannot be read as one. */
+  readonly act?: TestAct;
+  /** Present exactly when `act` is absent. */
+  readonly unreadable?: UnreadableTestReason;
+}
+
+/**
+ * Every test a log holds, in arrival order: the point commits on the reserved
+ * field that sit in a test lane. This is the list a replay carries its error
+ * budget from — one entry per test that was made, readable or not, so none can
+ * be left out of the count.
+ */
+export function loggedTests(records: readonly CommitRecord[]): LoggedTest[] {
+  const tests: LoggedTest[] = [];
+  for (const r of records) {
+    if (r.kind !== 'point' || r.field !== TEST_ANALOG_FIELD || !inTestLane(r.viewId)) continue;
+    const read = readTestAct(r.value);
+    tests.push({
+      commitId: r.id,
+      viewId: r.viewId,
+      ...(r.correlationId !== undefined ? { correlationId: r.correlationId } : {}),
+      ...(typeof read === 'string' ? { unreadable: read } : { act: read }),
+    });
+  }
+  return tests;
+}
+
 /**
  * Read a real L1 commit log for the online-FDR steppers: the arrival-ordered
  * `HypothesisRecord` stream, and the test commits that could not be read.
