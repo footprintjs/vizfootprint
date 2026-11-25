@@ -83,7 +83,7 @@ describe("why({ kind: 'selection' }) — what a view holds", () => {
   it('an applySaved of two conditions: each names the other as sibling, and the clear that made room is replaced', async () => {
     const s = fresh();
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('a') });
-    await s.dispatch({ verb: 'select', viewId: 'scatter', field: 'price', value: [50, 90], cause: userCause('b') });
+    await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [50, 90], cause: userCause('b') });
     expect(s.saveSelection('two', { live: 'all' }).ok).toBe(true);
     await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: null, cause: userCause('clear bar') });
     await s.dispatch({ verb: 'select', viewId: 'scatter', field: 'price', value: null, cause: userCause('clear scatter') });
@@ -110,7 +110,7 @@ describe("why({ kind: 'selection' }) — what a view holds", () => {
   it('a correlationId reused on a branch this cursor left is DROPPED off-branch; the one on this lineage is admitted (R5)', async () => {
     const s = fresh();
     const first = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('one'), correlationId: 'turn-1' });
-    const left = await s.dispatch({ verb: 'select', viewId: 'scatter', field: 'price', value: [50, 90], cause: userCause('two'), correlationId: 'turn-1' });
+    const left = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [50, 90], cause: userCause('two'), correlationId: 'turn-1' });
     expect(s.seek(id(first))).toEqual({ ok: true, cursor: id(first) });
     const here = await s.dispatch({ verb: 'select', viewId: 'cluster', field: 'category', value: 'Work', cause: userCause('three'), correlationId: 'turn-1' });
     const res = s.why({ kind: 'selection', viewId: 'bar' });
@@ -151,7 +151,7 @@ describe("why({ kind: 'chart' }) — what a view shows", () => {
   it('a filter that REACHES it anchors the picture and keeps its response; an older reaching clause rides as reaching-clause; the view\'s own brush is an input', async () => {
     const s = fresh();
     const older = await s.dispatch({ verb: 'select', viewId: 'cluster', field: 'category', value: 'Work', cause: userCause('the agent picks') });
-    const own = await s.dispatch({ verb: 'select', viewId: 'scatter', field: 'price', value: [50, 90], cause: userCause('brush the scatter itself') });
+    const own = await s.dispatch({ verb: 'filter', viewId: 'scatter', field: 'price', range: [50, 90], cause: userCause('brush the scatter itself') });
     const newest = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause: userCause('pick'), correlationId: 'turn-3' });
     const res = s.why({ kind: 'chart', viewId: 'scatter' });
     expect(res.ok).toBe(true);
