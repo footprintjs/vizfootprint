@@ -24,6 +24,8 @@ export type {
   TimeState,
   SeekResult,
   ReplayResult,
+  ReplayedTests,
+  RejudgedTest,
   GapRow,
   GapCode,
   GapOp,
@@ -108,7 +110,7 @@ export type {
 // its row were reachable from one place and nameable from two. Observing FDR is
 // this barrel's half; DECLARING it (`FdrDecl`, `FdrStepper`, and the builtin
 // stepper `createLordPlusPlus`) is `../def`'s. See PACKAGING.md, Law 1.
-export type { FdrStep } from '../fdr/index.js';
+export type { FdrStep, LedgerRowDifference } from '../fdr/index.js';
 export { VIEW_QUERY_DEFAULT_LIMIT } from './session.js';
 
 // Export is a READ that carries its address (see `./export.ts`, and README.md's
