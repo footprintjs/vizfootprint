@@ -17,6 +17,31 @@
 - The `viz.why` tool's description tells the agent to report a chain with
   limits as partial.
 
+### Migration: the time-travel bar renders a model (breaking, `vizfootprint-ui`)
+
+- `<TimeTravelBar>` takes one `model` prop in place of `commits`, `cursor`,
+  `head`, `bookmarks`, `branches` and `pathName`. It derives nothing from the log.
+- New: `timeTravelModel(input)` (data logic, no React), `useTimeTravel(view)`
+  (a model and the view's five time actions, ready to spread onto the bar),
+  `timeTravelOf(state)` and the types `TimeTravel`, `TimeTravelInput`,
+  `TimeTravelModel`, `ExploreModel`, `PresentModel`, `PresentStop`, `RailBar`,
+  `RailCoverage`. Each action of the door hands back what the session said
+  (`DescribeOutcome`), so a custom bar can tell a reader a seek was refused.
+- The demo-agent app now names the path beside the rail, as the gallery and
+  the studio desk already did: the door always passes it.
+- Correction: a cursor naming a commit that is not in the log used to draw an
+  empty rail under "no commits yet". The rail now draws the head's lineage and
+  its sentence says the cursor is not among the recorded steps. `RailScope`
+  gains `cursorMissing`.
+- Correction: "no commits yet" is said only of an empty log.
+
+Migration:
+1. With a session view: `const time = useTimeTravel(view)` then
+   `<TimeTravelBar {...time} />`; drop the six removed props and the five
+   action props you wired by hand.
+2. With your own store: `model={timeTravelModel({ commits, cursor, head,
+   bookmarks, pathCount: branches.length, pathName })}`.
+
 ### Migration: the UI theme is a typed token set (breaking, `vizfootprint-ui`)
 
 - `vizfootprint-ui` has a theme layer: `ThemeTokens` names every design token,

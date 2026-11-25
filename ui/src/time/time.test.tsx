@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { mapPollState, type RawPollState } from '../adapter/sessionView.js';
 import { orderedBookmarks, currentBookmarkIndex } from './presentBookmark.js';
-import { TimeTravelBar } from './TimeTravelBar.js';
+import { RawBar } from './rawBar.test.helper.js';
 import { BranchMap } from './BranchMap.js';
 
 afterEach(cleanup);
@@ -41,7 +41,7 @@ describe('presentBookmark pure logic', () => {
 
 describe('TimeTravelBar — explore mode', () => {
   it('renders the active lineage as commit dots with the cursor marked', () => {
-    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} branches={S.branches} />);
+    const { container } = render(<RawBar mode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} branches={S.branches} />);
     const dots = container.querySelectorAll('[data-vzf="timeline"] [data-commit]');
     expect(dots).toHaveLength(3); // r, a, b (NOT the off-branch c)
     expect(container.querySelector('.vzf-tl-dot.vzf-cursor')?.getAttribute('data-commit')).toBe('b');
@@ -52,7 +52,7 @@ describe('TimeTravelBar — explore mode', () => {
   // had no answer on screen.
   it('when the cursor sits on another lane the rail follows it, and the mark is always drawn', () => {
     // head is 'b'; 'c' is the other child of 'a' — off the head's lineage
-    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="c" head="b" branches={S.branches} />);
+    const { container } = render(<RawBar mode="explore" commits={S.commits} cursor="c" head="b" branches={S.branches} />);
     const dots = [...container.querySelectorAll('[data-vzf="timeline"] [data-commit]')].map((d) => d.getAttribute('data-commit'));
     expect(dots).toEqual(['r', 'a', 'c']); // the cursor's own lineage
     expect(container.querySelector('.vzf-tl-dot.vzf-cursor')?.getAttribute('data-commit')).toBe('c');
@@ -64,7 +64,7 @@ describe('TimeTravelBar — explore mode', () => {
 
   it('never prints the head path\'s NAME over another lane\'s bars', () => {
     // `pathName` names the path the HEAD is on; on another lane it would be a lie
-    const { container } = render(<TimeTravelBar mode="explore" commits={S.commits} cursor="c" head="b" branches={S.branches} pathName="main" />);
+    const { container } = render(<RawBar mode="explore" commits={S.commits} cursor="c" head="b" branches={S.branches} pathName="main" />);
     const scope = container.querySelector('[data-vzf="rail-scope"]')?.textContent ?? '';
     expect(scope).not.toContain('main');
     expect(scope).toContain('this path');
@@ -72,19 +72,19 @@ describe('TimeTravelBar — explore mode', () => {
 
   it('names the path when the host knows it, and says nothing when the rail holds the whole story', () => {
     const { container, rerender } = render(
-      <TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" branches={S.branches} pathName="work-2" />,
+      <RawBar mode="explore" commits={S.commits} cursor="b" head="b" branches={S.branches} pathName="work-2" />,
     );
     expect(container.querySelector('[data-vzf="rail-scope"]')?.textContent).toBe('3 of 4 steps · path “work-2” of 2');
     expect(container.querySelector('.vzf-tl-dot.vzf-head'), 'on the head\'s own lane, "now" is a mark on the rail').not.toBeNull();
     // one path, every step on the rail — no note
-    rerender(<TimeTravelBar mode="explore" commits={S.commits.slice(0, 2)} cursor="a" head="a" branches={[{ tip: 'a', length: 2, actor: 'user', active: true }]} />);
+    rerender(<RawBar mode="explore" commits={S.commits.slice(0, 2)} cursor="a" head="a" branches={[{ tip: 'a', length: 2, actor: 'user', active: true }]} />);
     expect(container.querySelector('[data-vzf="rail-scope"]')).toBeNull();
   });
 
   it('step buttons: forward disabled at the leaf head, back enabled; both fire callbacks', () => {
     const onStepBack = vi.fn();
     const onStepForward = vi.fn();
-    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onStepBack={onStepBack} onStepForward={onStepForward} />);
+    render(<RawBar mode="explore" commits={S.commits} cursor="b" head="b" onStepBack={onStepBack} onStepForward={onStepForward} />);
     const back = screen.getByRole('button', { name: '⟵' }) as HTMLButtonElement;
     const fwd = screen.getByRole('button', { name: '⟶' }) as HTMLButtonElement;
     expect(fwd.disabled).toBe(true); // b is a leaf
@@ -95,7 +95,7 @@ describe('TimeTravelBar — explore mode', () => {
 
   it('⚑ opens the bookmark modal; naming there fires onNameBookmark with the typed label', () => {
     const onNameBookmark = vi.fn();
-    render(<TimeTravelBar mode="explore" commits={S.commits} cursor="b" head="b" onNameBookmark={onNameBookmark} />);
+    render(<RawBar mode="explore" commits={S.commits} cursor="b" head="b" onNameBookmark={onNameBookmark} />);
     fireEvent.click(screen.getByRole('button', { name: /Bookmark/ }));
     const input = screen.getByLabelText('bookmark name');
     fireEvent.change(input, { target: { value: 'before cluster' } });
@@ -106,7 +106,7 @@ describe('TimeTravelBar — explore mode', () => {
 
 describe('TimeTravelBar — present mode', () => {
   it('hides ordinary commits, shows ONLY bookmark bookmarks with the current title large', () => {
-    const { container } = render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} />);
+    const { container } = render(<RawBar mode="present" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} />);
     // the explore timeline is gone; the present bookmark surface is shown
     expect(container.querySelector('[data-vzf="timeline"]')).toBeNull();
     expect(container.querySelector('[data-vzf="present"]')).not.toBeNull();
@@ -121,7 +121,7 @@ describe('TimeTravelBar — present mode', () => {
   it('prev/next walk the bookmarks and seek to their commit ids; reports readOnly up', () => {
     const onSeek = vi.fn();
     const onReadOnlyChange = vi.fn();
-    render(<TimeTravelBar mode="present" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onSeek={onSeek} onReadOnlyChange={onReadOnlyChange} />);
+    render(<RawBar mode="present" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onSeek={onSeek} onReadOnlyChange={onReadOnlyChange} />);
     expect(onReadOnlyChange).toHaveBeenCalledWith(true);
     // at 'mid' (index 1); prev → seek to 'start' (commit r)
     fireEvent.click(screen.getByRole('button', { name: 'previous bookmark' }));
@@ -130,7 +130,7 @@ describe('TimeTravelBar — present mode', () => {
 
   it('the mode toggle switches modes (uncontrolled) and fires onModeChange', () => {
     const onModeChange = vi.fn();
-    const { container } = render(<TimeTravelBar defaultMode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onModeChange={onModeChange} />);
+    const { container } = render(<RawBar defaultMode="explore" commits={S.commits} cursor="b" head="b" bookmarks={S.bookmarks} onModeChange={onModeChange} />);
     expect(container.querySelector('[data-vzf="timeline"]')).not.toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: 'Present' }));
     expect(onModeChange).toHaveBeenCalledWith('present');

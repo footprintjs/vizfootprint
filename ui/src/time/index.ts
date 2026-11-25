@@ -1,5 +1,9 @@
 export { TimeTravelBar } from './TimeTravelBar.js';
 export type { TimeTravelBarProps, TimeMode } from './TimeTravelBar.js';
+export { timeTravelModel } from './model.js';
+export type { TimeTravelInput, TimeTravelModel, ExploreModel, PresentModel, PresentStop, RailBar, RailCoverage } from './model.js';
+export { useTimeTravel, timeTravelOf } from './useTimeTravel.js';
+export type { TimeTravel } from './useTimeTravel.js';
 export { BookmarkModal } from './BookmarkModal.js';
 export type { BookmarkModalProps } from './BookmarkModal.js';
 export { BranchMap, undoBlockReason } from './BranchMap.js';
