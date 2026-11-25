@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Security: the DuckDB worker address is written into its script as data
+
+- The browser arm started DuckDB's worker from a one-line script with the
+  worker address pasted between quote marks. An address holding a quote mark
+  ended the string, and the rest ran as script in the worker. The address is
+  now parsed as an absolute URL and written as one string literal.
+- A `bundles.*.mainWorker` that is not an absolute URL is refused with a
+  sentence. A relative one never worked: the worker starts from a `blob:` URL,
+  which is no base.
+
 ### Correction: a replayed session carries its error budget (behaviour change)
 
 - `session.replay(log)` used to start the replayed session with the full error
