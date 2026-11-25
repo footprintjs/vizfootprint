@@ -73,7 +73,15 @@ export function isSQLNull(value: unknown): boolean {
 }
 
 /** The date's time, read by the LANGUAGE's own method: it throws for anything that is not a real Date, and nothing the value carries can answer in its place. */
-const timeOf = (value: unknown): number => Date.prototype.getTime.call(value);
+const timeOf = (value: unknown): number => DATE_READ.getTime.call(value);
+
+/** The language's own date readers, taken ONCE when this module loads: a method put on `Date.prototype` later is not what a date is read with. */
+const DATE_READ = {
+  getTime: Date.prototype.getTime,
+  getUTCFullYear: Date.prototype.getUTCFullYear,
+  getUTCMonth: Date.prototype.getUTCMonth,
+  getUTCDate: Date.prototype.getUTCDate,
+};
 
 /**
  * A REAL date, and nothing more: made by `Date` itself (it has the internal
@@ -121,9 +129,9 @@ export function literalToSQL(value: unknown): string {
       if (isPlainDate(value)) {
         // read through the language's own methods, on a value that carries none of its own
         const ts = timeOf(value);
-        const y = Date.prototype.getUTCFullYear.call(value);
-        const m = Date.prototype.getUTCMonth.call(value);
-        const d = Date.prototype.getUTCDate.call(value);
+        const y = DATE_READ.getUTCFullYear.call(value);
+        const m = DATE_READ.getUTCMonth.call(value);
+        const d = DATE_READ.getUTCDate.call(value);
         return ts === Date.UTC(y, m, d) ? `DATE '${y}-${m + 1}-${d}'` : `epoch_ms(${ts})`;
       }
       throw new TypeError(
@@ -144,7 +152,7 @@ export function isPlainValue(value: unknown): boolean {
 }
 
 const isPairOf = (value: unknown, each: (v: unknown) => boolean): boolean => Array.isArray(value) && value.length === 2 && value.every(each);
-const article = (value: unknown): string => (Array.isArray(value) ? 'an array' : value === undefined ? 'nothing' : `a ${typeof value === 'object' ? 'record' : typeof value}`);
+const article = (value: unknown): string => (value instanceof Date || Object.prototype.toString.call(value) === '[object Date]' ? 'a date that is not a plain Date (one from another realm, a subclass, a wrapped one, or one with something of its own on it)' : Array.isArray(value) ? 'an array' : value === undefined ? 'nothing' : `a ${typeof value === 'object' ? 'record' : typeof value}`);
 
 /**
  * THE DOOR RULE for a selection's value, by kind: a sentence naming the first

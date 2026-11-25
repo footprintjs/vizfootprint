@@ -22,8 +22,9 @@
 - A date is rendered only when it is a real `Date` with nothing of its own on
   it, read through the language's own methods. An object placed over
   `Date.prototype` could answer for a date's parts with text of its own, and
-  that text reached SQL a database ran. A point select with an array value used to land; send
-  several values as `values`, and a range with the `filter` verb.
+  that text reached SQL a database ran.
+- A point select with an array value used to land. It is refused: send several
+  values as `values`, and a range with the `filter` verb.
 - New in `vizfootprint/data`: `isPlainValue`, `isPlainDate`, `notOnePlainValue`.
 
 ### A test records the row it got, and a replay checks it

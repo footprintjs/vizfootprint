@@ -200,7 +200,19 @@ describe('a date is a real date, or it is not a plain value', () => {
     const s = fresh();
     const res = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value, cause });
     expect(res.ok === false && res.rejection.code).toBe('guard-failed');
+    if (value instanceof Date) expect(res.ok === false && res.rejection.detail).toContain('a date that is not a plain Date');
     expect(s.log.records).toHaveLength(0);
+  });
+
+  it('a method put on Date.prototype after this module loaded is not what a date is read with', () => {
+    const builtin = Date.prototype.getUTCFullYear;
+    try {
+      Date.prototype.getUTCFullYear = () => ({ valueOf: () => 2020, toString: () => '1) OR (1=1' }) as unknown as number;
+      expect(literalToSQL(new Date(Date.UTC(2020, 0, 1)))).toBe("DATE '2020-1-1'");
+      expect(mosaicDescriptorSQL('point', 'x', new Date(Date.UTC(2020, 0, 1)))).toBe(`("x" IN (DATE '2020-1-1'))`);
+    } finally {
+      Date.prototype.getUTCFullYear = builtin;
+    }
   });
 });
 
