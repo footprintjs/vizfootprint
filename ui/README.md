@@ -506,8 +506,8 @@ A declared `domain` is drawn as declared, with no room added, and ticked by the 
 
 Two more rules keep the labels readable, on the same charts:
 
-- **Two labels do not touch** (`ticksThatFit`). When neighbouring labels would run together, every second (or third, …) tick is kept, with the first and the last always kept. A dropped tick takes its mark with it. A horizontal axis is judged by the longest label's width, a vertical one by a line of text.
-- **A label is shown whole** (`squeezedLength`). A value label wider than the chart's margin used to be cut off by the edge of the drawing: "12345.0010" was drawn as "345.0010", which is another number. It is now squeezed into the margin with every character kept.
+- **Two labels do not touch** (`ticksThatFit`). When neighbouring labels would run together, every second (or third, …) tick is kept, with the first and the last always kept. The smallest gap between neighbouring ticks decides, so it holds on a logarithmic axis, whose ticks are not evenly spaced. A dropped tick takes its mark with it. A horizontal axis is judged by the longest label's width, a vertical one by a line of text.
+- **A value label is shown whole** (`squeezedLength`). This is the y axis's rule. A value label wider than the chart's margin used to be cut off by the edge of the drawing: "12345.0010" was drawn as "345.0010", which is another number. It is now squeezed into the margin with every character kept.
 
 ```ts
 import { roundTicks, ticksThatFit, squeezedLength } from 'vizfootprint-ui';
@@ -520,7 +520,7 @@ squeezedLength('-3.710M', 44);                                 // undefined: it 
 
 Widths are estimated at 6 px a character, the stylesheet's 10 px mono tick font (6.02 measured in Chromium). A theme that changes the tick font or size makes the estimate wrong until chart text sizes are theme tokens.
 
-Not done here: the margin does not grow with its labels. A chart's margin is also read by the frame that stacks charts, so that change belongs with the frame; until then a long label is squeezed, which is harder to read than a wider margin would be. The frame's shared axes, the box plot and the bar chart still use the older even cuts.
+Not done here: the LAST label of a horizontal axis can still run past the right edge of the drawing and lose its last characters (a 13-character label at the end of a 420 px scatter loses one), because a label is centred on its tick and the right margin is narrow. And the margin does not grow with its labels. A chart's margin is also read by the frame that stacks charts, so that change belongs with the frame; until then a long label is squeezed, which is harder to read than a wider margin would be. The frame's shared axes, the box plot and the bar chart still use the older even cuts.
 
 ## A mark you are meant to press must be REACHABLE
 

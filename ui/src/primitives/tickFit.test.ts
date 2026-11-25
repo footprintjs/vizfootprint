@@ -9,10 +9,11 @@
  * | y ticks closer than a line of text               | stacked on each other          | thinned by line height                   |
  * | a y label wider than the margin ("12345.0010")   | cut off: "345.0010"            | squeezed into the margin, every digit    |
  * | a y label that fits                              | as written                     | as written (no length set)               |
+ * | a logarithmic axis (ticks not evenly spaced)     | its last decades ran together  | thinned by the SMALLEST gap              |
  * | one or two ticks; ticks on one spot              | —                              | left alone                               |
  */
 import { describe, expect, it } from 'vitest';
-import { TICK_CHAR_PX, TICK_GAP_PX, TICK_LINE_PX, roundTicks, squeezedLength, ticksThatFit, type RoundTick } from './scales.js';
+import { TICK_CHAR_PX, TICK_GAP_PX, TICK_LINE_PX, logScale, logTickLabel, logTicks, roundTicks, squeezedLength, ticksThatFit, type RoundTick } from './scales.js';
 
 const ticks = (labels: readonly string[]): RoundTick[] => labels.map((label, value) => ({ value, label }));
 /** A scale that puts tick `i` at `i * step` pixels. */
@@ -77,6 +78,45 @@ describe('ticksThatFit — along a vertical axis, by line height', () => {
 
   it('a scale that runs the other way (a y axis grows upward) thins the same', () => {
     expect(said(ticksThatFit(ticks(['0', '1', '2', '3', '4', '5', '6']), (v) => 200 - v * 8, 'height'))).toEqual(['0', '2', '4', '6']);
+  });
+});
+
+describe('ticksThatFit — ticks that are not evenly spaced', () => {
+  const touching = (kept: readonly RoundTick[], place: (v: number) => number, along: 'width' | 'height'): number => {
+    const size = along === 'height' ? TICK_LINE_PX : Math.max(...kept.map((t) => t.label.length)) * TICK_CHAR_PX;
+    let pairs = 0;
+    for (let i = 1; i < kept.length; i++) if (Math.abs(place(kept[i]!.value) - place(kept[i - 1]!.value)) < size + TICK_GAP_PX - 1e-9) pairs += 1;
+    return pairs;
+  };
+
+  it('a 1-2-5 run: the first gap is the widest, and it is not the one that decides', () => {
+    const run = [2, 5, 10, 20, 50].map((value) => ({ value, label: String(value) }));
+    const place = logScale(2, 50, 0, 60);
+    const kept = ticksThatFit(run, place, 'width');
+    expect(kept.length).toBeLessThan(run.length);
+    expect(kept[0]).toBe(run[0]);
+    expect(kept.at(-1)).toBe(run.at(-1));
+    expect(touching(kept, place, 'width')).toBe(0);
+  });
+
+  it('5,000 generated logarithmic axes, both ways round, by width and by height: no kept pair touches unless only the two ends are left', () => {
+    let seed = 11;
+    const random = (): number => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    for (let run = 0; run < 5000; run++) {
+      const lo = 10 ** Math.floor(random() * 12 - 4);
+      const hi = lo * 10 ** (0.3 + random() * 14);
+      const length = 40 + random() * 500;
+      const place = random() < 0.5 ? logScale(lo, hi, 0, length) : logScale(lo, hi, length, 0);
+      const all = logTicks(lo, hi, 5).map((value) => ({ value, label: logTickLabel(value) }));
+      for (const along of ['width', 'height'] as const) {
+        const kept = ticksThatFit(all, place, along);
+        if (all.length > 0) {
+          expect(kept[0]).toBe(all[0]);
+          expect(kept.at(-1)).toBe(all.at(-1));
+        }
+        if (kept.length > 2) expect(touching(kept, place, along), `${lo} … ${hi} on ${length}px by ${along}: ${kept.map((t) => t.label).join(' ')}`).toBe(0);
+      }
+    }
   });
 });
 

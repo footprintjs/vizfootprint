@@ -697,8 +697,10 @@ export const TICK_GAP_PX = 4;
  * last. Labels that already fit are all kept, in the same array.
  *
  * `along` says how much of the axis one label takes: its WIDTH on a
- * horizontal axis (the longest label decides, so the ticks stay evenly
- * spaced), its line height on a vertical one.
+ * horizontal axis (the longest label decides, so the kept ticks keep their
+ * rhythm), its line height on a vertical one. The gap is the smallest one
+ * between two neighbouring ticks, so the rule holds on an axis whose ticks are
+ * not evenly spaced.
  *
  * WHY thin, and not shrink or slant: an axis that reads "2.5 2.4 2.4" run
  * together is worse than one with three labels a person can read, and a tick
@@ -707,7 +709,11 @@ export const TICK_GAP_PX = 4;
 export function ticksThatFit<T extends RoundTick>(ticks: readonly T[], place: (value: number) => number, along: 'width' | 'height'): readonly T[] {
   if (ticks.length < 3) return ticks;
   const size = along === 'height' ? TICK_LINE_PX : Math.max(...ticks.map((t) => t.label.length)) * TICK_CHAR_PX;
-  const spacing = Math.abs(place(ticks[1]!.value) - place(ticks[0]!.value));
+  // THE SMALLEST gap between neighbours decides. Round ticks are evenly spaced, but a logarithmic
+  // axis's are not (its last decades, and its 1-2-5 run, stand closer than its first), and any k
+  // neighbouring gaps are at least k times the smallest one — so thinning by it holds everywhere.
+  let spacing = Infinity;
+  for (let i = 1; i < ticks.length; i++) spacing = Math.min(spacing, Math.abs(place(ticks[i]!.value) - place(ticks[i - 1]!.value)));
   if (!(spacing > 0) || !Number.isFinite(spacing)) return ticks;
   const every = Math.ceil((size + TICK_GAP_PX) / spacing);
   if (every <= 1) return ticks;

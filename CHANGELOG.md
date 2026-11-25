@@ -2,17 +2,19 @@
 
 ## Unreleased
 
-### Charts: a tick label is shown whole, and two labels do not touch
+### Charts: a value label is shown whole, and two tick labels do not touch
 
 - A value label wider than a scatter's or a line's margin was cut off at the
   edge of the drawing: "12345.0010" was drawn as "345.0010". It is now squeezed
   into the margin (`textLength`), every character kept.
 - Tick labels that would run together are thinned to every second (third, …)
   tick, first and last always kept, on a scatter's two axes and a line's value
-  axis. A dropped tick is not drawn at all.
+  axis, logarithmic axes included. A dropped tick is not drawn at all.
 - New exports: `ticksThatFit`, `squeezedLength`, `TICK_CHAR_PX`,
   `TICK_LINE_PX`, `TICK_GAP_PX`.
-- Not in this change: a margin that grows with its labels.
+- Not in this change: the last label of a horizontal axis can still run past
+  the right edge and lose its last characters; and a margin that grows with
+  its labels.
 
 ### Correction: `VizTheme` alone is enough for charts to draw
 
