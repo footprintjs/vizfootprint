@@ -16,6 +16,11 @@
  * | endless                                      | cut off, aborted           | cut off, aborted           |
  * | no readable stream (`body: null`)            | read whole, refused after  | read whole, refused after  |
  * | a multi-byte character split across chunks   | decoded as one character   | decoded as one character   |
+ * | a body that is a stream of another kind      | read whole, as before      | read whole, as before      |
+ * | chunks that are raw buffers or other views   | counted as bytes           | the same bytes land        |
+ * | chunks that are not bytes at all             | refused `malformed`        | refused `malformed`        |
+ * | a declared length LARGER than the body       | lands (the transport's to judge) | lands                |
+ * | a host stream that ignores the abort         | the stream is cancelled    | the stream is cancelled    |
  */
 import { describe, expect, it } from 'vitest';
 import { httpSource } from './http.js';
@@ -26,6 +31,10 @@ const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
 interface Fake {
   /** Each chunk the body delivers, or a function for a body with no end. */
   readonly chunks: readonly Uint8Array[] | ((index: number) => Uint8Array);
+  /** What the stream enqueues for each chunk, when it is not the chunk itself. */
+  readonly as?: (chunk: Uint8Array) => unknown;
+  /** `body` is an object with no `getReader`: a stream of another kind. */
+  readonly foreignBody?: boolean;
   readonly headers?: Record<string, string>;
   readonly noStream?: boolean;
 }
@@ -33,6 +42,7 @@ interface Fake {
 function fakeFetch(fake: Fake) {
   let pulled = 0;
   let usedWhole = false;
+  let cancelled = false;
   let signal: AbortSignal | undefined;
   const next = (i: number): Uint8Array | undefined => (typeof fake.chunks === 'function' ? fake.chunks(i) : fake.chunks[i]);
   const whole = (): Uint8Array => {
@@ -51,14 +61,17 @@ function fakeFetch(fake: Fake) {
       const chunk = next(pulled);
       if (chunk === undefined) return controller.close();
       pulled += 1;
-      controller.enqueue(chunk);
+      controller.enqueue((fake.as?.(chunk) ?? chunk) as Uint8Array);
+    },
+    cancel: () => {
+      cancelled = true;
     },
   });
   const res = {
     status: 200,
     ok: true,
     headers: new Headers(fake.headers ?? {}),
-    body: fake.noStream === true ? null : body,
+    body: fake.noStream === true ? null : fake.foreignBody === true ? { pipe: () => undefined } : body,
     text: async () => new TextDecoder().decode(whole()),
     arrayBuffer: async () => whole().buffer as ArrayBuffer,
   };
@@ -70,6 +83,7 @@ function fakeFetch(fake: Fake) {
     pulled: () => pulled,
     usedWhole: () => usedWhole,
     aborted: () => signal?.aborted === true,
+    cancelled: () => cancelled,
   };
 }
 
@@ -165,5 +179,51 @@ describe('a resource read with no observer', () => {
     const fake = fakeFetch({ chunks: ROWS, noStream: true });
     expect(await reasonOf(resource(fake, 5))).toMatch(/^too-large: .*12 bytes arrived \(the server declared no length\), the cap is 5$/);
     expect(fake.usedWhole()).toBe(true);
+  });
+});
+
+describe('what a host’s own fetch may hand back', () => {
+  it('a body that is a stream of another kind is read whole, as it always was', async () => {
+    const fake = fakeFetch({ chunks: ROWS, foreignBody: true });
+    const snap = await table(fake, 1000);
+    expect('rows' in snap && snap.rows).toEqual([{ a: 1, b: 2 }, { a: 3, b: 4 }]);
+    expect(fake.usedWhole()).toBe(true);
+    const bytes = await resource(fakeFetch({ chunks: ROWS, foreignBody: true }), 1000);
+    expect([...(bytes.body as Uint8Array)]).toEqual([...encode('a,b\n1,2\n3,4\n')]);
+  });
+
+  it.each<[string, (chunk: Uint8Array) => unknown]>([
+    ['raw buffers', (c) => c.slice().buffer],
+    ['views of another kind', (c) => new DataView(c.slice().buffer)],
+    ['views into a larger buffer', (c) => {
+      const wide = new Uint8Array(c.byteLength + 4);
+      wide.set(c, 2);
+      return new Uint8Array(wide.buffer, 2, c.byteLength);
+    }],
+  ])('chunks that are %s land the same bytes and the same rows', async (_what, as) => {
+    const bytes = await resource(fakeFetch({ chunks: ROWS, as }), 1000);
+    expect([...(bytes.body as Uint8Array)]).toEqual([...encode('a,b\n1,2\n3,4\n')]);
+    const snap = await table(fakeFetch({ chunks: ROWS, as }), 1000);
+    expect('rows' in snap && snap.rows).toEqual([{ a: 1, b: 2 }, { a: 3, b: 4 }]);
+  });
+
+  it('chunks that are not bytes are refused by name, never landed as something else', async () => {
+    const asText = (c: Uint8Array): unknown => new TextDecoder().decode(c);
+    expect(await reasonOf(table(fakeFetch({ chunks: ROWS, as: asText }), 1000))).toMatch(/^malformed: .*a body chunk that is not bytes \(\[object String\]\)/);
+    expect(await reasonOf(resource(fakeFetch({ chunks: ROWS, as: asText }), 1000))).toMatch(/^malformed: /);
+  });
+
+  it('a declared length larger than the body does not refuse a plain read: a short body is the transport’s to judge', async () => {
+    // what a browser shows for a compressed cross-origin answer: the compressed length, and no content-encoding
+    const snap = await table(fakeFetch({ chunks: ROWS, headers: { 'content-length': '28' } }), 1000);
+    expect('rows' in snap && snap.rows).toEqual([{ a: 1, b: 2 }, { a: 3, b: 4 }]);
+    const bytes = await resource(fakeFetch({ chunks: ROWS, headers: { 'content-length': '5023' } }), 10_000);
+    expect((bytes.body as Uint8Array).byteLength).toBe(12);
+  });
+
+  it('a refusal cancels the stream itself, for a host stream that does not listen to the abort', async () => {
+    const fake = fakeFetch({ chunks: tenByteChunks(1000) });
+    await reasonOf(table(fake, 25));
+    expect(fake.cancelled()).toBe(true);
   });
 });

@@ -34,9 +34,11 @@
  * body: the size cap is asked of what has arrived, chunk by chunk, so a body
  * over it is cut off where it crosses. Both used to read the whole body first
  * (`res.text()` / `res.arrayBuffer()`) and compare its size afterwards, which
- * let a server that declared no length, or a false one, fill the host's memory
+ * let a server that declared no length (or a false one, under a fetch that does
+ * not hold a body to its declared length) fill the host's memory
  * before anything refused it. The whole read ({@link readWhole}) is left for
- * one case only: a response with no readable stream (a host's own `fetch`),
+ * one case only: a response with no WHATWG stream to read (a host's own `fetch`
+ * that hands back `null` or a stream of another kind),
  * which cannot be read in pieces at all. There the cap is still checked, after
  * the fact, and that limit is stated in the README.
  *
@@ -68,13 +70,13 @@ export interface HttpSourceOptions {
   /** Headers sent with every request (an Accept, an Authorization the host owns). */
   readonly headers?: Readonly<Record<string, string>>;
   /**
-   * A body beyond this many bytes is a `too-large` refusal — by Content-Length before any byte is read
+   * A body beyond this size (bytes for a `bytes` landing, UTF-16 units for text) is a `too-large` refusal — by Content-Length before any byte is read
    * (the one guard that costs nothing, and the only one a declaration of OTHER bytes can honestly serve:
    * see `./progress.ts`), and then by what actually arrived, in the unit the landing is judged in. That
    * second guard is asked chunk by chunk as the body arrives, for a table and for a resource, with an
    * observer or without: a body over the cap is cut off where it crosses and the transfer is aborted.
-   * ONE EXCEPTION: a `fetch` whose response has no readable stream (`res.body === null`) can only be
-   * read whole, so there the cap is checked after the body is in memory. Default 64 MiB.
+   * ONE EXCEPTION: a `fetch` whose response has no stream this reader can read in pieces (`res.body` is
+   * `null`, or is not a WHATWG stream — a Node stream, say) can only be read whole, so there the cap is checked after the body is in memory. Default 64 MiB.
    */
   readonly maxBytes?: number;
 }
@@ -279,6 +281,24 @@ function versionOfBody(args: {
  * reason). One owner, because two readers ask it: the whole-body read's
  * {@link versionOfBody} and the progressive read's own early check.
  */
+/**
+ * Can this answer's body be read in pieces? Only a WHATWG stream can: a host's
+ * own `fetch` may hand back none (`null`) or a stream of another kind (a Node
+ * stream), and both are read whole, as every read once was.
+ */
+function readableBodyOf(res: Response): ReadableStream<Uint8Array> | undefined {
+  const body = res.body as { getReader?: unknown } | null;
+  return body !== null && typeof body?.getReader === 'function' ? (body as ReadableStream<Uint8Array>) : undefined;
+}
+
+/** One chunk as bytes: a byte view as it is, a raw buffer wrapped — and anything else is not a body this reader can count, so it is refused by name. */
+function bytesOfChunk(chunk: unknown, refuse: Refuse): Uint8Array {
+  if (chunk instanceof Uint8Array) return chunk;
+  if (ArrayBuffer.isView(chunk)) return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  if (chunk instanceof ArrayBuffer) return new Uint8Array(chunk);
+  throw refuse('malformed', `malformed — the fetch in use delivered a body chunk that is not bytes (${Object.prototype.toString.call(chunk)}); pass a fetch whose body is a stream of bytes, or one with no stream at all`);
+}
+
 const unitOf = (format: ResourceFormat): string => (format === 'bytes' ? 'bytes' : 'UTF-16 units');
 
 /** THE READ THIS CARRIER ALWAYS MADE: the whole body in one act, and `res.body` never touched. */
@@ -490,6 +510,7 @@ async function readProgressively<S extends Counted>(args: {
   readonly folding: Folding | undefined;
 }): Promise<S> {
   const { stream, format, resource, declared, onProgress, signal, maxBytes, refuse, abort, sink, folding } = args;
+  const holdsToTotal = onProgress !== undefined || folding !== undefined;
   const total = totalOf(declared);
   const totalFragment = totalFragmentOf(declared);
   let bytes = 0;
@@ -501,8 +522,9 @@ async function readProgressively<S extends Counted>(args: {
       // the caller's signal, honoured between chunks: a real fetch errors the
       // reader when the controller aborts, but a host's own stream need not
       if (signal?.aborted) throw refuse('cancelled', 'cancelled — the request was aborted');
-      bytes += next.value.byteLength;
-      sink.push(next.value);
+      const chunk = bytesOfChunk(next.value, refuse);
+      bytes += chunk.byteLength;
+      sink.push(chunk);
       // the cap, asked of what has ARRIVED — so a body over it stops here instead of
       // finishing. `versionOfBody` asks the same threshold in the same unit of whatever
       // reaches it, which is why the two strategies cannot disagree on the VERDICT; the
@@ -512,7 +534,7 @@ async function readProgressively<S extends Counted>(args: {
       // AN ANSWER REACHES THE HOST AS SOON AS IT IS COMPUTED — before the report that closes
       // the chunk, because a declared value is what a screen is waiting for and the report is
       // only how far along the wire is
-      if (folding !== undefined) deliver(folding, folding.tap.push(next.value, bytes));
+      if (folding !== undefined) deliver(folding, folding.tap.push(chunk, bytes));
       if (onProgress !== undefined) reportProgress(onProgress, { resource, bytes, ...totalFragment });
     }
     // WHOLE OR NOTHING. A stream that ends CLEANLY short of a total this reader
@@ -521,7 +543,15 @@ async function readProgressively<S extends Counted>(args: {
     // trustworthy total there is nothing to compare and this reader claims
     // nothing: a truncated body then arrives as the transport's own error
     // (chunked framing, the runtime's own check), which is `disconnected` too.
-    if (total !== undefined && bytes < total) {
+    //
+    // ASKED ONLY OF A READ THAT IS TOLD OR FOLDED, which is where this rule has always
+    // lived. A plain read (a table, a resource nobody observes) leaves a short body to
+    // the transport, as it did when it called `res.text()`: a real fetch already errors
+    // a body cut short against its framing, and this reader's idea of the total can be
+    // wrong where the transport's is not — a browser hides `content-encoding` on a
+    // cross-origin answer, so a compressed length reads as a trusted one and every
+    // small or incompressible gzipped file would be refused as short.
+    if (holdsToTotal && total !== undefined && bytes < total) {
       throw refuse('disconnected', `disconnected — the body ended after ${String(bytes)} bytes of the ${String(total)} the server declared; a resource is not landed until it is whole, so nothing moved`);
     }
     // AFTER the law above, never before it: a `whole` fold's answer is honest only over a
@@ -532,7 +562,11 @@ async function readProgressively<S extends Counted>(args: {
     // OUR refusal means the transfer is still alive and we chose to stop: cut it
     // off, or a 169 MB body keeps arriving for a read nobody will be answered.
     // A transport fault has already ended it, and aborting there would rename it.
-    if (isOurRefusal(e)) abort();
+    if (isOurRefusal(e)) {
+      abort();
+      // …and a host's own stream need not listen to that abort: tell the stream itself
+      void reader.cancel().catch(() => undefined);
+    }
     throw e;
   }
 }
@@ -591,8 +625,9 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
             // one) had its whole body decoded into memory before anything refused it.
             readBody: async (res, abort) => {
               // a response with no readable stream cannot be read in pieces: see `readWhole`
-              if (res.body === null) return res.text();
-              const landed = await readProgressively({ stream: res.body, format: 'text', resource: table, declared: declaredLength(res.headers), onProgress: undefined, signal: opts?.signal, maxBytes, refuse, abort, sink: textSink(), folding: undefined });
+              const stream = readableBodyOf(res);
+              if (stream === undefined) return res.text();
+              const landed = await readProgressively({ stream, format: 'text', resource: table, declared: declaredLength(res.headers), onProgress: undefined, signal: opts?.signal, maxBytes, refuse, abort, sink: textSink(), folding: undefined });
               return landed.landed.body as string;
             },
           });
@@ -642,7 +677,8 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
           readBody: async (res, abort) => {
             const onProgress = opts?.onProgress;
             const declared = declaredLength(res.headers);
-            if (res.body === null) {
+            const stream = readableBodyOf(res);
+            if (stream === undefined) {
               // A response with no readable stream — a host's own `fetch`, a runtime
               // without them. It cannot be read in pieces, so it cannot be capped or
               // reported as it arrives; the one report it CAN honestly make is the
@@ -652,7 +688,7 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
               return whole;
             }
             // observer or none, the body is read through its stream: capped as it arrives
-            return readProgressively({ stream: res.body, format: decl.format, resource, declared, onProgress, signal: opts?.signal, maxBytes, refuse, abort, sink: sinkFor(decl.format), folding: undefined });
+            return readProgressively({ stream, format: decl.format, resource, declared, onProgress, signal: opts?.signal, maxBytes, refuse, abort, sink: sinkFor(decl.format), folding: undefined });
           },
         });
         if ('unchanged' in answer) return answer;

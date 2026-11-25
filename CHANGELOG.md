@@ -6,15 +6,20 @@
 
 - `httpSource` read a whole body into memory and compared its size with
   `maxBytes` afterwards, for a table and for a resource read without a progress
-  observer. A server that declared no length, or a false one, could fill the
-  host's memory before the read was refused. The body is now read through its
+  observer. A server that declared no length (or a false one, under a fetch
+  that does not hold a body to its declared length) could fill the host's
+  memory before the read was refused. The body is now read through its
   stream and cut off, with the transfer aborted, at the chunk that crosses the
   cap.
 - The `too-large` sentence for such a read now says "arrived and the read was
   stopped there", and the count is what had arrived, not the body's full size.
 - A caller's abort signal is honoured between chunks on every read.
-- Not covered: a host `fetch` whose response has no readable stream is still
-  read whole, and the cap is checked afterwards.
+- A body chunk that is a raw buffer or another byte view is read as the bytes
+  it is; a chunk that is not bytes is refused `malformed`. After a refusal the
+  stream itself is cancelled.
+- Not covered: a host `fetch` whose response has no WHATWG stream (`body` is
+  `null`, or a stream of another kind) is still read whole, and the cap is
+  checked afterwards. What can be held is the cap plus one chunk.
 
 ### A test records the row it got, and a replay checks it
 
