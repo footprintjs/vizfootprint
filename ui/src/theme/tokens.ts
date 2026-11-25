@@ -137,12 +137,16 @@ function isPlain(value: unknown): value is Readonly<Record<string, unknown>> {
 
 /**
  * Is `value` ONE CSS value? It must be a non-empty string that ends where it
- * began: no `;`, `{` or `}` outside a quoted string, every quote closed and
- * every bracket matched. An open quote or bracket would swallow the
- * declarations after it when a server prints the style attribute as text.
+ * began: no `;`, `{`, `}` or comment mark anywhere (inside a quoted string
+ * too — the stricter rule is the one a reader can check by eye), every quote
+ * closed and every bracket matched. An open quote, bracket or comment would
+ * swallow the declarations after it when a server prints the style attribute
+ * as text.
  */
+const NEVER_IN_A_VALUE = /[;{}]|\/\*|\*\//;
+
 function isOneCSSValue(value: unknown): value is string {
-  if (typeof value !== 'string' || value.trim() === '') return false;
+  if (typeof value !== 'string' || value.trim() === '' || NEVER_IN_A_VALUE.test(value)) return false;
   let quote = '';
   let depth = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -158,7 +162,7 @@ function isOneCSSValue(value: unknown): value is string {
     else if (c === ')') {
       depth -= 1;
       if (depth < 0) return false;
-    } else if (c === ';' || c === '{' || c === '}') return false;
+    }
   }
   return quote === '' && depth === 0;
 }

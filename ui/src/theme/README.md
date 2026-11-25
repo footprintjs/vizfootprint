@@ -141,8 +141,8 @@ root.
 ## Limits, stated
 
 - **Token values are host configuration.** Never build one from record content
-  or user input. A value must be one CSS value: a `;`, `{` or `}` outside a
-  quoted string, an unclosed quote or an unmatched bracket is refused. Nothing
+  or user input. A value must be one CSS value: a `;`, `{`, `}` or comment
+  mark anywhere, an unclosed quote or an unmatched bracket is refused. Nothing
   else about the CSS is checked.
 - **Not every size is a token yet.** Type sizes, most pixel sizes and motion are
   still written in the stylesheet. `COMPONENT_VARS` in `theme.test.tsx` lists

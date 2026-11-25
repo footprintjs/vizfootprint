@@ -187,6 +187,10 @@ describe('tokensToCSSVars', () => {
     ['an array group', { colors: ['#000'] }, 'token group "colors" must be a plain object'],
     ['a class instance as a group', { colors: new Date(0) }, 'token group "colors" must be a plain object'],
     ['an own __proto__ group', JSON.parse('{"__proto__":{"brand":"#000"}}'), 'unknown token group "__proto__"'],
+    ['a separator inside a quote', { fontFamily: { body: '"A;B"' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
+    ['an unclosed comment', { colors: { brand: 'red/*' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['a comment close', { colors: { brand: 'red*/' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['a comment inside a function', { colors: { brand: 'rgb(1 2 3 /* x */)' } }, 'token "colors.brand" must be one non-empty CSS value'],
     ['an open quote', { fontFamily: { body: '"Inter' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
     ['a newline inside a quote', { fontFamily: { body: '"In\nter"' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
     ['an open bracket', { colors: { brand: 'rgb(1, 2, 3' } }, 'token "colors.brand" must be one non-empty CSS value'],
@@ -207,7 +211,6 @@ describe('tokensToCSSVars', () => {
 describe('one CSS value', () => {
   it.each([
     ['a font stack with quotes', { fontFamily: { body: '"Inter", \'Segoe UI\', sans-serif' } }],
-    ['a separator inside a quote', { fontFamily: { body: '"A;B{C}"' } }],
     ['nested functions', { colors: { brand: 'color-mix(in srgb, var(--x, rgb(1 2 3)) 40%, white)' } }],
     ['an escaped quote', { fontFamily: { body: '"a\\"b"' } }],
     ['a bracket inside a quote', { fontFamily: { body: '"a(b"' } }],
