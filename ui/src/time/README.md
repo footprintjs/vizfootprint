@@ -1,6 +1,56 @@
 # time — the time-travel bar
 
-`<TimeTravelBar>` is the cockpit's strip over the commit log: Explore walks every commit, Present walks the named bookmarks.
+`<TimeTravelBar>` is the cockpit's strip over the commit log: Explore walks every commit, Present walks the named bookmarks. It renders a `TimeTravelModel` and nothing else.
+
+## Three layers, one door
+
+| layer | file | job |
+|---|---|---|
+| data logic | `model.ts` · `timeTravelModel` | Everything the bar shows, derived once from commits, cursor, head and bookmarks. No React, no styling, no words. It composes the step rules (`adapter/stepNav.ts`) and the bookmark rules (`presentBookmark.ts`) and restates neither. |
+| door | `useTimeTravel.ts` · `TimeTravel`, `useTimeTravel`, `timeTravelOf` | `TimeTravel` is the interface: a model and five actions. `useTimeTravel(view)` is the adapter that fills it from a session view. |
+| component | `TimeTravelBar.tsx` | Draws the model. It imports no rule and derives nothing from the log. |
+
+Why: a consumer can keep the data logic and draw their own bar, or keep the bar
+and feed it from their own store. Before this split the bar worked out the
+lineage, the step targets and the bookmark order inside its render function, so
+neither half could be replaced without forking the other.
+
+### Use the bar over a session view
+
+```tsx
+const time = useTimeTravel(view);
+<TimeTravelBar {...time} compact />
+```
+
+### Keep the data logic, draw your own bar
+
+```tsx
+const { model, onSeek } = useTimeTravel(view);
+<ol>
+  {model.explore.bars.map((bar) => (
+    <li key={bar.id} aria-current={bar.cursor ? 'step' : undefined} onClick={() => onSeek(bar.id)}>{bar.label}</li>
+  ))}
+</ol>
+```
+
+### Keep the bar, bring your own store
+
+```tsx
+const model = timeTravelModel({ commits, cursor, head, bookmarks, pathCount, pathName });
+<TimeTravelBar model={model} onSeek={mySeek} onStepBack={myBack} onStepForward={myForward} />
+```
+
+### What the model will not pretend
+
+- **A cursor that is not in the log.** The model draws the head's lineage, marks
+  no bar as the cursor, and sets `coverage.cursorMissing`. The rail's sentence
+  then says "the cursor is not among the recorded steps". The bar used to draw
+  no bars at all and say "no commits yet" over a log that had some.
+- **A cursor with no bookmark at or behind it, in Present mode.** The first
+  bookmark is shown and `present.exact` is false, so the bar says "nearest to
+  cursor" instead of presenting it as where the reader is.
+- **A log with steps and no lineage to draw** (no head, no cursor). The rail
+  says so. "No commits yet" is said only of an empty log.
 
 ## The rail law
 

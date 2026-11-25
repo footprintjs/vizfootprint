@@ -13,9 +13,12 @@
  *              the read-only storytelling mode; it reports `readOnly` up via
  *              `onReadOnlyChange` so the shell can dim its acting inputs.
  *
- * Controlled: `commits`, `cursor`, `head`, `bookmarks` come from the adapter;
- * `mode` is controllable (pass `mode`+`onModeChange`) or self-managed. Every
- * navigation is a callback — the bar never mutates state itself.
+ * RENDERING ONLY. Everything the bar shows arrives in `model`
+ * (`timeTravelModel`, or the `useTimeTravel` door over a session view): which
+ * bars, which is the cursor, where a step lands, which bookmark is current.
+ * The bar derives nothing from the log. `mode` is controllable (pass
+ * `mode`+`onModeChange`) or self-managed. Every navigation is a callback — the
+ * bar never mutates state itself.
  *
  * COCKPIT dial: `compact` folds the bar into one slim strip (for the
  * {@link VizCockpit} top row). Naming a bookmark always rides the
@@ -25,9 +28,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import type { CommitView, BookmarkView, BranchView } from '../adapter/types.js';
-import { stepBackTarget, stepForwardTarget, activePath, pathToRoot } from '../adapter/stepNav.js';
-import { orderedBookmarks, currentBookmarkIndex, bookmarkTarget } from './presentBookmark.js';
+import type { ExploreModel, PresentModel, TimeTravelModel } from './model.js';
 import { useRailTicks, railScope } from './rail.js';
 import { BookmarkModal } from './BookmarkModal.js';
 
@@ -47,22 +48,8 @@ export interface TimeTravelBarProps {
    * in?" (both answer "where am I?"). Any node fits; the pill is the intent.
    */
   readonly pathPill?: ReactNode;
-  /**
-   * The NAME of the path the story is on (`state.paths.current`) — the rail
-   * says which path its bars belong to, so a fork reads as a fork and not as
-   * fifty-three steps that vanished. Absent = "this path".
-   *
-   * It names the HEAD's path, so the rail uses it only while it is drawing
-   * that path. Travel onto another lane and the bars are somebody else's
-   * steps: printing a last-known name over them would be a lie, so the rail
-   * falls back to "this path" and says where "now" went instead.
-   */
-  readonly pathName?: string;
-  readonly commits: readonly CommitView[];
-  readonly cursor: string | null;
-  readonly head: string | null;
-  readonly bookmarks?: readonly BookmarkView[];
-  readonly branches?: readonly BranchView[];
+  /** What to draw: `timeTravelModel(…)`, or `useTimeTravel(view).model`. */
+  readonly model: TimeTravelModel;
   readonly viewingPast?: boolean;
   readonly onSeek?: (commitId: string) => void;
   readonly onStepBack?: () => void;
@@ -74,21 +61,7 @@ export interface TimeTravelBarProps {
 }
 
 export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
-  const {
-    commits,
-    cursor,
-    head,
-    bookmarks = [],
-    branches = [],
-    viewingPast = false,
-    onSeek,
-    onStepBack,
-    onStepForward,
-    onNameBookmark,
-    onReturnToNow,
-    onModeChange,
-    onReadOnlyChange,
-  } = props;
+  const { model, viewingPast = false, onSeek, onStepBack, onStepForward, onNameBookmark, onReturnToNow, onModeChange, onReadOnlyChange } = props;
 
   const [internalMode, setInternalMode] = useState<TimeMode>(props.defaultMode ?? 'explore');
   const mode = props.mode ?? internalMode;
@@ -103,24 +76,6 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
   useEffect(() => {
     onReadOnlyChange?.(readOnly);
   }, [readOnly, onReadOnlyChange]);
-
-  const active = activePath(commits, head);
-  // The rail draws the lineage the CURSOR is standing on. Normally that is the
-  // head's — but travel onto another lane and the head's path no longer holds
-  // the cursor, and the rail used to draw a set of bars with none of them
-  // marked (`.vzf-tl-dot.vzf-cursor` matched nothing: "where am I?" had no
-  // answer on screen). Following the cursor keeps the mark always drawable;
-  // `railScope` below says which path the bars belong to.
-  const headLineage = pathToRoot(commits, head); // root→head
-  const onHeadLineage = cursor === null || headLineage.some((c) => c.id === cursor);
-  const lineage = onHeadLineage ? headLineage : pathToRoot(commits, cursor);
-  const bookmarkByCommit = new Map(bookmarks.filter((c) => c.commitId).map((c) => [c.commitId!, c.label]));
-
-  const backDisabled = stepBackTarget(commits, cursor) === null;
-  const forwardDisabled = stepForwardTarget(commits, cursor, head) === null;
-
-  const defaultBookmarkName = `bookmark-${bookmarks.length + 1}`;
-  const cursorCommit = commits.find((c) => c.id === cursor);
 
   return (
     <div className={`vzf-timebar${compact ? ' vzf-compact' : ''}`} data-vzf="time-travel-bar" data-mode={mode}>
@@ -157,38 +112,24 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
 
       {mode === 'explore' ? (
         <ExploreBody
-          lineage={lineage}
-          active={active}
-          cursor={cursor}
-          head={head}
-          bookmarkByCommit={bookmarkByCommit}
-          backDisabled={backDisabled}
-          forwardDisabled={forwardDisabled}
+          explore={model.explore}
+          cursor={model.cursor}
           onSeek={onSeek}
           onStepBack={onStepBack}
           onStepForward={onStepForward}
           viewingPast={viewingPast}
           onReturnToNow={onReturnToNow}
           openBookmarkModal={() => setBookmarkModalOpen(true)}
-          branchCount={branches.length}
-          scope={railScope({
-            shown: lineage.length,
-            total: commits.length,
-            // the name belongs to the HEAD's path — never printed over another lane's bars
-            ...(onHeadLineage && props.pathName !== undefined ? { pathName: props.pathName } : {}),
-            pathCount: branches.length,
-            offLane: !onHeadLineage,
-          })}
         />
       ) : (
-        <PresentBody head={head} bookmarks={bookmarks} commits={commits} cursor={cursor} onSeek={onSeek} onPlay={props.onPlay} />
+        <PresentBody present={model.present} onSeek={onSeek} onPlay={props.onPlay} />
       )}
 
       <BookmarkModal
         open={bookmarkModalOpen}
-        commitId={cursor}
-        commitLabel={cursorCommit?.label}
-        defaultName={defaultBookmarkName}
+        commitId={model.cursor}
+        commitLabel={model.cursorLabel}
+        defaultName={model.suggestedBookmarkName}
         onSave={(label) => onNameBookmark?.(label)}
         onClose={() => setBookmarkModalOpen(false)}
       />
@@ -198,75 +139,63 @@ export function TimeTravelBar(props: TimeTravelBarProps): JSX.Element {
 
 // ── explore body ────────────────────────────────────────────────────────────────
 interface ExploreBodyProps {
-  lineage: CommitView[];
-  active: Set<string>;
+  explore: ExploreModel;
   cursor: string | null;
-  /**
-   * The tip of the ACTIVE lineage — its bar is marked, so "now" is findable at
-   * a glance whenever the rail is drawing that lineage. When the cursor has
-   * walked onto another lane, the head is not among these bars and no bar
-   * carries the mark: the rail's `scope` sentence says so in words.
-   */
-  head: string | null;
-  bookmarkByCommit: Map<string, string>;
-  backDisabled: boolean;
-  forwardDisabled: boolean;
   onSeek?: (id: string) => void;
   onStepBack?: () => void;
   onStepForward?: () => void;
   viewingPast: boolean;
   onReturnToNow?: () => void;
   openBookmarkModal: () => void;
-  branchCount: number;
-  /** What the rail is showing, in words (see `railScope`); null = it shows the whole story. */
-  scope: string | null;
 }
 function ExploreBody(p: ExploreBodyProps): JSX.Element {
-  const { rail, tick, dense } = useRailTicks(p.lineage.length);
-  // where the cursor stands on this lineage; everything after it is the FUTURE
-  // one is looking back from (−1 = the cursor is on another lane, so nothing
-  // on this one is "ahead" of it)
-  const cursorAt = p.lineage.findIndex((c) => c.id === p.cursor);
+  const { bars, back, forward, coverage } = p.explore;
+  const { rail, tick, dense } = useRailTicks(bars.length);
+  // what the rail is showing, in words; null = it shows the whole story
+  const scope = railScope(coverage);
   return (
     <>
       <div className="vzf-timeline-row">
         {/* back and forward side by side, so a hand never crosses the rail */}
         <div className="vzf-step-group" role="group" aria-label="step">
-          <button className="vzf-btn" data-step="back" disabled={p.backDisabled} onClick={() => p.onStepBack?.()} title="Seek to the cursor's parent (ArrowLeft)">
+          <button className="vzf-btn" data-step="back" disabled={back === null} onClick={() => p.onStepBack?.()} title="Seek to the cursor's parent (ArrowLeft)">
             ⟵
           </button>
-          <button className="vzf-btn" data-step="forward" disabled={p.forwardDisabled} onClick={() => p.onStepForward?.()} title="Seek to the next commit on this lane (ArrowRight)">
+          <button className="vzf-btn" data-step="forward" disabled={forward === null} onClick={() => p.onStepForward?.()} title="Seek to the next commit on this lane (ArrowRight)">
             ⟶
           </button>
         </div>
         <div className="vzf-timeline" data-vzf="timeline" ref={rail} data-dense={dense ? 'true' : undefined} style={{ '--vzf-tick': `${tick}px` } as CSSProperties}>
-          {p.lineage.length === 0 ? (
-            <span className="vzf-tl-empty">no commits yet — brush, click a bar, or ask the analyst to start the timeline</span>
+          {bars.length === 0 ? (
+            // "no commits yet" is only true of an empty log; a log with steps and no lineage to draw says that instead
+            <span className="vzf-tl-empty">
+              {coverage.total === 0 ? 'no commits yet — brush, click a bar, or ask the analyst to start the timeline' : `none of the ${coverage.total} recorded steps is on a path that can be drawn here`}
+            </span>
           ) : (
-            p.lineage.map((c, i) => (
+            bars.map((c) => (
               <button
                 key={c.id}
-                className={`vzf-tl-dot${c.id === p.cursor ? ' vzf-cursor' : ''}${c.id === p.head ? ' vzf-head' : ''}${cursorAt >= 0 && i > cursorAt ? ' vzf-ahead' : ''}`}
+                className={`vzf-tl-dot${c.cursor ? ' vzf-cursor' : ''}${c.head ? ' vzf-head' : ''}${c.ahead ? ' vzf-ahead' : ''}`}
                 data-actor={c.actor}
                 data-commit={c.id}
-                title={`#${c.id} ${c.label} (${c.actor})${c.intent ? ': ' + c.intent : ''}`}
+                title={`#${c.id} ${c.label} (${c.actor})${c.intent !== undefined ? ': ' + c.intent : ''}`}
                 aria-label={`#${c.id} ${c.label}`}
                 onClick={() => p.onSeek?.(c.id)}
               >
-                {p.bookmarkByCommit.has(c.id) ? <span className="vzf-tl-flag">⚑</span> : <span className="vzf-tl-flagslot" aria-hidden="true" />}
+                {c.bookmarked ? <span className="vzf-tl-flag">⚑</span> : <span className="vzf-tl-flagslot" aria-hidden="true" />}
                 <span className="vzf-tl-node" />
                 {!dense && <span className="vzf-tl-cid">#{c.id}</span>}
               </button>
             ))
           )}
         </div>
-        {p.scope !== null && (
+        {scope !== null && (
           <span
             className="vzf-tl-scope"
             data-vzf="rail-scope"
             title="The rail draws the path you are standing on. The other steps are on other paths — open Paths to see them all."
           >
-            {p.scope}
+            {scope}
           </span>
         )}
       </div>
@@ -280,7 +209,7 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
           </button>
         )}
         <span className="vzf-muted" style={{ fontSize: '0.8em' }}>
-          {p.branchCount} branch{p.branchCount === 1 ? '' : 'es'} · cursor {p.cursor ? '#' + p.cursor : '—'}
+          {coverage.pathCount} branch{coverage.pathCount === 1 ? '' : 'es'} · cursor {p.cursor ? '#' + p.cursor : '—'}
         </span>
       </div>
     </>
@@ -289,54 +218,38 @@ function ExploreBody(p: ExploreBodyProps): JSX.Element {
 
 // ── present body (bookmark-only, read-only) ────────────────────────────────────
 interface PresentBodyProps {
-  bookmarks: readonly BookmarkView[];
-  commits: readonly CommitView[];
-  cursor: string | null;
-  /** The tip of the presented lineage (the head); bookmarks ahead of the cursor on it are what "next" walks to. */
-  head: string | null;
+  present: PresentModel;
   onSeek?: (id: string) => void;
   onPlay?: () => void;
 }
 function PresentBody(p: PresentBodyProps): JSX.Element {
-  // The presented lineage is the one that ends at the HEAD (bookmarks ahead of the
-  // cursor are what "next bookmark" walks to); the cursor's position is found on it.
-  const tip = p.head ?? p.cursor;
-  const ordered = orderedBookmarks(p.bookmarks, p.commits, tip);
-  const idx = currentBookmarkIndex(p.bookmarks, p.commits, p.cursor, tip);
-  const { rail, tick, dense } = useRailTicks(ordered.length);
-  if (ordered.length === 0) {
+  const { stops, index, exact, previous, next } = p.present;
+  const { rail, tick, dense } = useRailTicks(stops.length);
+  const bookmark = stops[index];
+  if (bookmark === undefined) {
     return <div className="vzf-present-empty">No bookmarks on this lineage yet — name one in Explore mode to build the guided tour.</div>;
   }
-  const clamped = idx < 0 ? 0 : idx;
-  const bookmark = ordered[clamped]!;
-  // `ordered` holds only bookmarks whose commit is on the presented lineage, and
-  // the callers (prev/next buttons disabled at the ends, dots mapped over
-  // `ordered`) never ask for an index outside it — so a bookmark here always
-  // names a commit.
-  const go = (to: number): void => {
-    p.onSeek?.(bookmarkTarget(ordered[to]!) as string);
-  };
   return (
     <div data-vzf="present">
       <div className="vzf-timeline-row">
         <div className="vzf-step-group" role="group" aria-label="bookmarks">
-          <button className="vzf-btn" data-bookmark="prev" disabled={clamped <= 0} onClick={() => go(clamped - 1)} aria-label="previous bookmark">
+          <button className="vzf-btn" data-bookmark="prev" disabled={previous === null} onClick={() => previous !== null && p.onSeek?.(previous)} aria-label="previous bookmark">
             ⟵
           </button>
-          <button className="vzf-btn" data-bookmark="next" disabled={clamped >= ordered.length - 1} onClick={() => go(clamped + 1)} aria-label="next bookmark">
+          <button className="vzf-btn" data-bookmark="next" disabled={next === null} onClick={() => next !== null && p.onSeek?.(next)} aria-label="next bookmark">
             ⟶
           </button>
         </div>
         <div className="vzf-present-bookmark">
           <div className="vzf-bookmark-title">{bookmark.label}</div>
           <div className="vzf-bookmark-meta">
-            bookmark {clamped + 1} of {ordered.length}
-            {idx < 0 ? ' · (nearest to cursor)' : ''} · #{bookmark.commitId}
+            bookmark {index + 1} of {stops.length}
+            {exact ? '' : ' · (nearest to cursor)'} · #{bookmark.commitId}
           </div>
         </div>
         <div className="vzf-timeline vzf-bookmark-rail" data-vzf="bookmark-rail" ref={rail} data-dense={dense ? 'true' : undefined} style={{ '--vzf-tick': `${tick}px` } as CSSProperties}>
-          {ordered.map((c, i) => (
-            <button key={c.commitId} className={`vzf-tl-dot${i === clamped ? ' vzf-cursor' : ''}`} data-bookmark-dot={c.commitId} title={c.label} aria-label={c.label} onClick={() => go(i)}>
+          {stops.map((c) => (
+            <button key={c.commitId} className={`vzf-tl-dot${c.current ? ' vzf-cursor' : ''}`} data-bookmark-dot={c.commitId} title={c.label} aria-label={c.label} onClick={() => p.onSeek?.(c.target)}>
               <span className="vzf-tl-flag">⚑</span>
               <span className="vzf-tl-node" />
               {!dense && <span className="vzf-tl-cid">{c.label}</span>}

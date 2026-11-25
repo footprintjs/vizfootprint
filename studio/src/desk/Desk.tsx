@@ -26,6 +26,7 @@ import {
   currentBookmarkIndex,
   orderedBookmarks,
   useSessionView,
+  useTimeTravel,
   type CockpitChart,
   type CockpitMenuItem,
   type CockpitReport,
@@ -78,6 +79,7 @@ export function Desk(props: DeskProps): ReactNode {
 function DeskBody(props: DeskProps): ReactNode {
   const view = useOwnedView(props.view);
   const state = useSessionView(view);
+  const time = useTimeTravel(view);
 
   const [mode, setMode] = useState<'explore' | 'present'>('explore');
   // Present mode as a slideshow: the dashboard is the slide, prev/next seek the named bookmarks, interactions stay off
@@ -310,25 +312,12 @@ function DeskBody(props: DeskProps): ReactNode {
       top={
         <div style={{ display: 'flex', alignItems: 'center', gap: T.gap, flexWrap: 'wrap' }}>
           <TimeTravelBar
+            {...time}
             compact
             mode={mode}
             onModeChange={setMode}
-            commits={state.commits}
-            cursor={state.cursor}
-            head={state.head}
-            bookmarks={state.bookmarks}
-            branches={state.branches}
-            viewingPast={state.viewingPast}
-            // the rail draws ONE path; these two say which, so eleven bars where
-            // fifty-three stood reads as a fork and not as data loss
-            {...(state.paths.current !== null ? { pathName: state.paths.current } : {})}
             pathPill={<BranchPill paths={state.paths} onClick={openPaths} />}
-            onSeek={view.seek}
-            onStepBack={view.stepBack}
-            onStepForward={view.stepForward}
-            onNameBookmark={view.bookmark}
             onPlay={startShow}
-            onReturnToNow={view.returnToNow}
           />
           <JumpBox commitIds={state.commits.map((c) => c.id)} onSeek={view.seek} />
           <DashboardSummary

@@ -42,7 +42,7 @@ itself with `dvh` units so mobile browser chrome is accounted for.
 
 ```tsx
 <VizCockpit
-  top={<TimeTravelBar compact …adapter wiring… />}
+  top={<TimeTravelBar compact {...useTimeTravel(view)} />}
   charts={[
     { id: 'scatter', weight: 3, caption: 'drag to brush',
       render: ({ width, height }) => <VizScatter width={width} height={height} … /> },
@@ -1185,7 +1185,7 @@ hand-bound run over a real two-table session that proves the loop closes.
 | `primitives/` | the chart-building tier (see above): `<ChartFrame>`, scales + date handling, `<AxisLabel>`/`useReencodePicker`/`defaultCompat`, `useHorizontalBrush`/`<BrushOverlay>`, `pointEmission`/`togglePointEmission`/`keyActivates`, `useKeepPredicate`/`selectedValue`/`dimClass` — compose a chart from these and it is born contract-conformant |
 | `layout/` | `<VizCockpit>` (the flagship — and only — single-screen shell) + `<VizModal>` (the one modal system) + `<VizPanel>`/`<VizCard>` |
 | `charts/` | `<VizScatter>`, `<VizBar>` (category ticks slant and clip to their band when they would collide; values that would collide are omitted — the full label rides a `<title>`), `<VizLine>` (a run of dates, a run of numbers or a band — the drag emits the clause its own axis can answer), `<VizMap>` (SVG choropleth, region click; `coordinates="planar"` for shapes already projected to a screen plane, e.g. us-atlas), `<VizTable>` (sortable rows, click-to-select), `<VizHistogram>` (host-computed buckets, edge-snapped brush), `<VizHeatmap>` (host-computed 2-D cells, one-click compound cell selection — D30), `<VizBoxPlot>` (host-summarized quartiles/whiskers/outliers, click-to-select a category), `<VizNetwork>` (a node-link: TWO tables on one frame — nodes over the layout act's positions, links over `bringOver`'s endpoints — sharing ONE pair of scales computed over the union of both; hover brightens a neighbourhood and records nothing) — controlled; emit the R3 `{rawValue, encoding}` shape (charts never build clauses); dimming/outlines ride the contract's clause-addressable `selection`; axis labels open `<EncodingPicker>` (on VizModal; disabled-with-reason) firing `onReencode(viewId, channel, field)` — or ask the HOST via `onReencodeRequest(channel)` in contract mode |
-| `time/` | `<TimeTravelBar>` with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (bookmark-ONLY traversal, acting disabled, `onReadOnlyChange` up to the shell) + `<BookmarkModal>` + `<BranchMap>` |
+| `time/` | three layers: `timeTravelModel` (data logic, no React), `useTimeTravel(view)` (the door: a model and five actions) and `<TimeTravelBar>` (renders the model, derives nothing) with `explore` (full commit timeline + fork-safe ⟵/⟶ step rules, `compact` for the cockpit) and `present` (bookmark-ONLY traversal, acting disabled, `onReadOnlyChange` up to the shell) + `<BookmarkModal>` + `<BranchMap>` |
 | `panels/` | `<CommitLog>` (cause badges, click-to-seek, off-branch dimming), `<FdrLedger>` (two truths + the verbatim honesty line), `<GapsPanel>`, `<ReadinessPanel>` — cockpit hosts these inside report modals, unchanged |
 | `story/` | `vizfootprint-ui/story` — `toStory(state)`, one lineage of a session as a [storydeck](https://github.com/footprintjs/storydeck) post, plus `storyDroppedNote` (what a section cited and the story could not show) and the beat coordinates a scroll lens runs on (`spine.ts`). Pure data, no React, and no StoryDeck import — the stage that renders it is the app's (`vizfootprint-studio/story`) |
 | `story/page/` | `vizfootprint-ui/story/page` — a whole desk, its data and its trace as ONE HTML file that opens from `file://`. `<DashboardPage>` is the dashboard-shaped entry (one lens, and no requirement that anybody has named a moment yet — an authoring wizard publishes through it); the story-shaped one (`StoryPage`, two lenses, a door on every beat) is the app's, `vizfootprint-studio/story`. Both walk `bootSession`, the one ordered boot, and print the same measured front matter (`frontMatterLine`) |
@@ -1196,7 +1196,7 @@ hand-bound run over a real two-table session that proves the loop closes.
 ```tsx
 import {
   VizCockpit, VizScatter, TimeTravelBar, CommitLog, FdrLedger,
-  createSessionView, sessionSource, useSessionView,
+  createSessionView, sessionSource, useSessionView, useTimeTravel,
 } from 'vizfootprint-ui';
 import 'vizfootprint-ui/styles.css';
 
@@ -1204,12 +1204,10 @@ const view = createSessionView(sessionSource(session), { as: 'user' }); // or po
 
 function App() {
   const state = useSessionView(view);
+  const time = useTimeTravel(view); // the model to draw + the view's own actions
   return (
     <VizCockpit
-      top={<TimeTravelBar compact
-        commits={state.commits} cursor={state.cursor} head={state.head}
-        bookmarks={state.bookmarks} onSeek={(id) => void view.seek(id)}
-        onNameBookmark={(label) => void view.bookmark(label)} />}
+      top={<TimeTravelBar compact {...time} />}
       charts={[{ id: 'scatter', render: ({ width, height }) => (
         <VizScatter width={width} height={height} data={points}
           columns={state.columns[state.defaultTable]}

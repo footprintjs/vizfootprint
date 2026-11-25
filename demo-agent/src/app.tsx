@@ -42,6 +42,7 @@ import {
   createSessionView,
   pollingSource,
   useSessionView,
+  useTimeTravel,
   selectionForView,
   keepPredicate,
   type AdoptSummaryView,
@@ -246,6 +247,7 @@ function DebugPanel(): JSX.Element {
 function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.Element {
   const { view, rows } = props;
   const state: SessionViewState = useSessionView(view);
+  const time = useTimeTravel(view);
   const [mode, setMode] = useState<TimeMode>('explore');
   const readOnly = mode === 'present';
 
@@ -373,21 +375,11 @@ function Dashboard(props: { view: SessionView; rows: readonly DemoRow[] }): JSX.
       onLayoutChange={(change) => void view.setLayout(change)}
       top={
         <TimeTravelBar
+          {...time}
           compact
           mode={mode}
           onModeChange={setMode}
           pathPill={<BranchPill paths={state.paths} onClick={() => setPathsOpen(true)} />}
-          commits={state.commits}
-          cursor={state.cursor}
-          head={state.head}
-          bookmarks={state.bookmarks}
-          branches={state.branches}
-          viewingPast={state.viewingPast}
-          onSeek={(id) => void view.seek(id)}
-          onStepBack={() => void view.stepBack()}
-          onStepForward={() => void view.stepForward()}
-          onNameBookmark={(label) => void view.bookmark(label)}
-          onReturnToNow={() => void view.returnToNow()}
         />
       }
       toast={
