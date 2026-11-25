@@ -35,6 +35,9 @@
   hundreds gets slightly more room than before, tick positions and their
   number change, and a line's labels are no longer rounded to one decimal.
   A declared `domain` keeps its span and is ticked by the new rule.
+- A drag across a scatter records its two ends rounded to what the axis can
+  show: a hundredth as before for an axis of ten or more, finer for a smaller
+  one. A drag across an axis from 0 to 0.001 would have recorded [0, 0].
 - A zero guide that cannot be drawn names its axis to four significant digits.
   It rounded to a hundredth, which wrote an axis from 0.001 to 0.002 as
   "[0, 0]".

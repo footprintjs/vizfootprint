@@ -27,7 +27,7 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { roundTicks, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { roundTicks, roundToAxis, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { scaleHueStyle } from '../primitives/scaleHue.js';
@@ -214,7 +214,8 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
     plotRight: width - pad.r,
     width,
     field: xField,
-    snap: (loPx, hiPx) => [Math.round(x.invert(loPx) * 100) / 100, Math.round(x.invert(hiPx) * 100) / 100],
+    // rounded to what THIS axis can show (`roundToAxis`): a hundredth for an axis of ten or more, finer for a smaller one
+    snap: (loPx, hiPx) => [roundToAxis(x.invert(loPx), xhi - xlo), roundToAxis(x.invert(hiPx), xhi - xlo)],
     onEmit,
   });
 

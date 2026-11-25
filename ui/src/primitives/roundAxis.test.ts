@@ -17,7 +17,7 @@
  * | a span tiny beside its offset     | —                                        | two ticks, the ends; never a long loop |
  */
 import { describe, expect, it } from 'vitest';
-import { EXTENT_ROOM, padFor, roomyExtent, roundStep, roundTicks, stepDecimals } from './scales.js';
+import { EXTENT_ROOM, padFor, roomyExtent, roundStep, roundTicks, roundToAxis, stepDecimals } from './scales.js';
 
 const labels = (lo: number, hi: number, target = 5): string[] => roundTicks(lo, hi, target).map((t) => t.label);
 const span = (values: readonly number[], kind?: 'log'): [number, number] => roomyExtent(values, (v) => v, kind);
@@ -240,5 +240,29 @@ describe('roundTicks — round values, labelled to the step', () => {
     expect(labels(1, 1 + 4e-14)).toEqual(['1', '1.00000000000004']);
     expect(roundTicks(-9e15, 9e15, 5).length).toBeLessThanOrEqual(101);
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe('roundToAxis — a dragged value, rounded to what the axis can show', () => {
+  it.each([
+    // an axis of ten or more: a hundredth, exactly as a drag was always recorded
+    [123.456789, 1100, 123.46],
+    [123.456789, 10, 123.46],
+    [-0.005, 100, -0.01],
+    // a smaller axis: a thousandth of its own decade
+    [0.123456789, 1.1, 0.123],
+    [0.000456789, 0.0011, 0.000457],
+    [5.123456789e-7, 1e-6, 5.12e-7],
+    // no span to judge by: a hundredth
+    [1.23456, 0, 1.23],
+    [1.23456, Number.NaN, 1.23],
+    [1.23456, -5, 1.23],
+  ])('%d on an axis %d wide is %d', (value, width, rounded) => {
+    expect(roundToAxis(value, width)).toBe(rounded);
+  });
+
+  it('two ends of a drag across a tiny axis stay two different numbers', () => {
+    expect(roundToAxis(0.0002, 0.0011)).not.toBe(roundToAxis(0.0009, 0.0011));
+    expect(Number.isFinite(roundToAxis(1e-300, 1e-300))).toBe(true);
   });
 });

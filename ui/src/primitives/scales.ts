@@ -631,6 +631,19 @@ export function roundTicks(lo: number, hi: number, target: number): RoundTick[] 
   return ticks;
 }
 
+/**
+ * A POINTER'S VALUE ON AN AXIS, rounded to what the axis can show: a hundredth,
+ * or a thousandth of the span's own decade when that is finer. A drag across an
+ * axis from 0 to 0.001 used to be rounded to a hundredth like every other, and
+ * recorded the range [0, 0]. An axis of ten or more is rounded exactly as
+ * before, so what a drag records there has not moved.
+ */
+export function roundToAxis(value: number, span: number): number {
+  const fine = span > 0 && Number.isFinite(span) ? 3 - Math.floor(Math.log10(span) + 1e-9) : 2;
+  const decimals = Math.min(100, Math.max(2, fine));
+  return Number(value.toFixed(decimals));
+}
+
 /** The share of its own span a chart leaves empty at each end of an axis it sizes itself. */
 export const EXTENT_ROOM = 0.05;
 
