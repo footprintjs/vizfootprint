@@ -27,7 +27,14 @@
    cannot promise it from CSS alone.
    ============================================================ */
 
-.vzf {
+/* THE THEME ROOT. Every token is declared ONCE, on the OUTERMOST `.vzf` or
+   `.vzf-theme` element, and everything beneath inherits — so a themed ancestor
+   (`<VizTheme>`, a host's own rule, a themed cockpit) reaches every component
+   inside it, and a nested `.vzf` re-declares nothing over it. This rule and the
+   three mode rules below have ZERO specificity (every part sits in `:where`), so
+   any host rule that names `.vzf` or `.vzf-theme` wins whatever the load order. The values are the `slateLight` preset's
+   (`src/theme/presets.ts`); `theme.test.tsx` holds the two equal. */
+:where(.vzf, .vzf-theme):not(:where(.vzf, .vzf-theme) *) {
   /* ── neutrals (light) ───────────────────────────────────── */
   --vzf-paper: #f5f7fa;
   --vzf-surface: #ffffff;
@@ -41,10 +48,10 @@
   /* ZERO IS A PLACE ON THE AXIS (law 12): the ink of the one line a chart draws where a signed
      scale crosses zero (`.vzf-zero`, drawn by VizScatter, VizLine and VizFrame's merged guide).
      Its OWN token, so a host can restyle the guide without touching the axis line or the ticks,
-     and never the MARK's colour — a zero guide is furniture, not data. Declared ONCE, off the
-     faint ink, so it follows each ground exactly as the ticks do and a dark override needs no
-     second entry (`var()` in a custom property resolves against the element's own cascade). */
-  --vzf-zero: var(--vzf-ink-faint);
+     and never the MARK's colour — a zero guide is furniture, not data. It has NO value here:
+     `.vzf-zero` reads `var(--vzf-zero, var(--vzf-ink-faint))`, so it follows the faint ink
+     wherever that changes (a forced mode, a nested theme) and a theme that names it pins it.
+     `--vzf-map-empty` follows `--vzf-surface-2` the same way. */
 
   /* ── accents (mode-agnostic hue; only the tint recomputes) ─ */
   --vzf-brand: #7c5cff;
@@ -77,7 +84,6 @@
   --vzf-seq-3: #6bb2ae;
   --vzf-seq-4: #3d8b8a;
   --vzf-seq-5: #1d5f63;
-  --vzf-map-empty: var(--vzf-surface-2);
 
   /* ── the two y scales of a two-scale frame ─────────────────
      THE INK MATCHES THE SCALE. On a frame that draws TWO y scales the frame
@@ -135,7 +141,15 @@
   --vzf-glass: rgba(255, 255, 255, 0.78);
   --vzf-glass-line: rgba(255, 255, 255, 0.55);
 
-  /* base surface + ink applied to the root itself */
+}
+
+/* a theme wrapper takes no box: it only declares tokens for what it wraps */
+.vzf-theme {
+  display: contents;
+}
+
+/* base surface + ink, applied to every `.vzf` element itself */
+.vzf {
   color: var(--vzf-ink);
   background: var(--vzf-paper);
   font-family: var(--vzf-font-body);
@@ -145,7 +159,7 @@
 
 /* ── dark tokens: OS-auto (unless a light override is stamped) … ── */
 @media (prefers-color-scheme: dark) {
-  .vzf:not([data-theme="light"]) {
+  :where(.vzf, .vzf-theme):where(:not([data-theme="light"])):not(:where(.vzf, .vzf-theme) *) {
     --vzf-paper: #0b0f16;
     --vzf-surface: #131924;
     --vzf-surface-2: #1a2231;
@@ -182,7 +196,7 @@
 }
 
 /* … and the explicit override wins in BOTH directions. */
-.vzf[data-theme="dark"] {
+:where(.vzf, .vzf-theme):where([data-theme="dark"]) {
   --vzf-paper: #0b0f16;
   --vzf-surface: #131924;
   --vzf-surface-2: #1a2231;
@@ -215,6 +229,41 @@
   --vzf-scrim: rgba(2, 5, 10, 0.62);
   --vzf-glass: rgba(19, 25, 36, 0.84);
   --vzf-glass-line: rgba(125, 145, 175, 0.28);
+}
+
+/* A FORCED LIGHT element re-declares the same tokens the dark rules change, at
+   their light values — and nothing else, so an ancestor's brand, fonts and
+   radii survive a forced mode in either direction. */
+:where(.vzf, .vzf-theme):where([data-theme="light"]) {
+  --vzf-paper: #f5f7fa;
+  --vzf-surface: #ffffff;
+  --vzf-surface-2: #eef2f7;
+  --vzf-surface-3: #e2e8f1;
+  --vzf-ink: #101826;
+  --vzf-ink-soft: #4a5768;
+  --vzf-ink-faint: #8a97a8;
+  --vzf-line: #dbe2ec;
+  --vzf-line-soft: #e9eef5;
+  --vzf-brand-tint: #efecff;
+  --vzf-user-tint: #e5effc;
+  --vzf-agent-tint: #fcf0da;
+  --vzf-agent-deep: #c67b0e;
+  --vzf-on-agent: #3a2600;
+  --vzf-ok-tint: #dcf3e4;
+  --vzf-danger-tint: #fde4e8;
+  --vzf-clay: #b45309;
+  --vzf-clay-tint: #f7ecd9;
+  --vzf-seq-1: #c9e7e3;
+  --vzf-seq-2: #9cd0cb;
+  --vzf-seq-3: #6bb2ae;
+  --vzf-seq-4: #3d8b8a;
+  --vzf-seq-5: #1d5f63;
+  --vzf-shadow-sm: 0 1px 2px rgba(16, 24, 38, 0.06), 0 1px 3px rgba(16, 24, 38, 0.05);
+  --vzf-shadow-md: 0 4px 14px rgba(16, 24, 38, 0.1), 0 1px 3px rgba(16, 24, 38, 0.07);
+  --vzf-shadow-lg: 0 18px 46px rgba(16, 24, 38, 0.18), 0 4px 12px rgba(16, 24, 38, 0.1);
+  --vzf-scrim: rgba(23, 32, 48, 0.38);
+  --vzf-glass: rgba(255, 255, 255, 0.78);
+  --vzf-glass-line: rgba(255, 255, 255, 0.55);
 }
 
 :where(.vzf, .vzf *) {
@@ -777,7 +826,7 @@
    mark or as a second axis line, and on a token of its own (`--vzf-zero`) which deliberately does
    NOT fall back to `--vzf-scale-hue`: a scale's hue names its marks, and this is furniture. */
 :where(.vzf) .vzf-zero {
-  stroke: var(--vzf-zero);
+  stroke: var(--vzf-zero, var(--vzf-ink-faint));
   stroke-width: 1;
   stroke-dasharray: 2 3;
 }

@@ -46,7 +46,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, UIEvent } from 'react';
-import { themeStyle, themeAttr, type ThemeConfig } from '../tokens/theme.js';
+import { tokensToCSSVars, type ThemeMode, type ThemeTokens } from '../theme/index.js';
 import type { LayoutChange, LayoutPreset, LayoutView } from '../adapter/types.js';
 import { ChartFrame, type ChartSize } from '../primitives/ChartFrame.js';
 import { VizModal } from './VizModal.js';
@@ -162,7 +162,10 @@ export interface VizCockpitProps {
   /** Present mode: dim + block the charts, show the note. */
   readonly readOnly?: boolean;
   readonly readOnlyNote?: ReactNode;
-  readonly theme?: ThemeConfig;
+  /** The cockpit's own theme: a whole token set or the part to override. Declared on the cockpit's root, so it reaches everything inside. */
+  readonly theme?: ThemeTokens;
+  /** Force the shipped light or dark values; omitted, the operating system's preference decides. */
+  readonly mode?: ThemeMode;
   readonly className?: string;
   readonly style?: CSSProperties;
 }
@@ -251,7 +254,7 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
   // nothing is recorded in a slideshow: the cockpit is read-only while the show runs, whatever the host passed
   const readOnly = props.readOnly === true || showing;
   const reports = props.reports ?? [];
-  const style: CSSProperties = { ...(themeStyle(theme) as CSSProperties), ...props.style };
+  const style: CSSProperties = { ...(tokensToCSSVars(theme) as CSSProperties), ...props.style };
 
   // ── LY-1: the driven arrangement ──
   const preset: LayoutPreset = layout?.preset ?? 'flow';
@@ -570,7 +573,7 @@ export function VizCockpit(props: VizCockpitProps): JSX.Element {
   };
 
   return (
-    <div className={`vzf vzf-cockpit-root${showing ? ' vzf-slideshow' : ''}${props.className ? ' ' + props.className : ''}`} style={style} data-theme={themeAttr(theme)} data-slideshow={showing ? 'true' : undefined}>
+    <div className={`vzf vzf-cockpit-root${showing ? ' vzf-slideshow' : ''}${props.className ? ' ' + props.className : ''}`} style={style} data-theme={props.mode} data-slideshow={showing ? 'true' : undefined}>
       <div className={`vzf-cockpit${readOnly ? ' vzf-readonly' : ''}`} data-vzf="cockpit" data-readonly={readOnly ? 'true' : 'false'}>
         {readOnly && (
           <div className="vzf-readonly-note" role="status">
