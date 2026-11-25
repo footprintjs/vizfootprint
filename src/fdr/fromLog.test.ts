@@ -98,12 +98,15 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
   function check(lane: string, value: unknown, reason: string): void {
     const session = new CauseSelectionSession();
     session.commit({ id: 'ok', parent: null, viewId: 'analysisPanel', actorMeta: { actor: 'system' }, kind: 'point', field: 'pValue', value: act(0.02), cause: { requestedBy: 'agent', computedBy: 'system' } });
-    session.commit({ id: 'weird', parent: 'ok', viewId: lane, actorMeta: { actor: 'system' }, kind: 'point', field: 'pValue', value, cause: { requestedBy: 'agent', computedBy: 'system' } });
-    const read = testEmissionsFromLog(session.records);
+    session.commit({ id: 'weird', parent: 'ok', viewId: lane, actorMeta: { actor: 'system' }, kind: 'point', field: 'pValue', value: act(0.5), cause: { requestedBy: 'agent', computedBy: 'system' } });
+    // the value is put on the record by hand: this is a log somebody else wrote, and a selection
+    // port would refuse some of these shapes (an array above all) before they ever landed
+    const records = session.records.map((r) => (r.id === 'weird' ? { ...r, value } : r));
+    const read = testEmissionsFromLog(records);
     expect(read.hypotheses.map((h) => h.hypothesisId)).toEqual(['ok']);
     expect(read.unreadable).toEqual([{ commitId: 'weird', reason }]);
     // the stream alone cannot say a test was left out
-    expect(hypothesisRecordsFromLog(session.records)).toEqual(read.hypotheses);
+    expect(hypothesisRecordsFromLog(records)).toEqual(read.hypotheses);
   }
 
   it('a commit that only NAMES the reserved field, outside a test lane, is not a test that ran', () => {

@@ -56,7 +56,7 @@ import { judgeAnalysisReads, neighbourhoodEndpoints, relationEdgeId } from '../d
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
 import { isPValue, isTestAnalogCommit, ledgerRowDifferences, ledgerRowToRecord, loggedTests, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type LoggedTest, type TestAct, type UnreadableTest } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
-import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, mintDerivedTable, mintFilledTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type ResolvedColumn, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type FilledTable, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
+import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, notOnePlainValue, mintDerivedTable, mintFilledTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type ResolvedColumn, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type FilledTable, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
 import { applyLinkOverrides, columnStanding, edgeId, impliedKinds, unmappedColumnWords, validateLinks, type LinkDecl, type ReachRelation } from '../links/index.js';
 
@@ -3648,6 +3648,11 @@ class InteractionSessionImpl implements InteractionSession {
       if (RESERVED_PROBE_FIELDS.has(field)) {
         return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
       }
+      // 2c. what the clause compares the column with is ONE PLAIN VALUE each. Anything else — an array
+      //     as a point's value above all — has no single literal: the recorded SQL used to carry its
+      //     text unquoted, and the rows it kept were not the rows that SQL names.
+      const unplain = notOnePlainValue(kind, value);
+      if (unplain !== null) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `${verb} on "${field}": ${unplain}`, field));
       // 3. the field must be a column VISIBLE on this branch (R14: needs-column /
       //    needs-backend-data). A materialized column absent from the cursor's
       //    branch fold is honestly `needs-column` here — branch isolation.
@@ -3765,6 +3770,9 @@ class InteractionSessionImpl implements InteractionSession {
           return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
         }
       }
+      // 2d. each side compares its column with one plain value, or a [low, high] pair of them (`doProbe`, 2c).
+      const unplain = notOnePlainValue('cell', values);
+      if (unplain !== null) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `select on "${cellFieldLabel(fields)}": ${unplain}`, fields[0]));
       // 3. BOTH fields must be columns VISIBLE on this branch (R14: needs-column
       //    / needs-backend-data) — the doProbe guard, applied to each side.
       const table = this.tableFor(viewId); // a layer's own table; the default for a view
@@ -3860,6 +3868,9 @@ class InteractionSessionImpl implements InteractionSession {
       if (RESERVED_PROBE_FIELDS.has(field)) {
         return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
       }
+      // 2c'. the node the walk starts from, and the node a path runs to, are each ONE PLAIN VALUE (`doProbe`, 2c)
+      const unplainAsk = notOnePlainValue('neighbourhood', { seed, to: walk?.to });
+      if (unplainAsk !== null) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `select on "${field}": ${unplainAsk}`, field));
       // 2c. the WALK QUESTION must be ASKABLE (R3) — the walk's own door owns those
       //     laws (`./neighbourhood.ts`, `walkRefusal`), and it is read HERE so an
       //     unaskable question is refused before an engine is asked for a single row.
@@ -3920,6 +3931,10 @@ class InteractionSessionImpl implements InteractionSession {
         if (!walked.ok) {
           return this.reject(verb, intent, this.gapLedger.file('result-too-large', verb, walked.rejected, field));
         }
+        // …and so is every id it reached. The ids come from the DATA: an endpoint column holding a list
+        // put that list's text into the recorded SQL, unquoted, with no caller involved at all.
+        const unplainAnswer = notOnePlainValue('neighbourhood', { ids: walked.body.ids });
+        if (unplainAnswer !== null) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `select on "${field}": ${unplainAnswer}`, field));
         value = walked.body;
       }
       // 5b. the walk's clause TRAVELS the relations its edges carry, before the commit — the point door's step, the same law

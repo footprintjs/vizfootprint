@@ -20,6 +20,31 @@
 - `timeTravelModel`: `explore.stop`, `RailBar.position` and `.of`,
   `PresentStop.position` and `.of`. New exports: `railKeyTarget`, `railTabStop`.
 
+### Security: a selection value is never written into the recorded SQL unquoted (behaviour change)
+
+- A point select accepted any value. An array was written into the commit's
+  `predicateSQL` as its elements joined by commas with no quoting, so
+  `value: ["1) OR (1=1"]` recorded `("category" IN (1) OR (1=1))`; through the
+  Mosaic adapter the same text reached the clause the engine filters with. The
+  same held for a RegExp, a function and an object with its own `toString`,
+  and for those values inside a match list, a cell side, a range bound or a
+  walked id list.
+- `mosaicDescriptorSQL` now refuses every such value (`TypeError`; a selection
+  port answers `unsupported-shape`). A plain record is still rendered as the
+  constant `[object Object]`, as the system's own commits always were.
+- `session.dispatch` refuses a select or filter whose value is not one plain
+  value (string, number, boolean, `null`, a real date) with `guard-failed`, and
+  says what to send instead. That covers every form: a point, a list of
+  values, a cell, a range, and a walk (the node it starts from, the node a
+  path runs to, and every id it reaches).
+- A date is rendered only when it is a real `Date` with nothing of its own on
+  it, read through the language's own methods. An object placed over
+  `Date.prototype` could answer for a date's parts with text of its own, and
+  that text reached SQL a database ran.
+- A point select with an array value used to land. It is refused: send several
+  values as `values`, and a range with the `filter` verb.
+- New in `vizfootprint/data`: `isPlainValue`, `isPlainDate`, `notOnePlainValue`.
+
 ### Security: the DuckDB worker address is written into its script as data
 
 - The browser arm started DuckDB's worker from a one-line script with the
