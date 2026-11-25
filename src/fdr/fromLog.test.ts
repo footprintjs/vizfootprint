@@ -89,15 +89,29 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
     ['an array', [0.01], 'not-an-act'],
     ['an act with no analysis id', { table: 'data', pValue: 0.01 }, 'unnamed-act'],
     ['an act with an empty table', { id: 'corr', table: '', pValue: 0.01 }, 'unnamed-act'],
+    // the first reason wins: an act that cannot be named is not judged on its p-value
+    ['an unnamed act with a bad p-value', { id: '', table: 'data', pValue: 2 }, 'unnamed-act'],
   ])('%s is never a hypothesis, and is counted as a test nobody can read', (_case, value, reason) => {
+    for (const lane of ['analysis:corr', 'chart:c1']) check(lane, value, reason);
+  });
+
+  function check(lane: string, value: unknown, reason: string): void {
     const session = new CauseSelectionSession();
     session.commit({ id: 'ok', parent: null, viewId: 'analysisPanel', actorMeta: { actor: 'system' }, kind: 'point', field: 'pValue', value: act(0.02), cause: { requestedBy: 'agent', computedBy: 'system' } });
-    session.commit({ id: 'weird', parent: 'ok', viewId: 'analysisPanel', actorMeta: { actor: 'system' }, kind: 'point', field: 'pValue', value, cause: { requestedBy: 'agent', computedBy: 'system' } });
+    session.commit({ id: 'weird', parent: 'ok', viewId: lane, actorMeta: { actor: 'system' }, kind: 'point', field: 'pValue', value, cause: { requestedBy: 'agent', computedBy: 'system' } });
     const read = testEmissionsFromLog(session.records);
     expect(read.hypotheses.map((h) => h.hypothesisId)).toEqual(['ok']);
     expect(read.unreadable).toEqual([{ commitId: 'weird', reason }]);
     // the stream alone cannot say a test was left out
     expect(hypothesisRecordsFromLog(session.records)).toEqual(read.hypotheses);
+  }
+
+  it('a commit that only NAMES the reserved field, outside a test lane, is not a test that ran', () => {
+    // a note about a column called `pValue`, and an arrangement value: both are point commits on that field
+    const session = new CauseSelectionSession();
+    session.commit({ id: 'note', parent: null, viewId: 'annotation:user', actorMeta: { actor: 'user' }, kind: 'point', field: 'pValue', value: 'look at this column', cause: { requestedBy: 'user', computedBy: 'user' } });
+    session.commit({ id: 'layout', parent: 'note', viewId: 'layout:dashboard', actorMeta: { actor: 'user' }, kind: 'point', field: 'pValue', value: 'x', cause: { requestedBy: 'user', computedBy: 'user' } });
+    expect(testEmissionsFromLog(session.records)).toEqual({ hypotheses: [], unreadable: [] });
   });
 
   it('a brush is not a test and is not an unreadable one either', () => {
