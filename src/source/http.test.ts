@@ -138,7 +138,7 @@ describe('httpSource', () => {
     expect(await reasonOf((await httpSource().open({ format: 'csv', via: 'http', at: `${base}/empty` }, { table: 'x' })).snapshot().then(full))).toBe(`unavailable: table "x" http source ${base}/empty: unavailable (204 with an empty body)`);
     expect(await reasonOf((await httpSource().open({ format: 'csv', via: 'http', at: `${base}/empty-200` }, { table: 'x' })).snapshot().then(full))).toBe(`unavailable: table "x" http source ${base}/empty-200: unavailable (200 with an empty body)`);
     expect(await reasonOf((await httpSource().open({ format: 'csv', via: 'http', at: `${base}/big` }, { table: 'x' })).snapshot().then(full))).toBe(`too-large: table "x" http source ${base}/big: too-large — the server declares 999999999 bytes, the cap is 67108864`);
-    expect(await reasonOf((await httpSource({ maxBytes: 100 }).open({ format: 'csv', via: 'http', at: `${base}/wide` }, { table: 'x' })).snapshot().then(full))).toMatch(/^too-large: .*: too-large — \d+ UTF-16 units arrived \(the server declared no length\), the cap is 100$/);
+    expect(await reasonOf((await httpSource({ maxBytes: 100 }).open({ format: 'csv', via: 'http', at: `${base}/wide` }, { table: 'x' })).snapshot().then(full))).toMatch(/^too-large: .*: too-large — \d+ UTF-16 units arrived and the read was stopped there \(the server declared no length\), the cap is 100$/);
   });
   it('no fetch in the runtime is a missing carrier, read at call time', async () => {
     const h = await httpSource().open({ format: 'csv', via: 'http', at: `${base}/cells.csv` }, { table: 'x' });

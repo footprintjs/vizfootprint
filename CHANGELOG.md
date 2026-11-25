@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Security: the web source stops reading at its size limit
+
+- `httpSource` read a whole body into memory and compared its size with
+  `maxBytes` afterwards, for a table and for a resource read without a progress
+  observer. A server that declared no length, or a false one, could fill the
+  host's memory before the read was refused. The body is now read through its
+  stream and cut off, with the transfer aborted, at the chunk that crosses the
+  cap.
+- The `too-large` sentence for such a read now says "arrived and the read was
+  stopped there", and the count is what had arrived, not the body's full size.
+- A caller's abort signal is honoured between chunks on every read.
+- Not covered: a host `fetch` whose response has no readable stream is still
+  read whole, and the cap is checked afterwards.
+
 ### Correction: a replayed session carries its error budget (behaviour change)
 
 - `session.replay(log)` used to start the replayed session with the full error
