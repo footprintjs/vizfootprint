@@ -3847,6 +3847,9 @@ class InteractionSessionImpl implements InteractionSession {
       if (RESERVED_PROBE_FIELDS.has(field)) {
         return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `field "${field}" is reserved by the session and cannot be selected on`, field));
       }
+      // 2c'. the node the walk starts from, and the node a path runs to, are each ONE PLAIN VALUE (`doProbe`, 2c)
+      const unplainAsk = notOnePlainValue('neighbourhood', { seed, to: walk?.to });
+      if (unplainAsk !== null) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `select on "${field}": ${unplainAsk}`, field));
       // 2c. the WALK QUESTION must be ASKABLE (R3) — the walk's own door owns those
       //     laws (`./neighbourhood.ts`, `walkRefusal`), and it is read HERE so an
       //     unaskable question is refused before an engine is asked for a single row.
@@ -3907,6 +3910,10 @@ class InteractionSessionImpl implements InteractionSession {
         if (!walked.ok) {
           return this.reject(verb, intent, this.gapLedger.file('result-too-large', verb, walked.rejected, field));
         }
+        // …and so is every id it reached. The ids come from the DATA: an endpoint column holding a list
+        // put that list's text into the recorded SQL, unquoted, with no caller involved at all.
+        const unplainAnswer = notOnePlainValue('neighbourhood', { ids: walked.body.ids });
+        if (unplainAnswer !== null) return this.reject(verb, intent, this.gapLedger.file('guard-failed', verb, `select on "${field}": ${unplainAnswer}`, field));
         value = walked.body;
       }
       // 5b. the walk's clause TRAVELS the relations its edges carry, before the commit — the point door's step, the same law

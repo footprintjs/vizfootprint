@@ -16,11 +16,16 @@
  * | values: an entry that is an array or a record   | refused, nothing lands                      |
  * | cell: a side that is a record or a bad pair     | refused, nothing lands                      |
  * | filter: a bound that is an array or a record    | refused, nothing lands                      |
+ * | walk: a seed or far end that is not plain       | refused, nothing lands                      |
+ * | walk: an endpoint column that holds a list      | refused, nothing lands, nothing thrown      |
+ * | a date that is not a real, unadorned Date       | refused by the door and by every renderer   |
  * | the same through the agent tool                 | the same refusal, as the tool's answer      |
  */
 import { describe, expect, it } from 'vitest';
 import { buildDashboard } from '../def/index.js';
-import { isPlainValue, notOnePlainValue } from '../data/index.js';
+import { isPlainDate, isPlainValue, literalToSQL, mosaicDescriptorSQL, notOnePlainValue } from '../data/index.js';
+import { EDGES, NETWORK_RELATIONS, makeNetworkDef } from '../def/network.fixture.js';
+import { layerAddress } from '../def/index.js';
 import { vizAsTools } from '../agent/index.js';
 import { makeDashboardDef } from './dashboard.fixture.js';
 
@@ -119,6 +124,86 @@ describe('every other form of a selection is held to the same rule', () => {
   });
 });
 
+describe('a walk is held to the same rule: the node it starts from, the node a path runs to, and every id it reaches', () => {
+  const WALKS = [{ viewId: 'net', canProbe: true, encodings: ['point', 'interval', 'match', 'neighbourhood'] }] as const;
+  const network = (edges: readonly Record<string, unknown>[] = EDGES) => {
+    const base = makeNetworkDef(undefined, { relations: NETWORK_RELATIONS, capabilities: [...WALKS] });
+    return buildDashboard({ ...base, data: { ...base.data, edges: { ...base.data['edges']!, rows: edges as never } } }).createSession({ as: 'agent' });
+  };
+  const AT = layerAddress('net', 'edges');
+
+  it('a plain seed still walks', async () => {
+    const s = network();
+    expect((await s.dispatch({ verb: 'select', viewId: AT, field: 'source', seed: 'cold', cause })).ok).toBe(true);
+    expect(s.log.records.at(-1)!.predicateSQL).toBe(`(("source" IN ('cold', 'flu', 'strep')) AND ("target" IN ('cold', 'flu', 'strep')))`);
+  });
+
+  it.each<[string, unknown]>([
+    ['an array holding SQL', [INJECTED]],
+    ['a record', { a: 1 }],
+    ['a record with its own toString', { toString: () => INJECTED }],
+    ['a bigint', 5n],
+  ])('a seed that is %s is refused with a typed answer, and nothing lands', async (_what, seed) => {
+    const s = network();
+    const res = await s.dispatch({ verb: 'select', viewId: AT, field: 'source', seed, cause });
+    expect(res.ok === false && res.rejection.code).toBe('guard-failed');
+    expect(res.ok === false && res.rejection.detail).toContain('a walk starts from ONE plain value');
+    expect(s.log.records).toHaveLength(0);
+  });
+
+  it('a path whose far end is not plain is refused', async () => {
+    const s = network();
+    const res = await s.dispatch({ verb: 'select', viewId: AT, field: 'source', seed: 'cold', walk: { derivation: 'path', to: [INJECTED] } as never, cause });
+    expect(res.ok === false && res.rejection.code).toBe('guard-failed');
+    expect(s.log.records).toHaveLength(0);
+  });
+
+  it('an endpoint column holding a list: the walk reaches an id that is not plain, and the act is refused, not thrown', async () => {
+    const s = network([...EDGES, { source: 'cold', target: [INJECTED], weight: 1 }]);
+    const res = await s.dispatch({ verb: 'select', viewId: AT, field: 'source', seed: 'cold', cause });
+    expect(res.ok === false && res.rejection.code).toBe('guard-failed');
+    expect(res.ok === false && res.rejection.detail).toContain('the walk reached one that is not');
+    expect(s.log.records).toHaveLength(0);
+  });
+});
+
+describe('a date is a real date, or it is not a plain value', () => {
+  const real = new Date(Date.UTC(2020, 0, 1));
+  /** An object over `Date.prototype` that answers for a date's parts with text of its own. */
+  const fake = Object.assign(Object.create(Date.prototype) as Date, {
+    getTime: () => Date.UTC(2020, 0, 1),
+    valueOf: () => Date.UTC(2020, 0, 1),
+    getUTCFullYear: () => ({ valueOf: () => 2020, toString: () => "2020-01-01'::VARCHAR) OR (1=1) OR ('x'='" }) as unknown as number,
+    getUTCMonth: () => 0,
+    getUTCDate: () => 1,
+  });
+  const overridden = Object.assign(new Date(Date.UTC(2020, 0, 1)), { getUTCFullYear: () => "1) OR (1=1" as unknown as number });
+  class Dated extends Date {}
+
+  it('a real date renders from the language’s own reading of it', () => {
+    expect(isPlainDate(real)).toBe(true);
+    expect(literalToSQL(real)).toBe("DATE '2020-1-1'");
+    expect(literalToSQL(new Date(1))).toBe('epoch_ms(1)');
+    expect(literalToSQL(new Date(Number.NaN))).toBe('NULL');
+  });
+
+  it.each<[string, unknown]>([
+    ['an object over Date.prototype', fake],
+    ['a real date with a method of its own', overridden],
+    ['a subclass instance', new Dated(0)],
+    ['a bare object over Date.prototype', Object.create(Date.prototype)],
+  ])('%s is not a plain value: every renderer and the door refuse it', async (_what, value) => {
+    expect(isPlainDate(value)).toBe(false);
+    expect(isPlainValue(value)).toBe(false);
+    expect(() => literalToSQL(value)).toThrow(TypeError);
+    expect(() => mosaicDescriptorSQL('point', 'x', value)).toThrow(/one plain value/);
+    const s = fresh();
+    const res = await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value, cause });
+    expect(res.ok === false && res.rejection.code).toBe('guard-failed');
+    expect(s.log.records).toHaveLength(0);
+  });
+});
+
 describe('the rule itself', () => {
   it('a plain value is a string, a number, a boolean, null or a date', () => {
     for (const v of ['', 'a', 0, Number.NaN, true, false, null, new Date(0)]) expect(isPlainValue(v)).toBe(true);
@@ -144,6 +229,12 @@ describe('the rule itself', () => {
     ['cell', [1, undefined], 'got nothing'],
     ['cell', [[1, {}], 1], 'got an array'],
     ['cell', [{}, 1], 'got a record'],
+    ['neighbourhood', { seed: 'a', to: 1, ids: ['a', 'b'] }, null],
+    ['neighbourhood', {}, null],
+    ['neighbourhood', 'not a body', null],
+    ['neighbourhood', { seed: [1] }, 'starts from ONE plain value'],
+    ['neighbourhood', { seed: 'a', to: {} }, 'runs to ONE plain value'],
+    ['neighbourhood', { ids: ['a', [1]] }, 'reached one that is not'],
   ])('%s %j', (kind, value, expected) => {
     const said = notOnePlainValue(kind, value);
     if (expected === null) expect(said).toBeNull();

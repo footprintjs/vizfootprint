@@ -15,10 +15,16 @@
   port answers `unsupported-shape`). A plain record is still rendered as the
   constant `[object Object]`, as the system's own commits always were.
 - `session.dispatch` refuses a select or filter whose value is not one plain
-  value (string, number, boolean, `null`, date) with `guard-failed`, and says
-  what to send instead. A point select with an array value used to land; send
+  value (string, number, boolean, `null`, a real date) with `guard-failed`, and
+  says what to send instead. That covers every form: a point, a list of
+  values, a cell, a range, and a walk (the node it starts from, the node a
+  path runs to, and every id it reaches).
+- A date is rendered only when it is a real `Date` with nothing of its own on
+  it, read through the language's own methods. An object placed over
+  `Date.prototype` could answer for a date's parts with text of its own, and
+  that text reached SQL a database ran. A point select with an array value used to land; send
   several values as `values`, and a range with the `filter` verb.
-- New in `vizfootprint/data`: `isPlainValue`, `notOnePlainValue`.
+- New in `vizfootprint/data`: `isPlainValue`, `isPlainDate`, `notOnePlainValue`.
 
 ### Correction: a replayed session carries its error budget (behaviour change)
 

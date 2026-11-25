@@ -277,17 +277,17 @@ String(clausePoint('x', { toString: () => '1) OR (1=1' }, src).predicate);   // 
 
 `mosaicDescriptorSQL` used to reproduce those bytes, so an agent that sent an array as a point's value put text of its choosing into the recorded SQL, and through the Mosaic adapter into the clause the engine filters with. It refuses them now. Both selection ports ask the judge before they mint a clause, so the engine is never handed the value.
 
-- **Rendered:** a string, number, boolean, `null`, date (one quoted or numeric literal, `literalToSQL`), a bigint (its digits), and a plain record, which is the constant `[object Object]` whatever it holds. That last one is kept because the log has always carried record-valued system commits (an analysis's act, a chart's).
-- **Refused with a `TypeError`** (a port answers `unsupported-shape`): an array, a RegExp, a Map or Set, a class instance, a function, a symbol, a boxed primitive, and a record that has `toString`, `valueOf`, `Symbol.toPrimitive` or `Symbol.toStringTag` of its own or from another prototype.
+- **Rendered:** a string, number, boolean, `null`, a real date (`isPlainDate`: made by `Date`, straight off `Date.prototype`, nothing of its own on it, read through the language's own methods) — each one quoted or numeric literal, `literalToSQL`, a bigint (its digits), and a plain record, which is the constant `[object Object]` whatever it holds. That last one is kept because the log has always carried record-valued system commits (an analysis's act, a chart's).
+- **Refused with a `TypeError`** (a port answers `unsupported-shape`): an object over `Date.prototype` that is not a real date, a date with a method of its own, a `Date` subclass instance (a date is rendered from its parts, so one that answers for its own parts writes its own text), an array, a RegExp, a Map or Set, a class instance, a function, a symbol, a boxed primitive, and a record that has `toString`, `valueOf`, `Symbol.toPrimitive` or `Symbol.toStringTag` of its own or from another prototype.
 
-The session's own door is stricter and friendlier: `notOnePlainValue(kind, value)` names the first value of a select or filter that is not one plain value (`isPlainValue`: string, number, boolean, `null`, date), and `dispatch` answers `guard-failed` with what to send instead, before anything is judged.
+The session's own door is stricter and friendlier: `notOnePlainValue(kind, value)` names the first value of a select or filter that is not one plain value (`isPlainValue`: string, number, boolean, `null`, date), and `dispatch` answers `guard-failed` with what to send instead, before anything is judged. A walk is held to it too: the node it starts from, the node a path runs to, and every id the walk reached, so an endpoint column that holds lists is refused instead of putting a list's text into the SQL.
 
 ```ts
 await session.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: ['Formal', 'Work'], cause });
 // { ok: false, rejection: { code: 'guard-failed', detail: 'select on "category": a point selects ONE plain value … got an array; send several values as `values`, and a range as a filter' } }
 ```
 
-What this does not cover: a string bound of a range is still rendered as a quoted COLUMN name (Mosaic's own rule, kept for the byte), and the recorded SQL is a description of the act, not a statement this library promises is safe to execute against another database.
+What this does not cover: the check reads the value once, when the act is judged. A caller in the same process who hands over an object that cannot be copied (it holds functions) and changes it afterwards, or whose `toString` is a getter that answers differently later, can still change what the Mosaic engine renders from it after the act landed; nothing that arrives as JSON can. And a string bound of a range is still rendered as a quoted COLUMN name (Mosaic's own rule, kept for the byte), and the recorded SQL is a description of the act, not a statement this library promises is safe to execute against another database.
 
 ## One pass, many recorders
 

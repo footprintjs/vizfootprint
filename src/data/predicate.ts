@@ -69,7 +69,32 @@ const CLEARED_SQL = 'null';
  * than keeping a twin (`ui/src/contract/selection.ts`).
  */
 export function isSQLNull(value: unknown): boolean {
-  return value == null || (typeof value === 'number' && !Number.isFinite(value)) || (value instanceof Date && Number.isNaN(value.getTime()));
+  return value == null || (typeof value === 'number' && !Number.isFinite(value)) || (isPlainDate(value) && Number.isNaN(timeOf(value)));
+}
+
+/** The date's time, read by the LANGUAGE's own method: it throws for anything that is not a real Date, and nothing the value carries can answer in its place. */
+const timeOf = (value: unknown): number => Date.prototype.getTime.call(value);
+
+/**
+ * A REAL date, and nothing more: made by `Date` itself (it has the internal
+ * time, so the built-in reader does not throw), straight off `Date.prototype`,
+ * with nothing of its own on it.
+ *
+ * WHY so strict: `instanceof Date` is true of any object placed over
+ * `Date.prototype`, and of a real date given its own `getUTCFullYear`. A date
+ * is rendered from its parts, so an object that answers for those parts wrote
+ * its own text into the SQL: `DATE '2020-01-01'::VARCHAR) OR (1=1) …`. A
+ * subclass instance is refused for the same reason: its methods are its own.
+ */
+export function isPlainDate(value: unknown): value is Date {
+  if (value === null || typeof value !== 'object' || Object.getPrototypeOf(value) !== Date.prototype) return false;
+  if (Reflect.ownKeys(value).length > 0) return false;
+  try {
+    timeOf(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -93,11 +118,12 @@ export function literalToSQL(value: unknown): string {
     case 'boolean':
       return value ? 'TRUE' : 'FALSE';
     default:
-      if (value instanceof Date) {
-        const ts = +value;
-        const y = value.getUTCFullYear();
-        const m = value.getUTCMonth();
-        const d = value.getUTCDate();
+      if (isPlainDate(value)) {
+        // read through the language's own methods, on a value that carries none of its own
+        const ts = timeOf(value);
+        const y = Date.prototype.getUTCFullYear.call(value);
+        const m = Date.prototype.getUTCMonth.call(value);
+        const d = Date.prototype.getUTCDate.call(value);
         return ts === Date.UTC(y, m, d) ? `DATE '${y}-${m + 1}-${d}'` : `epoch_ms(${ts})`;
       }
       throw new TypeError(
@@ -109,12 +135,12 @@ export function literalToSQL(value: unknown): string {
 
 /**
  * ONE PLAIN VALUE: what a selection may compare a column with. A string, a
- * number, a boolean, `null` or a date — the values {@link literalToSQL}
+ * number, a boolean, `null` or a real date ({@link isPlainDate}) — the values {@link literalToSQL}
  * writes as one quoted or numeric literal. An array, a record, a function, a
  * bigint or a symbol is not one.
  */
 export function isPlainValue(value: unknown): boolean {
-  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value instanceof Date;
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || isPlainDate(value);
 }
 
 const isPairOf = (value: unknown, each: (v: unknown) => boolean): boolean => Array.isArray(value) && value.length === 2 && value.every(each);
@@ -123,7 +149,8 @@ const article = (value: unknown): string => (Array.isArray(value) ? 'an array' :
 /**
  * THE DOOR RULE for a selection's value, by kind: a sentence naming the first
  * value that is not plain, or `null` when every value the clause compares a
- * column with is one. A session asks it BEFORE the act is judged, so the
+ * column with is one (for a walk: the node it starts from, the node a path runs
+ * to, and every id it reached). A session asks it BEFORE the act is judged, so the
  * caller gets a typed refusal that says what to send instead; the renderer's
  * own refusal ({@link mosaicDescriptorSQL}) stays behind it for every other
  * caller of a selection port.
@@ -132,7 +159,7 @@ const article = (value: unknown): string => (Array.isArray(value) ? 'an array' :
  * list, a cell that is not a pair) is left to the judge that already names it.
  * A cleared selection (`null`) has no value to judge.
  */
-export function notOnePlainValue(kind: 'point' | 'interval' | 'match' | 'cell', value: unknown): string | null {
+export function notOnePlainValue(kind: 'point' | 'interval' | 'match' | 'cell' | 'neighbourhood', value: unknown): string | null {
   if (value === null) return null;
   /** The first entry of a list that fails `ok`, named; `null` when none does or there is no list. */
   const firstNot = (list: unknown, ok: (v: unknown) => boolean): string | null => {
@@ -156,6 +183,15 @@ export function notOnePlainValue(kind: 'point' | 'interval' | 'match' | 'cell', 
     case 'cell': {
       const got = firstNot(value, (side) => isPlainValue(side) || isPairOf(side, isPlainValue));
       return got === null ? null : `each side of a cell is one plain value or a [low, high] pair of them — got ${got}`;
+    }
+    case 'neighbourhood': {
+      // the question (the node it starts from, the node a path runs to) and the answer (the walked ids):
+      // each is a node's id, and a node's id is one plain value. A key the body does not carry is not judged.
+      const body = (typeof value === 'object' ? value : {}) as { seed?: unknown; to?: unknown; ids?: unknown };
+      if (body.seed !== undefined && !isPlainValue(body.seed)) return `a walk starts from ONE plain value naming a node — got ${article(body.seed)}`;
+      if (body.to !== undefined && !isPlainValue(body.to)) return `a path runs to ONE plain value naming a node — got ${article(body.to)}`;
+      const got = firstNot(body.ids, isPlainValue);
+      return got === null ? null : `a node's id is one plain value, and the walk reached one that is not — got ${got}; a column holding lists or records cannot be an endpoint`;
     }
   }
 }
@@ -354,7 +390,7 @@ function coercesAsPlainRecord(value: object): boolean {
  */
 function mosaicLiteralSQL(value: unknown): string {
   if (typeof value === 'bigint') return `${value}`;
-  if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+  if (value !== null && typeof value === 'object' && !isPlainDate(value)) {
     if (coercesAsPlainRecord(value)) return '[object Object]';
     throw new TypeError(
       `mosaicDescriptorSQL: a value must be one plain value (a string, number, boolean, null or date) or a plain record — got ${Object.prototype.toString.call(value)}, whose text would be written into the SQL unquoted`,
