@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Migration: the UI theme is a typed token set (breaking, `vizfootprint-ui`)
+
+- `vizfootprint-ui` has a theme layer: `ThemeTokens` names every design token,
+  `slateLight` and `slateDark` are complete shipped themes, and `<VizTheme>`
+  replaces the theme as a whole or overrides part of it for a subtree.
+- **Removed, with no alias:** `resolveTheme`, `themeStyle`, `themeAttr`,
+  `applyTheme`, `ThemeConfig` and `ColorInput`. They reached 27 of the 76
+  properties the stylesheet reads.
+- `<VizCockpit theme>` now takes `ThemeTokens`; light or dark is the separate
+  `mode` prop.
+- Correction: design tokens are declared on the outermost `.vzf` / `.vzf-theme`
+  element only. A nested component used to re-declare the defaults on itself,
+  so a themed cockpit did not theme a sheet, note or editor placed inside it.
+- A theme that names an unknown token, or gives one a value that is not a single
+  CSS value, is refused with a `TypeError` naming the token.
+
+Migration:
+1. `themeStyle({ colors: { brand: '#36f' } })` becomes
+   `tokensToCSSVars({ colors: accentColors('brand', '#3366ff') })`, or wrap the
+   subtree in `<VizTheme tokens={…}>`.
+2. `mode: 'dark'` inside the config becomes `mode="dark"` on `<VizTheme>` or
+   `<VizCockpit>`; `mode: 'auto'` is the absence of the prop.
+3. `fonts` is `fontFamily`; `textScale: 1.2` is `typography: { scale: '1.2' }`.
+4. `applyTheme(el, config)` becomes setting each entry of
+   `tokensToCSSVars(tokens)` with `el.style.setProperty`.
+
 ### Migration: required routing port (major)
 
 - Routing now requires a consumer-owned scorer, declared policy and decision;

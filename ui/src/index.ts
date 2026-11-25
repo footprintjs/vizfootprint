@@ -2,7 +2,8 @@
  * vizfootprint-ui — the designed, reusable component library for vizfootprint.
  *
  * Layered, each module consumable alone:
- *   • tokens/   — the design-token + theme engine (scoped CSS variables).
+ *   • theme/    — the typed design tokens, the shipped themes and `<VizTheme>`
+ *                 (CSS variables on the outermost theme root).
  *   • adapter/  — `createSessionView`, the framework-light store every
  *                 component reads (over a live session OR a polled endpoint).
  *   • contract/ — the versioned, framework-agnostic RENDERER CONTRACT:
@@ -27,7 +28,7 @@
  * The stylesheet ships separately: `import 'vizfootprint-ui/styles.css'`.
  */
 
-export * from './tokens/index.js';
+export * from './theme/index.js';
 export * from './adapter/index.js';
 export * from './contract/index.js';
 export * from './primitives/index.js';

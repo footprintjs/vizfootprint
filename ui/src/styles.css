@@ -27,7 +27,14 @@
    cannot promise it from CSS alone.
    ============================================================ */
 
-.vzf {
+/* THE THEME ROOT. Tokens are declared on the OUTERMOST `.vzf` or `.vzf-theme`
+   element only, and on any element that stamps `data-theme`. Everything beneath
+   inherits them, so a themed ancestor (`<VizTheme>`, a host's own rule, a themed
+   cockpit) reaches every component inside it — a nested `.vzf` no longer
+   re-declares the defaults over its ancestor's theme. The values are the
+   `slateLight` preset's (`src/theme/presets.ts`); `theme.test.ts` holds the two equal. */
+:is(.vzf, .vzf-theme):not(:is(.vzf, .vzf-theme) *),
+:is(.vzf, .vzf-theme)[data-theme="light"] {
   /* ── neutrals (light) ───────────────────────────────────── */
   --vzf-paper: #f5f7fa;
   --vzf-surface: #ffffff;
@@ -135,7 +142,15 @@
   --vzf-glass: rgba(255, 255, 255, 0.78);
   --vzf-glass-line: rgba(255, 255, 255, 0.55);
 
-  /* base surface + ink applied to the root itself */
+}
+
+/* a theme wrapper takes no box: it only declares tokens for what it wraps */
+.vzf-theme {
+  display: contents;
+}
+
+/* base surface + ink, applied to every `.vzf` element itself */
+.vzf {
   color: var(--vzf-ink);
   background: var(--vzf-paper);
   font-family: var(--vzf-font-body);
@@ -145,7 +160,7 @@
 
 /* ── dark tokens: OS-auto (unless a light override is stamped) … ── */
 @media (prefers-color-scheme: dark) {
-  .vzf:not([data-theme="light"]) {
+  :is(.vzf, .vzf-theme):not([data-theme="light"]):not(:is(.vzf, .vzf-theme) *) {
     --vzf-paper: #0b0f16;
     --vzf-surface: #131924;
     --vzf-surface-2: #1a2231;
@@ -182,7 +197,7 @@
 }
 
 /* … and the explicit override wins in BOTH directions. */
-.vzf[data-theme="dark"] {
+:is(.vzf, .vzf-theme)[data-theme="dark"] {
   --vzf-paper: #0b0f16;
   --vzf-surface: #131924;
   --vzf-surface-2: #1a2231;
