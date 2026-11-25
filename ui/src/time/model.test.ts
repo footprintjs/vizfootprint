@@ -94,7 +94,7 @@ describe('timeTravelModel — explore', () => {
 
   it('an empty log, and a log with no head, draw nothing and count what exists', () => {
     const empty = timeTravelModel({ commits: [], cursor: null, head: null });
-    expect(empty.explore).toEqual({ bars: [], back: null, forward: null, coverage: { shown: 0, total: 0, pathCount: 0, offLane: false, cursorMissing: false } });
+    expect(empty.explore).toEqual({ bars: [], stop: null, back: null, forward: null, coverage: { shown: 0, total: 0, pathCount: 0, offLane: false, cursorMissing: false } });
     expect(empty.present).toEqual({ stops: [], index: -1, exact: false, previous: null, next: null });
     expect(empty.suggestedBookmarkName).toBe('bookmark-1');
     const headless = timeTravelModel({ commits: S.commits, cursor: null, head: null });
@@ -125,8 +125,8 @@ describe('timeTravelModel — present', () => {
   it('orders the bookmarks along the presented lineage and marks the one the cursor stands on', () => {
     const m = timeTravelModel({ ...base, cursor: 'b' });
     expect(m.present.stops).toEqual([
-      { target: 'r', commitId: 'r', label: 'start', current: false },
-      { target: 'b', commitId: 'b', label: 'mid', current: true },
+      { target: 'r', commitId: 'r', label: 'start', current: false, position: 1, of: 2 },
+      { target: 'b', commitId: 'b', label: 'mid', current: true, position: 2, of: 2 },
     ]);
     expect(m.present).toMatchObject({ index: 1, exact: true, previous: 'r', next: null });
   });
@@ -143,7 +143,7 @@ describe('timeTravelModel — present', () => {
 
   it('a bookmark seeks to the moment it NAMES, not to the act of naming it', () => {
     const m = timeTravelModel({ ...base, cursor: 'b', bookmarks: [{ label: 'named', commitId: 'b', at: 'a', ts: 1, ...at }] });
-    expect(m.present.stops).toEqual([{ target: 'a', commitId: 'b', label: 'named', current: true }]);
+    expect(m.present.stops).toEqual([{ target: 'a', commitId: 'b', label: 'named', current: true, position: 1, of: 1 }]);
   });
 
   it('bookmarks off the presented lineage are not stops; with no head the cursor is the tip', () => {

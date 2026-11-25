@@ -65,6 +65,29 @@ The bars are **grey on purpose** — no chart on the dashboard draws in these to
 
 "Viewing the past" is a small clock mark in the compact strip (the sentence rides its title and its accessible name) and a banner in the full bar — a banner in one row would squeeze the rail to nothing.
 
+## One keyboard stop
+
+A rail is one stop in the tab order, however many bars it draws. Every bar used to be a stop, so a history of two hundred steps put two hundred stops between the mode switch and the bookmark button, and a screen reader heard `#s14 select` with no word on where in the history that was.
+
+- **Tab** lands on one bar: the cursor's, or the head's when the cursor is on no bar, or the last one. The model names it (`explore.stop`); the component does not work it out.
+- **The stop follows the focus while the keyboard is inside the rail** (`railTabStop(ids, focused, stop)`). A browser's Tab moves on from the focused element, so a stop left behind on the cursor's bar would be a second stop on the way out. Once the focus leaves the rail the stop is the model's again, so coming back lands on the cursor. A focused bar that the rail stops drawing is forgotten at once: a browser fires no blur for a removed element.
+- **Left / Right** move along the bars, **Home / End** jump to the ends, and the ends do not wrap. With Alt, Ctrl or Meta held a key is the browser's or the system's and the rail leaves it alone. A key the rail handles goes no further up the page, so a host's own arrow-key handler does not also act on it (one that listens on the way down, in the capture phase, still sees it first). The rule is `railKeyTarget(count, at, key)` in `railKeys.ts`: an index in, an index out, no React.
+- **Moving is not travelling.** Arrow keys move the focus only. **Enter** or **Space** on a bar goes there, as a click does. A person can read along a history without changing where they stand.
+- **Each bar says where it stands:** `step 3 of 40: #c2 select c2, bookmarked`, and `now` on the head. The cursor's bar is `aria-current="step"`. Present mode does the same over the bookmarks (`bookmark 2 of 3: middle`); when the cursor stands on no bookmark and has none behind it, the first bookmark takes the stop and none is called current. How the keys work is the rail's description (`aria-describedby`), not part of its name.
+
+```tsx
+import { railKeyTarget, railTabStop, timeTravelModel } from 'vizfootprint-ui';
+
+// your own rail, the same keys
+const { bars, stop } = timeTravelModel(input).explore;
+const tabStop = railTabStop(bars.map((b) => b.id), focusedId, stop);   // focusedId: your own state, null outside the rail
+<div role="group" onKeyDown={(e) => { const to = railKeyTarget(bars.length, focusedIndex, e.key); if (to !== null) focusBar(to); }}>
+  {bars.map((b) => <button key={b.id} tabIndex={b.id === tabStop ? 0 : -1} aria-current={b.cursor ? 'step' : undefined}>…</button>)}
+</div>
+```
+
+It is deliberately not `role="slider"`: a slider's arrow keys change its value at once, and here that would travel through history on every key press. The two step buttons beside the rail keep doing exactly that, one step at a time.
+
 ## Present mode
 
 Bookmarks are ordered along the presented lineage (root → tip, see `presentBookmark.ts`), never by arrival; prev and next seek the session to the position a bookmark names.
