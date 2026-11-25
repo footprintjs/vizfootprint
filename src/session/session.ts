@@ -1144,8 +1144,8 @@ class InteractionSessionImpl implements InteractionSession {
       // THE ERROR BUDGET COMES WITH THE LOG. Every test the log holds was made,
       // and each one spent budget where it was made. No test is run again here
       // and nothing new is spent: the recorded results are fed through this
-      // session's stepper in the order they arrived, so the session stands where
-      // the one that made the log stood. It used to start at the full budget
+      // session's stepper in the order they arrived, so the session, in the
+      // dashboard that made the log, stands where the one that made it stood. It used to start at the full budget
       // instead, which meant saving and replaying handed out a fresh one — the
       // one thing an online error budget must never do.
       // (After the registrations above: a carried row is named by its analysis's

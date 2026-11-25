@@ -1594,7 +1594,8 @@ So `replay` carries the budget. After the records land, every test the log
 holds — a point commit on the reserved test field, in an analysis or chart lane
 (`loggedTests`) — is fed through this session's stepper in arrival order,
 every branch counted. No test is run again and nothing new is spent; the
-replayed session stands where the one that made the log stood.
+replayed session, in the dashboard that made the log, stands where the one
+that made it stood.
 `ReplayResult.tests` says how many were carried.
 
 ```ts
@@ -1808,7 +1809,7 @@ Two consequences, both deliberate:
 - **The ledger row comes back with the log.** A replay runs no test again, and
   it does not forget one either: the recorded results are fed through the error
   budget in the order they arrived, so `why(...).fdr` answers on the replay with
-  the step and the verdict it had on the walk.
+  the step and, in the dashboard that made the log, the verdict it had on the walk.
 
 **The judge did not soften — it became possible.** A record naming a table this
 dashboard does not declare is still refused before anything moves, on either

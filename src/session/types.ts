@@ -466,7 +466,8 @@ export type ReplayResult =
       /**
        * The error budget carried from the log. Every test the log holds was fed
        * through this session's budget in the order it arrived, WITHOUT being run
-       * again, so the session stands where the one that made the log stood.
+       * again, so the session, in the dashboard that made the log, stands where
+       * the one that made it stood.
        *
        * The carried rows are computed by THIS session's procedure and settings
        * from the recorded p-values. The log records neither the settings it was
