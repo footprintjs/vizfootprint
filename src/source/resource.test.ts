@@ -363,9 +363,9 @@ describe('the http carrier\'s second door', () => {
   it('a size cap refuses by the server\'s declaration before the read, and by what arrived after it', async () => {
     expect(await refusalOf((await open('text', '/big')).snapshot())).toBe(`too-large: resource "structure" http source ${base}/big: too-large — the server declares 999999999 bytes, the cap is 67108864`);
     // no declared length: the diagnostic counts what came, in the unit the format landed in
-    expect(await refusalOf((await open('bytes', '/nolen', 'logo', { maxBytes: 2 })).snapshot())).toBe(`too-large: resource "logo" http source ${base}/nolen: too-large — 5 bytes arrived (the server declared no length), the cap is 2`);
+    expect(await refusalOf((await open('bytes', '/nolen', 'logo', { maxBytes: 2 })).snapshot())).toBe(`too-large: resource "logo" http source ${base}/nolen: too-large — 5 bytes arrived and the read was stopped there (the server declared no length), the cap is 2`);
     expect(await refusalOf((await open('text', '/1ay7.pdb', 'structure', { maxBytes: 2 })).snapshot())).toBe(
-      `too-large: resource "structure" http source ${base}/1ay7.pdb: too-large — ${String(PDB.length)} UTF-16 units arrived (the server declared no length), the cap is 2`,
+      `too-large: resource "structure" http source ${base}/1ay7.pdb: too-large — ${String(PDB.length)} UTF-16 units arrived and the read was stopped there (the server declared no length), the cap is 2`,
     );
   });
 
