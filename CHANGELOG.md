@@ -17,8 +17,11 @@
   test by test.
 - A carried row is named by its recorded row, so a replay no longer needs the
   analysis declared to give the row its original name.
-- New in `vizfootprint`'s FDR door: `readLedgerRow`, `ledgerRowDifferences`,
-  `LedgerRowDifference`; in the session door: `ReplayedTests`, `RejudgedTest`.
+- New types on `vizfootprint/session`: `ReplayedTests`, `RejudgedTest`,
+  `LedgerRowDifference`.
+- `compare()` and the fold's diff read a test by its act and p-value. The
+  ledger row beside it is not state: the same test with the same result on two
+  paths is not a change.
 - The check compares rows. It is not a signature: a log whose p-value and row
   were both rewritten consistently passes it.
 

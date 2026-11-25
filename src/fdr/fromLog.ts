@@ -50,6 +50,9 @@
  *
  * `branchId` <- DERIVED from the log's real parent-chain (never a
  * caller-passed label) — see `branchIdFromLog` below.
+ * (That is `hypothesisRecordsFromLog`'s rule. A REPLAY's carried row instead
+ * takes the name and branch label its recorded `ledgerRow` holds, when it
+ * holds one: they are what the test was entered under.)
  */
 
 import { ANALYSIS_VIEW_PREFIX, CHART_VIEW_PREFIX } from '../branches/index.js';
@@ -140,26 +143,16 @@ const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Num
  */
 export function readLedgerRow(value: unknown, pValue: number): FdrStep | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const row = value as { readonly [K in keyof FdrStep]?: unknown };
-  if (!isCount(row.step)) return undefined;
-  if (typeof row.hypothesisId !== 'string' || row.hypothesisId.length === 0) return undefined;
-  if (row.pValue !== pValue) return undefined;
-  if (!isFiniteNumber(row.timestamp) || !isFiniteNumber(row.alphaThreshold)) return undefined;
-  if (!isFiniteNumber(row.wealthBefore) || !isFiniteNumber(row.wealthAfter)) return undefined;
-  if (typeof row.reject !== 'boolean' || typeof row.firstRejection !== 'boolean') return undefined;
-  if (row.branchId !== undefined && typeof row.branchId !== 'string') return undefined;
-  return {
-    step: row.step,
-    hypothesisId: row.hypothesisId,
-    pValue,
-    timestamp: row.timestamp,
-    ...(row.branchId !== undefined ? { branchId: row.branchId } : {}),
-    alphaThreshold: row.alphaThreshold,
-    reject: row.reject,
-    wealthBefore: row.wealthBefore,
-    wealthAfter: row.wealthAfter,
-    firstRejection: row.firstRejection,
-  };
+  // each field is read ONCE, so what is judged is what is returned
+  const { step, hypothesisId, pValue: rowP, timestamp, branchId, alphaThreshold, reject, wealthBefore, wealthAfter, firstRejection } = value as { readonly [K in keyof FdrStep]?: unknown };
+  if (!isCount(step)) return undefined;
+  if (typeof hypothesisId !== 'string' || hypothesisId.length === 0) return undefined;
+  if (rowP !== pValue) return undefined;
+  if (!isFiniteNumber(timestamp) || !isFiniteNumber(alphaThreshold)) return undefined;
+  if (!isFiniteNumber(wealthBefore) || !isFiniteNumber(wealthAfter)) return undefined;
+  if (typeof reject !== 'boolean' || typeof firstRejection !== 'boolean') return undefined;
+  if (branchId !== undefined && typeof branchId !== 'string') return undefined;
+  return { step, hypothesisId, pValue, timestamp, ...(branchId !== undefined ? { branchId } : {}), alphaThreshold, reject, wealthBefore, wealthAfter, firstRejection };
 }
 
 /**

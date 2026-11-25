@@ -1626,13 +1626,17 @@ What it will not pretend:
   ```
 
   Replayed whole into a dashboard configured as the one that made it,
-  `rejudged` is empty. It is not empty when the procedure or its settings
-  differ, when tests are missing from the log, or when a row was edited. The
-  session's ledger holds the computed row either way; `recorded` is what the
-  test really got. Two numbers count as the same when they agree to nine
-  significant digits. The procedure's settings are not written down as such (a
-  custom `gamma` is a function and cannot be); the row is what they produced,
-  and it is the row that is compared.
+  `rejudged` is empty. A test is listed when its computed row's position,
+  threshold, verdict or budget is not the recorded one: another procedure,
+  settings that change a row, tests missing from the log, or one of those four
+  edited. Settings that happen to give the same rows list nothing. The row's
+  name and branch label are TAKEN from the recorded row, not checked, and its
+  clock and first-discovery mark are ignored; an edit to any of those is not
+  reported. The session's ledger holds the computed row either way; `recorded`
+  is what the log says the test got. Two numbers count as the same when they
+  agree to nine significant digits. The procedure's settings are not written
+  down as such (a custom `gamma` is a function and cannot be); the row is what
+  they produced, and it is the row that is compared.
 - **A test with no recorded row cannot be checked, and is listed.** A log
   written before rows were recorded, or a row that cannot be read, puts the
   test's commit id in `tests.unchecked`. Nothing then says its carried row is

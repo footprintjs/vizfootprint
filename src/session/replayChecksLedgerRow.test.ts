@@ -212,6 +212,56 @@ describe('a replay checks each carried row against the recorded one', () => {
   });
 });
 
+describe('the row is not state', () => {
+  it('the same test with the same result on two paths is not a change in compare()', async () => {
+    const s = fresh();
+    await s.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause });
+    const picked = s.log.records.at(-1)!.id;
+    await s.dispatch({ verb: 'analyze', analysisId: 'correlation', cause });
+    const first = s.log.records.at(-1)!.id;
+    s.seek(picked);
+    await s.dispatch({ verb: 'analyze', analysisId: 'correlation', cause });
+    const second = s.log.records.at(-1)!.id;
+    expect(new Set([picked, first, second]).size).toBe(3);
+    // two rows in the budget, at two positions…
+    expect(s.ledger().map((r) => r.step)).toEqual([1, 2]);
+    // …and one state
+    const diff = await s.compare(first, second);
+    expect(diff.ok && diff.changed).toEqual([]);
+  });
+
+  it('a different result on the two paths still is one', async () => {
+    const s = fresh();
+    const first = await s.dispatch({ verb: 'analyze', analysisId: 'correlation', cause });
+    if (!first.ok) throw new Error('fixture');
+    const log = editable(s.log.records);
+    const doctored = { ...log[0]!, id: 'other', value: { ...log[0]!.value, pValue: 0.5 } };
+    const { foldDiff } = await import('../branches/index.js');
+    const diff = foldDiff([...log, doctored] as never, log[0]!.id, 'other');
+    expect(diff.ok && diff.changed.map((c) => c.key)).toEqual(['analysis:correlation']);
+  });
+});
+
+describe('what the check does not see', () => {
+  it('a name edited on the recorded row is taken, not reported', async () => {
+    const source = await original();
+    const log = editable(source.log.records);
+    for (const t of testsOf(log)) t.value.ledgerRow = { ...t.value.ledgerRow!, hypothesisId: 'renamed', timestamp: 99, firstRejection: !t.value.ledgerRow!.firstRejection };
+    const replayed = fresh();
+    const res = await replayed.replay(log as never);
+    expect(res.ok && res.tests.rejudged).toEqual([]);
+    expect(replayed.ledger().map((r) => r.hypothesisId)).toEqual(['renamed', 'renamed']);
+  });
+
+  it('settings that give the same rows list nothing', async () => {
+    const withOmega = (omega: number) => () => buildDashboard({ ...makeDashboardDef(), fdr: { procedure: 'alpha-investing', alpha: 0.05, omega } }).createSession({ as: 'agent' });
+    const source = withOmega(0.05)();
+    for (const id of ['c1', 'c2', 'c3']) expect((await source.proposeChart({ id, spec, claim: 'a claim' })).ok).toBe(true);
+    const res = await withOmega(0.01)().replay(source.log.records);
+    expect(res.ok && res.tests).toMatchObject({ carried: 3, rejudged: [] });
+  });
+});
+
 describe('the one reader of a recorded row', () => {
   const row: FdrStep = { step: 2, hypothesisId: 'h', pValue: 0.2, timestamp: 5, alphaThreshold: 0.01, reject: false, wealthBefore: 0.02, wealthAfter: 0.01, firstRejection: false };
 
@@ -219,6 +269,13 @@ describe('the one reader of a recorded row', () => {
     expect(readLedgerRow({ ...row, note: 'a discovery, trust me', branchId: undefined }, 0.2)).toEqual(row);
     expect(Object.keys(readLedgerRow({ ...row, note: 'x' }, 0.2)!)).not.toContain('note');
     expect(readLedgerRow({ ...row, branchId: 'b1' }, 0.2)).toEqual({ ...row, branchId: 'b1' });
+  });
+
+  it('reads each field once: what it judged is what it returns', () => {
+    let reads = 0;
+    const shifty = { ...row, get step() { reads += 1; return reads === 1 ? 2 : ('evil' as unknown as number); } };
+    expect(readLedgerRow(shifty, 0.2)!.step).toBe(2);
+    expect(reads).toBe(1);
   });
 
   it('refuses nothing loudly: a value that is not a row is no row', () => {
