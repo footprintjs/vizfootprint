@@ -60,3 +60,27 @@ describe('a line sizes its value axis the same way', () => {
     expect(new Set(y).size).toBe(y.length);
   });
 });
+
+describe('what the tighter axis must still say truthfully', () => {
+  it('a zero guide it cannot draw names the axis it drew, not "[0, 0]"', () => {
+    const { container } = render(<VizScatter data={points([[0.001, 1], [0.002, 2]])} width={500} height={300} domain={{ zeroGuide: { x: true } }} />);
+    expect(container.textContent).toContain('its axis runs [0.00095, 0.00205]');
+    expect(container.textContent).not.toContain('[0, 0]');
+  });
+
+  it('a narrow span far from zero: every x label is different', () => {
+    const { container } = render(<VizScatter data={points([[1_700_000_000, 1], [1_700_000_010, 2]])} width={500} height={300} />);
+    const x = ticksOf(container).filter((t) => t.startsWith('17'));
+    expect(x.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(x).size).toBe(x.length);
+  });
+
+  it('very small values: the ticks stand inside the plot and none is called zero', () => {
+    const { container } = render(<VizScatter data={points([[1e-14, 1e-14], [9e-14, 9e-14]])} width={500} height={300} />);
+    expect(ticksOf(container)).not.toContain('0');
+    const xs = [...container.querySelectorAll('text.vzf-tick')].map((t) => Number(t.getAttribute('x')));
+    expect(Math.min(...xs)).toBeGreaterThan(0);
+    expect(Math.max(...xs)).toBeLessThanOrEqual(500);
+  });
+});
+

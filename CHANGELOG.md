@@ -29,12 +29,15 @@
 - Ticks on those axes stand at round values (multiples of 1, 2 or 5 times a
   power of ten) instead of even cuts of the span, and each label is written
   to the step's precision. A −0.5…0.5 axis reads −0.4, −0.2, 0, 0.2, 0.4; it
-  read "−1 0 0 0 1". Large values are written against one unit:
+  read "0 0 0 0 1" on x and "0 0 0 0 0" on y. Large values are written against one unit:
   −3.710M … −3.704M.
 - Every scatter and line with no declared `domain` changes: data in the
   hundreds gets slightly more room than before, tick positions and their
   number change, and a line's labels are no longer rounded to one decimal.
   A declared `domain` keeps its span and is ticked by the new rule.
+- A zero guide that cannot be drawn names its axis to four significant digits.
+  It rounded to a hundredth, which wrote an axis from 0.001 to 0.002 as
+  "[0, 0]".
 - New exports: `roomyExtent`, `roundTicks`, `roundStep`, `stepDecimals`,
   `EXTENT_ROOM`, type `RoundTick`.
 - Not in this change: a left margin that grows with the longest label, and

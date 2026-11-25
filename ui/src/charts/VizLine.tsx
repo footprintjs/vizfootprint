@@ -658,9 +658,8 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const placed = yKind === 'log' ? series.map((s) => ({ ...s, points: s.points.filter((p) => placeable(yKind, p.mean)) })) : series;
   const allMeans = placed.flatMap((s) => s.points);
   const excluded = series.reduce((n, s) => n + s.points.length, 0) - allMeans.length;
-  // the chart's own breathing room, which a LOGARITHMIC axis takes none of (`padFor`); `extentFor` is
-  // LOG-AWARE about an empty `allMeans` (see its own doc) so an all-excluded series gets the
-  // placeholder decade rather than `extent`'s plain [0,1] default read as a real low bound to lift
+  // the chart's own room at each end is a share of the data's span (`roomyExtent`), which a LOGARITHMIC
+  // axis takes none of; that helper is also log-aware about a chart with nothing placeable
   const [vlo, vhi] = domainOr(props.domain?.y, roomyExtent(allMeans, (p) => p.mean, yKind));
   const axes = props.axes ?? true;
   // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its y

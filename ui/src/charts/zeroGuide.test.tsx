@@ -324,9 +324,9 @@ describe('zeroGuideFor — the one owner of the verdict and the words', () => {
     });
   });
 
-  it('spells a bound to a hundredth, so a padded extent reads as a number rather than a float’s tail', () => {
+  it('spells a bound to four significant digits, so a padded extent reads as a number rather than a float’s tail — at any size of axis', () => {
     expect(zeroGuideFor({ channel: 'y', asked: true, domain: [0.10000000000000009, 3.3333333333], place })).toEqual({
-      refused: 'y was asked for a zero guide, but its axis runs [0.1, 3.33] — zero is not a place on it, so there is no line to draw',
+      refused: 'y was asked for a zero guide, but its axis runs [0.1, 3.333] — zero is not a place on it, so there is no line to draw',
     });
   });
 

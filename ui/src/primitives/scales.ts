@@ -538,6 +538,8 @@ export function stepDecimals(step: number): number {
 
 /** More ticks than this is not an axis a person can read; no call may make more. */
 const MAX_TICKS = 100;
+/** The most significant digits a run of ticks may need to be told apart. */
+const MAX_TICK_DIGITS = 13;
 
 /** One tick on a linear axis: where it is, and what it says. */
 export interface RoundTick {
@@ -559,51 +561,74 @@ const SUFFIXES: readonly (readonly [number, string])[] = [
  * WHY multiples of a step, and not `n` even cuts of the span ({@link ticks}):
  * even cuts land wherever the data's extent happens to put them (4.3, 5.8,
  * 7.3), and the labels then have to be rounded to be readable — which is how a
- * −0.5…0.5 axis came to read "−1 0 0 0 1": five different places, rounded to
- * three numbers. A tick at a round value needs no rounding, so its label is
+ * −0.5…0.5 axis came to read "0 0 0 0 1": five different places, rounded to
+ * two numbers. A tick at a round value needs no rounding, so its label is
  * the value.
  *
  * THE LABEL IS WRITTEN TO THE STEP'S PRECISION, the same for every tick on the
  * axis: a step of 0.2 gives one decimal, 0.05 two, 25 none; zero is always
- * "0". Large values are
+ * "0", and only the tick AT zero is. Large values are
  * written against ONE unit for the whole axis (k, M, B, T — the largest one
  * the biggest tick reaches), to the precision the step has in that unit:
  * −3,710,000…−3,704,000 in steps of 2,000 reads −3.710M … −3.704M. An axis
  * whose ticks are all below 10,000 in size is written in full.
  *
- * An empty or flat span has one tick, at the value, written as it is. A span
- * that is not finite has none. A span no round step can index exactly, or one
- * asked for more than a hundred ticks, has two: its ends.
+ * A step finer than a thousandth of the unit, or a magnitude decimals cannot
+ * carry (below a ten-thousandth, from 1e15 up), changes the way of writing
+ * rather than drop digits: in full, or in exponent form with as many digits as it
+ * takes to tell one tick from the next. No two ticks of an axis read alike.
+ *
+ * A flat span has one tick, at the value. A span that is not finite has none.
+ * A span no run of round ticks can honestly cover has two, its ends, written
+ * in full (the function body lists the cases).
  */
 export function roundTicks(lo: number, hi: number, target: number): RoundTick[] {
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [];
   const [a, b] = lo <= hi ? [lo, hi] : [hi, lo];
+  if (a === b) return [{ value: a, label: String(a) }];
   const step = roundStep(b - a, target);
-  if (step === 0) return [{ value: a, label: String(Number(a.toPrecision(6))) }];
   const first = Math.ceil(a / step - 1e-9);
   const count = Math.floor(b / step + 1e-9) - first;
-  // A COUNT, NEVER A WALK TO A BOUND. A span that is tiny beside its own offset (1e16 … 1e16 + 2)
-  // gives indices past the largest exact integer, where adding one changes nothing: a loop that
-  // counted up to `last` would never end. Such a span, and one asked for more ticks than an axis
-  // can hold, is ticked at its two ends.
-  if (!Number.isSafeInteger(first) || !Number.isSafeInteger(first + count) || count < 0 || count > MAX_TICKS) {
-    return [a, b].map((value) => ({ value, label: String(Number(value.toPrecision(6))) }));
+  // how many significant digits it takes to tell one tick from the next
+  const largestBound = Math.max(Math.abs(a), Math.abs(b));
+  const digits = Math.ceil(Math.log10(largestBound / step) + 1e-9) + 1;
+  // THE ENDS, WRITTEN IN FULL, when no honest run of round ticks exists:
+  //  - the span overflowed, or no step could be found for it;
+  //  - A COUNT, NEVER A WALK TO A BOUND: a span tiny beside its own offset (1e16 … 1e16 + 2) gives
+  //    indices past the largest exact integer, where adding one changes nothing, and a loop that
+  //    counted up to the last index would never end;
+  //  - more ticks were asked for than an axis can hold, or no round value lies inside the span;
+  //  - the ticks would differ only past the thirteenth digit: a number here holds fifteen or
+  //    sixteen, and two are kept back so a tick's own rounding stays far below one step.
+  // `String` writes a number so that it reads back as itself: two different ends never read alike.
+  if (!(step > 0) || !Number.isFinite(step) || !Number.isSafeInteger(first) || !Number.isSafeInteger(first + count) || count < 0 || count > MAX_TICKS || digits > MAX_TICK_DIGITS) {
+    return [a, b].map((value) => ({ value, label: String(value) }));
   }
-  const values: number[] = [];
-  for (let i = 0; i <= count; i++) values.push((first + i) * step);
-  // `count >= 0`, so there is a first and a last
-  const largest = Math.max(Math.abs(values[0]!), Math.abs(values[count]!));
-  // from ten thousand up the largest tick reaches a unit: the list ends at a thousand
-  const [unit, suffix] = largest >= 10_000 ? SUFFIXES.find(([size]) => largest >= size)! : ([1, ''] as const);
-  const decimals = stepDecimals(step / unit);
-  return values.map((value) => {
-    const shown = value / unit;
-    // a multiple of the step that should be zero can come out as −0 or 1e-17: zero is zero, and is written "0"
-    if (Math.abs(shown) < 10 ** -(decimals + 1)) return { value: 0, label: '0' };
-    // a step too fine to write out in decimals is written the way the language writes a small number
-    if (decimals > 6) return { value, label: String(Number(value.toPrecision(6))) };
-    return { value, label: `${shown.toFixed(decimals)}${suffix}` };
-  });
+  // a round step is 1, 2 or 5 times a power of ten: its decimals are that power's
+  const power = Math.floor(Math.log10(step) + 1e-9);
+  const decimals = Math.max(0, -power);
+  const largest = Math.max(Math.abs(first), Math.abs(first + count)) * step;
+  // ONE WAY OF WRITING FOR THE WHOLE AXIS, chosen so that neighbouring ticks never read alike:
+  //  - a unit (k, M, B, T) from ten thousand up, when the step is no finer than a thousandth of it;
+  //  - the value in full, to the step's decimals, for an axis whose largest tick is between a
+  //    ten-thousandth and 1e15;
+  //  - otherwise (very small or very large) exponent form, carrying as many digits as it takes to
+  //    tell one tick from the next.
+  const unit = largest >= 10_000 && largest < 1e15 ? SUFFIXES.find(([size]) => largest >= size)! : undefined;
+  const unitDecimals = unit === undefined ? 0 : Math.max(0, Math.log10(unit[0]) - power);
+  const write: (value: number) => string =
+    unit !== undefined && unitDecimals <= 3
+      ? (value) => `${(value / unit[0]).toFixed(unitDecimals)}${unit[1]}`
+      : largest >= 1e-4 && largest < 1e15
+        ? (value) => value.toFixed(decimals)
+        : (value) => value.toExponential(Math.max(0, digits - 1));
+  const ticks: RoundTick[] = [];
+  for (let i = 0; i <= count; i++) {
+    const index = first + i;
+    // the multiple at index zero IS zero, and is written "0" whatever the axis's way of writing
+    ticks.push(index === 0 ? { value: 0, label: '0' } : { value: index * step, label: write(index * step) });
+  }
+  return ticks;
 }
 
 /** The share of its own span a chart leaves empty at each end of an axis it sizes itself. */
@@ -637,8 +662,11 @@ export function roomyExtent<T>(rows: readonly T[], get: (r: T) => number, kind: 
     if (v > hi) hi = v;
   }
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 1];
-  const room = lo === hi ? (lo === 0 ? 1 : Math.abs(lo) * share) : (hi - lo) * share;
-  return [lo - room, hi + room];
+  // a share that is not a share (negative, not a number) is no room; so is room that would overflow
+  const part = share >= 0 && Number.isFinite(share) ? share : 0;
+  const room = lo === hi ? (lo === 0 ? 1 : Math.abs(lo) * part) : (hi - lo) * part;
+  const [from, to] = [lo - room, hi + room];
+  return Number.isFinite(from) && Number.isFinite(to) ? [from, to] : [lo, hi];
 }
 
 /** The shape {@link scaleFor} hands back: the same signature `linearScale` has. */

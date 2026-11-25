@@ -492,7 +492,7 @@ When the host declares no `domain`, a scatter (both axes) and a line (its value 
 
 - **Room is a share of the span** (`roomyExtent`, 5% at each end). It used to be a fixed number of data units, 5 on a scatter's x and 0.5 on its y, which suits data in the hundreds and swamps data near zero: points between −0.5 and 0.5 were drawn on an axis from −5.5 to 5.5, a thin blob in the middle of the plot.
 - **Ticks stand at round values** (`roundTicks`): the multiples of a step of 1, 2 or 5 times a power of ten that lie inside the span. They used to be even cuts of the span, which land wherever the data's extent puts them.
-- **A label is written to the step's precision**, the same for every tick on the axis, and large values against one unit (k, M, B, T). Labels used to be rounded, which is how a −0.5…0.5 axis came to read "−1 0 0 0 1".
+- **A label is written to the step's precision**, the same for every tick on the axis, and large values against one unit (k, M, B, T). No two ticks of an axis read alike: a narrow span far from zero is written in full (1700000000, 1700000002, …), and very small or very large values in exponent form with the digits it takes to tell them apart. Only the tick at zero reads "0". Labels used to be rounded, which is how a −0.5…0.5 axis came to read "0 0 0 0 1".
 
 ```ts
 import { roomyExtent, roundTicks } from 'vizfootprint-ui';
