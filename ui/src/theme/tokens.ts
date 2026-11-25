@@ -140,25 +140,22 @@ function isPlain(value: unknown): value is Readonly<Record<string, unknown>> {
  * began, so that nothing after it is swallowed when a server prints the style
  * attribute as text. The rule is strict on purpose — a reader can check it by
  * eye, and no token needs what it refuses:
- *  - no `;`, `{`, `}`, comment mark or control character anywhere, quoted or not;
+ *  - no `;`, `{`, `}`, backslash, comment mark or control character anywhere,
+ *    quoted or not (a backslash escape can spell any of the others, so the
+ *    rest of the rule could not be trusted with one present);
  *  - every quote closed, every `(` and `[` closed by its own partner, in order;
- *  - no value ends on a backslash;
  *  - `url(` is followed by a quote (CSS reads an unquoted `url(` by other rules
  *    than the ones above, so its contents cannot be judged here).
  */
-const NEVER_IN_A_VALUE = /[;{}\u0000-\u001f\u007f]|\/\*|\*\/|url\(\s*[^"'\s]/i;
+const NEVER_IN_A_VALUE = /[;{}\\\u0000-\u001f\u007f]|\/\*|\*\/|url\(\s*[^"'\s]/i;
 const CLOSES: Readonly<Record<string, string>> = { ')': '(', ']': '[' };
 
 function isOneCSSValue(value: unknown): value is string {
   if (typeof value !== 'string' || value.trim() === '' || NEVER_IN_A_VALUE.test(value)) return false;
   let quote = '';
   const open: string[] = [];
-  for (let i = 0; i < value.length; i += 1) {
-    const c = value[i]!;
-    if (c === '\\') {
-      i += 1; // the escaped character is part of the value, whatever it is
-      if (i >= value.length) return false;
-    } else if (quote !== '') {
+  for (const c of value) {
+    if (quote !== '') {
       if (c === quote) quote = '';
     } else if (c === '"' || c === "'") quote = c;
     else if (c === '(' || c === '[') open.push(c);

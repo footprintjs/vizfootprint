@@ -153,8 +153,8 @@ root.
 ## Limits, stated
 
 - **Token values are host configuration.** Never build one from record content
-  or user input. A value must be one CSS value: a `;`, `{`, `}`, comment
-  mark or control character anywhere, an unclosed quote, an unmatched bracket
+  or user input. A value must be one CSS value: a `;`, `{`, `}`, backslash,
+  comment mark or control character anywhere, an unclosed quote, an unmatched bracket
   or an unquoted `url(` is refused. Nothing
   else about the CSS is checked.
 - **Not every size is a token yet.** Type sizes, most pixel sizes and motion are

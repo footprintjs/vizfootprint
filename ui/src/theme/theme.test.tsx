@@ -203,6 +203,8 @@ describe('tokensToCSSVars', () => {
     ['a separator inside a quote', { fontFamily: { body: '"A;B"' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
     ['an unclosed comment', { colors: { brand: 'red/*' } }, 'token "colors.brand" must be one non-empty CSS value'],
     ['a comment close', { colors: { brand: 'red*/' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['an escape that spells url(', { colors: { brand: 'u\\72l(a")") x' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['an escaped quote', { fontFamily: { body: '"a\\"b"' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
     ['an open square bracket', { colors: { brand: 'x [' } }, 'token "colors.brand" must be one non-empty CSS value'],
     ['a stray closing square bracket', { colors: { brand: 'x ]' } }, 'token "colors.brand" must be one non-empty CSS value'],
     ['brackets closed out of order', { colors: { brand: 'a(b[c)d]' } }, 'token "colors.brand" must be one non-empty CSS value'],
@@ -232,7 +234,6 @@ describe('one CSS value', () => {
   it.each([
     ['a font stack with quotes', { fontFamily: { body: '"Inter", \'Segoe UI\', sans-serif' } }],
     ['nested functions', { colors: { brand: 'color-mix(in srgb, var(--x, rgb(1 2 3)) 40%, white)' } }],
-    ['an escaped quote', { fontFamily: { body: '"a\\"b"' } }],
     ['a bracket inside a quote', { fontFamily: { body: '"a(b"' } }],
     ['a quoted url', { colors: { brand: 'url( "a.png")' } }],
     ['square brackets', { spacing: { md: 'calc(1px * [x])' } }],
