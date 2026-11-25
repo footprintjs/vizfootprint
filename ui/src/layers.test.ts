@@ -19,7 +19,8 @@
  *
  * WHAT THIS DOES NOT CHECK — each is a reviewer's job:
  *  - data logic in a file not named `model.ts`, and a component that imports a
- *    rule from such a file (`scales.ts`, `arrangement.ts`, `rail.ts` …);
+ *    rule from such a file (`scales.ts`, `arrangement.ts`, `rail.ts` …) — also
+ *    one that only re-exports an adapter value: rule 2 does not follow re-exports;
  *  - derivation written inside a component, or inside a hook file beside it;
  *  - colours in the stylesheet (`theme/theme.test.tsx` holds the token rules),
  *    named colours (`'crimson'`) and colours assembled at run time;
@@ -85,8 +86,13 @@ function importsOf(file: Source): Import[] {
 /** The source file a relative specifier names, or undefined for a package or a file that is not source. */
 function resolve(from: Source, specifier: string, files: readonly Source[]): Source | undefined {
   if (!specifier.startsWith('.')) return undefined;
-  const base = path.posix.join(path.posix.dirname(from.name), specifier.replace(/\.js$/, ''));
-  return files.find((f) => f.name === `${base}.ts` || f.name === `${base}.tsx` || f.name === `${base}/index.ts`);
+  const base = path.posix.join(path.posix.dirname(from.name), specifier.replace(/\.(js|ts|tsx)$/, ''));
+  // the compiler's own order, so a `.ts` / `.tsx` pair resolves the same way on every platform
+  for (const name of [`${base}.ts`, `${base}.tsx`, `${base}/index.ts`]) {
+    const hit = files.find((f) => f.name === name);
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
 }
 
 /** One finding: the file and the piece of source that breaks the rule. */
@@ -116,7 +122,10 @@ function reachesOutsideDataLogic(model: Source, files: readonly Source[]): strin
   const queue: [Source, string][] = [[model, model.name]];
   for (let at = 0; at < queue.length; at += 1) {
     const [file, trail] = queue[at]!;
-    for (const { from } of importsOf(file)) {
+    // the model's own imports all count, types included: a model typed against React is shaped for it.
+    // Further out only VALUE imports are followed — a type import loads nothing at run time.
+    for (const { from, bringsValue } of importsOf(file)) {
+      if (file !== model && !bringsValue) continue;
       if (/^react(-dom)?(\/|$)/.test(from)) return `${trail} → ${from}`;
       if (/\.css$/.test(from)) return `${trail} → ${from}`;
       const target = resolve(file, from, files);
@@ -202,6 +211,9 @@ function inlineStyleNumbers(file: Source): Finding[] {
     if (!ts.isJsxAttribute(node) || node.name.getText() !== 'style' || node.initializer === undefined) return;
     walk(node.initializer, (inner) => {
       const number = ts.isNumericLiteral(inner);
+      // a property NAME is not a value: `['--vzf-space-2' as string]: w` sets a token, it writes no number
+      const isName = ts.isPropertyAssignment(inner.parent) ? inner.parent.name === inner : ts.isComputedPropertyName(inner.parent) || (ts.isAsExpression(inner.parent) && ts.isComputedPropertyName(inner.parent.parent));
+      if (isName) return;
       const texty = ts.isStringLiteralLike(inner) || ts.isTemplateHead(inner) || ts.isTemplateMiddle(inner) || ts.isTemplateTail(inner);
       if (number || (texty && /\d/.test(inner.text.replace(/var\(--[a-z0-9-]+\)/g, '')))) found.push([file.name, `writes ${inner.getText().slice(0, 40)} in an inline style`]);
     });
@@ -273,6 +285,10 @@ describe('the checks see what they claim to see', () => {
     expect(reach('h/model.ts')).toBe('h/model.ts → ./look.css');
     // a cycle between pure files ends, and reaches nothing
     expect(reach('i/model.ts')).toBeUndefined();
+    // a type import further out loads nothing at run time; the model's own type import of React still counts
+    const typed = [parse('j/model.ts', "import { a } from './types.ts';"), parse('j/types.ts', "import type { ReactNode } from 'react'; export const a = 1;"), parse('k/model.ts', "import type { ReactNode } from 'react';")];
+    expect(reachesOutsideDataLogic(typed[0]!, typed)).toBeUndefined();
+    expect(reachesOutsideDataLogic(typed[2]!, typed)).toBe('k/model.ts → react');
   });
 
   it('rule 2: values from the adapter by any route; types never', () => {
@@ -310,6 +326,8 @@ describe('the checks see what they claim to see', () => {
     expect(seen('on ? { width: 12 } : undefined')).toBe(1);
     expect(seen('{ height: h2, width, top: scrollTop }')).toBe(0);
     expect(seen("{ gap: 'var(--vzf-space-2)', ['--vzf-tick' as string]: `${tick}px` }")).toBe(0);
+    expect(seen("{ ['--vzf-space-2' as string]: w, ['--vzf-seq-1']: v, '--vzf-surface-2': u }")).toBe(0);
+    expect(seen("{ ['--vzf-space-2' as string]: '4px' }")).toBe(1);
     expect(seen('given')).toBe(0);
   });
 
