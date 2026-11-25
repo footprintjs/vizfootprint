@@ -54,15 +54,19 @@
   number change, and a line's labels are no longer rounded to one decimal.
   A declared `domain` keeps its span and is ticked by the new rule.
 - A drag across a scatter records its two ends rounded to what the axis can
-  show: a hundredth as before for an axis of ten or more, finer for a smaller
+  show: a hundredth for an axis of ten or more (as before, except a value
+  exactly on a half, which now rounds by its true value), finer for a smaller
   one. A drag across an axis from 0 to 0.001 would have recorded [0, 0].
 - A zero guide that cannot be drawn names its axis to four significant digits.
   It rounded to a hundredth, which wrote an axis from 0.001 to 0.002 as
   "[0, 0]".
 - New exports: `roomyExtent`, `roundTicks`, `roundStep`, `stepDecimals`,
+  `roundToAxis`,
   `EXTENT_ROOM`, type `RoundTick`.
 - Not in this change: a left margin that grows with the longest label, and
-  thinning ticks whose labels would touch.
+  thinning ticks whose labels would touch. Until then a long label can be cut
+  off at the left edge ("12345.0010" showing as "345.0010") and long labels
+  on a narrow axis can overlap.
 
 ### Security: a selection value is never written into the recorded SQL unquoted (behaviour change)
 

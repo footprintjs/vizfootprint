@@ -635,8 +635,10 @@ export function roundTicks(lo: number, hi: number, target: number): RoundTick[] 
  * A POINTER'S VALUE ON AN AXIS, rounded to what the axis can show: a hundredth,
  * or a thousandth of the span's own decade when that is finer. A drag across an
  * axis from 0 to 0.001 used to be rounded to a hundredth like every other, and
- * recorded the range [0, 0]. An axis of ten or more is rounded exactly as
- * before, so what a drag records there has not moved.
+ * recorded the range [0, 0]. An axis of ten or more is still rounded to a
+ * hundredth. The one difference there is a value that sits exactly on a half
+ * (2.675): it is now rounded by the number's true value, where the older
+ * arithmetic rounded the product. A pointer's value is practically never one.
  */
 export function roundToAxis(value: number, span: number): number {
   const fine = span > 0 && Number.isFinite(span) ? 3 - Math.floor(Math.log10(span) + 1e-9) : 2;
