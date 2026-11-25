@@ -165,6 +165,21 @@ describe('the rail in explore mode', () => {
     expect(inTabOrder(container)).toEqual(['c7']);
   });
 
+  it('a focused bar the rail stops drawing is forgotten: drawn again, it does not take the stop back', () => {
+    // a second lane off c1; the browser fires no blur when the focused bar is removed
+    const lane = [...LINE.slice(0, 2), commit('x1', 'c1'), commit('x2', 'x1')];
+    const all = [...LINE, lane[2]!, lane[3]!];
+    const { container, rerender } = render(<RawBar commits={all} cursor="c5" head="c39" />);
+    const bar = (id: string): HTMLElement => container.querySelector(`[data-commit="${id}"]`)!;
+    act(() => bar('c5').focus());
+    fireEvent.keyDown(bar('c5'), { key: 'End' });
+    expect(inTabOrder(container)).toEqual(['c39']);
+    rerender(<RawBar commits={all} cursor="x2" head="c39" />); // the rail follows the cursor onto the other lane: c39 is gone
+    expect(inTabOrder(container)).toEqual(['x2']);
+    rerender(<RawBar commits={all} cursor="c2" head="c39" />); // back on the main lane: c39 is drawn again
+    expect(inTabOrder(container)).toEqual(['c2']);
+  });
+
   it('focus moving between two bars of the rail is not leaving it', () => {
     const { container } = render(<RawBar commits={LINE} cursor="c7" head="c39" />);
     const bar = (id: string): HTMLElement => container.querySelector(`[data-commit="${id}"]`)!;

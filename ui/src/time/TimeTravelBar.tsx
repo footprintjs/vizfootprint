@@ -165,6 +165,13 @@ function walkRail(event: KeyboardEvent<HTMLElement>): void {
  */
 function useRailStop(ids: readonly string[], stop: string | null): { tabStop: string | null; onFocus: (e: FocusEvent<HTMLElement>) => void; onBlur: (e: FocusEvent<HTMLElement>) => void } {
   const [focused, setFocused] = useState<string | null>(null);
+  // A focused bar the rail stops drawing is forgotten there and then. A browser fires no blur for
+  // an element that is removed, so without this the old bar would take the stop back the moment
+  // it was drawn again, with the keyboard nowhere near the rail.
+  const gone = focused !== null && !ids.includes(focused);
+  useEffect(() => {
+    if (gone) setFocused(null);
+  }, [gone]);
   return {
     tabStop: railTabStop(ids, focused, stop),
     onFocus: (e) => setFocused(barOf(e.target)?.dataset['railBar'] ?? null),
