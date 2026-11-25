@@ -22,7 +22,7 @@
  * **Two versions never share a file.** A version, a cursor or the PROJECTION
  * that changes between pages refuses the WHOLE export (`reason: 'moved'`) — the
  * same all-or-nothing discipline `README.md`, Law 1 states for acts. Half of one
- * version stapled to half of the next is a file no receipt can address. Two more
+ * version stapled to half of the next is a file no receipt can address. More
  * words refuse it for the same reason (`ExportWalkRefusal`): a page answered at
  * an offset nobody asked for cannot be walked in order (`'misaligned'`), and one
  * answered short of the count it promised cannot be walked to the end
@@ -127,8 +127,8 @@ export interface ExportWindow {
 }
 
 /**
- * The three words the WALK itself mints, when the door refused nothing but the
- * pages cannot be made into one file. A door's own code (`ViewQueryRefusal` over
+ * The words the WALK itself mints, when the door refused nothing but the walk
+ * cannot make one file: three about the pages, one about its own options. A door's own code (`ViewQueryRefusal` over
  * a session, `unreachable` over the sheet's HTTP port) rides through unchanged
  * beside them, which is why `reason` stays a `string` — this union names what
  * THIS file can be the author of.
@@ -269,8 +269,8 @@ function misalignedSentence(page: ExportWindow, offset: number): string | null {
 }
 
 /**
- * Is a row-count option one the walk can use? Omitted (`undefined` or `null`)
- * is the default. Anything else must be a finite number: `NaN` compares false
+ * Is a row-count option one the walk can use? Omitted (`undefined`, and `null`
+ * which `??` treats the same) is the default. Anything else must be a finite number: `NaN` compares false
  * with every count, so the walk would export nothing and the receipt would say
  * it had not truncated; an infinite ceiling is written to JSON as `null`, a
  * receipt naming no ceiling at all.
@@ -278,7 +278,8 @@ function misalignedSentence(page: ExportWindow, offset: number): string | null {
 function optionSentence(name: 'pageRows' | 'rowCeiling', value: unknown): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value === 'number' && Number.isFinite(value)) return null;
-  const shown = typeof value === 'string' ? JSON.stringify(value) : String(value);
+  // never `String(value)` on an object: a value with no usable `toString` would throw, and this file throws for nothing
+  const shown = typeof value === 'number' ? String(value) : typeof value === 'string' ? JSON.stringify(value) : `a value of type ${typeof value}`;
   return `the export option ${name} must be a finite number of rows, and ${shown} is not — nothing was exported`;
 }
 
@@ -290,10 +291,12 @@ function optionSentence(name: 'pageRows' | 'rowCeiling', value: unknown): string
  * cursor that changed between pages. There is no partial export.
  */
 export async function exportWindows(ask: ExportAsk, opts: ExportOptions): Promise<ExportResult> {
-  const badOption = optionSentence('pageRows', opts.pageRows) ?? optionSentence('rowCeiling', opts.rowCeiling);
+  // each option is read ONCE: the value that was judged is the value that is used
+  const { pageRows: givenPageRows, rowCeiling: givenCeiling } = opts;
+  const badOption = optionSentence('pageRows', givenPageRows) ?? optionSentence('rowCeiling', givenCeiling);
   if (badOption !== null) return { ok: false, reason: 'option', rejected: badOption };
-  const pageRows = Math.max(1, Math.trunc(opts.pageRows ?? EXPORT_PAGE_ROWS));
-  const ceiling = Math.max(0, Math.trunc(opts.rowCeiling ?? EXPORT_ROW_CEILING));
+  const pageRows = Math.max(1, Math.trunc(givenPageRows ?? EXPORT_PAGE_ROWS));
+  const ceiling = Math.max(0, Math.trunc(givenCeiling ?? EXPORT_ROW_CEILING));
 
   const first = await ask(0, pageRows);
   if (!first.ok) return { ok: false, reason: first.reason, rejected: first.rejected };

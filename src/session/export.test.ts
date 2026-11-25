@@ -180,11 +180,52 @@ describe('exportWindows — the walk', () => {
     if (res.ok) return;
     expect(res.reason).toBe('option');
     expect(res.rejected).toContain(option);
-    expect(res.rejected).toContain(String(value));
+    // a number is shown bare, a string in quotes — so `"10"` is never mistaken for the number 10
+    expect(res.rejected).toContain(`and ${typeof value === 'string' ? JSON.stringify(value) : String(value)} is not`);
     expect(calls).toEqual([]);
   });
 
-  it('an omitted option is the default, and a finite one is still clamped as before', async () => {
+  it.each([
+    ['a bigint', 10n, 'bigint'],
+    ['a boxed number', new Number(2), 'object'],
+    ['an object with no toString', Object.create(null) as object, 'object'],
+    ['a symbol', Symbol('x'), 'symbol'],
+  ])('names the kind of %s and never throws describing it', async (_case, value, kind) => {
+    const { ask, calls } = makeAsk(5);
+    const res = await exportWindows(ask, { table: 't', format: 'csv', now: pinned, rowCeiling: value as unknown as number });
+    expect(res).toEqual({ ok: false, reason: 'option', rejected: `the export option rowCeiling must be a finite number of rows, and a value of type ${kind} is not — nothing was exported` });
+    expect(calls).toEqual([]);
+  });
+
+  it('reads each option once: the value judged is the value used', async () => {
+    let reads = 0;
+    const opts = {
+      table: 't',
+      format: 'csv' as const,
+      now: pinned,
+      get rowCeiling(): number {
+        reads += 1;
+        return reads === 1 ? 3 : Number.NaN;
+      },
+    };
+    const { ask } = makeAsk(5);
+    const res = await exportWindows(ask, opts);
+    expect(reads).toBe(1);
+    expect(res.ok && res.receipt.exported.rows).toBe(3);
+    expect(res.ok && res.receipt.truncated).toBe(true);
+  });
+
+  it('an omitted option and a null one are both the default', async () => {
+    const { ask, calls } = makeAsk(3);
+    const res = await exportWindows(ask, { table: 't', format: 'csv', now: pinned, pageRows: null as unknown as number, rowCeiling: null as unknown as number });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(calls[0]).toEqual({ offset: 0, limit: EXPORT_PAGE_ROWS });
+    expect(res.receipt.ceiling).toBe(EXPORT_ROW_CEILING);
+    expect(res.receipt.truncated).toBe(false);
+  });
+
+  it('a finite option is still truncated and clamped as before', async () => {
     const { ask } = makeAsk(3);
     const res = await exportWindows(ask, { table: 't', format: 'csv', now: pinned, pageRows: -5, rowCeiling: 2.9 });
     expect(res.ok).toBe(true);
