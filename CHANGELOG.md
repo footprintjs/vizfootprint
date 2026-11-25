@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Correction: an export refuses a row option that is not a number
+
+- `exportWindows` and `exportFromSession` refuse the whole export with
+  `reason: 'option'` when `pageRows` or `rowCeiling` is given and is not a
+  finite number. `rowCeiling: NaN` used to export an empty body under a receipt
+  saying `truncated: false`, and an infinite ceiling was written to the receipt
+  as `null`. Finite values are clamped exactly as before; an omitted option is
+  still the default. `ExportWalkRefusal` gains `'option'`.
+
 ### Migration: required routing port (major)
 
 - Routing now requires a consumer-owned scorer, declared policy and decision;

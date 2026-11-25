@@ -767,13 +767,14 @@ all-or-nothing discipline Law 1 above states for acts: half of one version
 stapled to half of the next is a file no receipt can address, and page 2's rows
 written in page 1's columns would be blank cells under a receipt that names the
 wrong ones. `ExportWalkRefusal` is the whole vocabulary the WALK itself mints —
-three words, beside whatever code the door's own refusal carried:
+four words, beside whatever code the door's own refusal carried:
 
 | `reason` | what happened | the sentence |
 |---|---|---|
 | `'moved'` | the version, the cursor or the projection changed between pages | *the table moved while exporting (version v1 → v2) — export again* |
 | `'misaligned'` | a page answered a window starting somewhere other than where it was asked (a door that ignores `offset`) — the rows cannot be walked in order, and a file of one page repeated is not an export | *the table answered a window starting at row 0 where row 2 was asked for …* |
 | `'short'` | a page answered no rows while rows remained: the end the count promised cannot be reached | *the table answered no rows at offset 2 while 3 of 5 remained — export again* |
+| `'option'` | `pageRows` or `rowCeiling` was given and is not a finite number (`NaN`, an infinity, a string): no page is asked for. `NaN` used to export an empty body under a receipt saying it had not truncated | *the export option rowCeiling must be a finite number of rows, and NaN is not — nothing was exported* |
 
 `EXPORT_ROW_CEILING` (200,000) is a POLICY, not a measurement — a 200k-row ×
 ~10-column file is tens of megabytes of text, the practical size for one

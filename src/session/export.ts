@@ -139,7 +139,9 @@ export type ExportWalkRefusal =
   /** A page answered no rows while rows remained: the end the count promised cannot be reached. */
   | 'short'
   /** A page answered a window starting somewhere other than where it was asked: the rows cannot be walked in order. */
-  | 'misaligned';
+  | 'misaligned'
+  /** `pageRows` or `rowCeiling` was given and is not a finite number: there is no window to ask for, so no page was asked for. */
+  | 'option';
 
 /** A window that was refused: the code to branch on, beside the sentence to show. */
 export interface ExportRefusal {
@@ -267,6 +269,20 @@ function misalignedSentence(page: ExportWindow, offset: number): string | null {
 }
 
 /**
+ * Is a row-count option one the walk can use? Omitted (`undefined` or `null`)
+ * is the default. Anything else must be a finite number: `NaN` compares false
+ * with every count, so the walk would export nothing and the receipt would say
+ * it had not truncated; an infinite ceiling is written to JSON as `null`, a
+ * receipt naming no ceiling at all.
+ */
+function optionSentence(name: 'pageRows' | 'rowCeiling', value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return null;
+  const shown = typeof value === 'string' ? JSON.stringify(value) : String(value);
+  return `the export option ${name} must be a finite number of rows, and ${shown} is not — nothing was exported`;
+}
+
+/**
  * Walk pages of rows into one delimited body, and write the receipt that
  * addresses them.
  *
@@ -274,6 +290,8 @@ function misalignedSentence(page: ExportWindow, offset: number): string | null {
  * cursor that changed between pages. There is no partial export.
  */
 export async function exportWindows(ask: ExportAsk, opts: ExportOptions): Promise<ExportResult> {
+  const badOption = optionSentence('pageRows', opts.pageRows) ?? optionSentence('rowCeiling', opts.rowCeiling);
+  if (badOption !== null) return { ok: false, reason: 'option', rejected: badOption };
   const pageRows = Math.max(1, Math.trunc(opts.pageRows ?? EXPORT_PAGE_ROWS));
   const ceiling = Math.max(0, Math.trunc(opts.rowCeiling ?? EXPORT_ROW_CEILING));
 

@@ -162,6 +162,38 @@ describe('tabularText — the quoting matrix', () => {
 });
 
 describe('exportWindows — the walk', () => {
+  // An option that is not a number of rows used to walk nothing and still say "not truncated":
+  // `Math.max(0, NaN)` is NaN, every comparison with it is false, so the body was empty and the
+  // receipt claimed a complete export of zero rows with a `null` ceiling.
+  it.each([
+    ['rowCeiling', Number.NaN],
+    ['rowCeiling', Number.POSITIVE_INFINITY],
+    ['rowCeiling', Number.NEGATIVE_INFINITY],
+    ['rowCeiling', '10'],
+    ['pageRows', Number.NaN],
+    ['pageRows', Number.POSITIVE_INFINITY],
+    ['pageRows', '5'],
+  ] as const)('refuses the whole export when %s is %s, before any page is asked for', async (option, value) => {
+    const { ask, calls } = makeAsk(25);
+    const res = await exportWindows(ask, { table: 't', format: 'csv', now: pinned, [option]: value as unknown as number });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.reason).toBe('option');
+    expect(res.rejected).toContain(option);
+    expect(res.rejected).toContain(String(value));
+    expect(calls).toEqual([]);
+  });
+
+  it('an omitted option is the default, and a finite one is still clamped as before', async () => {
+    const { ask } = makeAsk(3);
+    const res = await exportWindows(ask, { table: 't', format: 'csv', now: pinned, pageRows: -5, rowCeiling: 2.9 });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.receipt.exported).toEqual({ start: 0, rows: 2 });
+    expect(res.receipt.truncated).toBe(true);
+    expect(res.receipt.ceiling).toBe(2);
+  });
+
   it('walks three pages, asks each with the offset it reached, and stops at the count', async () => {
     const { ask, calls } = makeAsk(7);
     const res = await exportWindows(ask, { table: 'cells', format: 'csv', pageRows: 3, now: pinned });
