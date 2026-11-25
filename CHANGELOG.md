@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Correction: a `why` answer carries what the record could not establish
+
+- `why()`'s kernel tier gains `kernel.limits` (`KernelSliceLimits`): whether a
+  budget cut the slice, how reads were known and counted, which commits took
+  untracked input, which read a value from before the run, how many edges are
+  only possible sources, and the record reader's own notes. The answer used to
+  keep the commit ids and drop all of it, so a cut or partly-blind chain looked
+  complete.
+- `flags.kernelSliceComplete` is `true` only when a kernel slice resolved and
+  the reader reported none of the above.
+- Both fields are additive. An answer that was already complete gains an empty
+  `limits` and `kernelSliceComplete: true`.
+
 ### Correction: an export refuses a row count it cannot trust
 
 - A data door's `count` that is not a whole, non-negative number of rows refuses

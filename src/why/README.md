@@ -118,6 +118,41 @@ Two consequences worth stating plainly:
 
 The whole chain stays **synchronous**: judging this needs no engine and no `await`, because a definition is a declaration.
 
+## The kernel chain says where its proof stops
+
+`kernel.commitIds` is the chain the record can prove. `kernel.limits` is what
+the record reader reported it could **not** establish about that chain, and
+`flags.kernelSliceComplete` is `true` only when it reported nothing.
+
+Why: the reader (foottrace's slice) is careful about its own gaps. It says when
+a budget cut the slice, when a step took input the run did not track, when a
+value came from before the run, and when an edge is only a possible source.
+`why()` used to keep the commit ids and drop all of that, so a cut or
+partly-blind chain came back as a clean list. A view never shows more certainty
+than the record holds, so the answer now carries every one of them.
+
+```ts
+const answer = why({ kind: 'column', column: 'rowCount' }, sources);
+if (answer.ok && answer.kernel) {
+  answer.kernel.commitIds;        // ['count#3', 'filter#2', 'load#0']
+  answer.kernel.limits.untracked; // [{ commitId: 'load#0', sources: ['args'] }]
+  answer.flags.kernelSliceComplete; // false: the chain ends at an input nobody tracked
+}
+```
+
+| `limits` field | what it means for the chain |
+|---|---|
+| `truncated` | a budget cut the slice: commits upstream of the cut are missing |
+| `readsKind`, `readsCoverage` | how the reads behind the edges were known, and how many steps had any; `null` coverage means nobody counted |
+| `untracked` | a commit took input the run did not track (`args`, `env`, `silent`); what came in through it is not in the chain |
+| `preRun` | a commit read, or built on, a value from before the run; no commit in the chain wrote it |
+| `uncertainEdges` | edges that are possible sources, not certain ones |
+| `notes` | the reader's own statements, verbatim |
+
+Nothing here is inferred by this library, and nothing the reader reported is
+left out. A consumer that shows the chain must show an incomplete one as
+incomplete.
+
 ## What it cannot yet explain
 
 - **A chart the agent PROPOSED.** `ChartView.commitId` names the proposal that minted a chart, and nothing here reads it: `why({kind:'chart'})` answers about a chart the *definition* declared, shaped by acts. Asking why an agent's own chart exists — which proposal, under which words, accepted by whom — is the next gap.
