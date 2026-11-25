@@ -15,6 +15,24 @@
   no background, so a dark theme on a light page needs a surface that paints
   the theme's paper.
 
+### UI: the time-travel rail is one keyboard stop
+
+- Every bar on the rail was a tab stop. The rail is now one: Tab lands on the
+  cursor's bar, Left/Right/Home/End move along the bars without travelling,
+  and Enter or Space goes to the bar. Present mode's bookmark rail does the
+  same.
+- A bar's spoken name says where it stands: `step 3 of 40: #c2 select c2`,
+  with `bookmarked` and `now` when they apply (it was `#c2 select c2`). The
+  cursor's bar carries `aria-current="step"`. Code that finds a bar by its
+  exact `aria-label` must change; `data-commit` is unchanged.
+- While the keyboard is inside the rail the tab stop is the focused bar, so
+  Tab leaves the rail in one press; outside it the stop is the cursor's again.
+  Arrow keys with Alt, Ctrl or Meta are left to the browser.
+- Present mode: when the cursor stands on no bookmark and has none behind it,
+  no bookmark is marked as the current step (the first one was).
+- `timeTravelModel`: `explore.stop`, `RailBar.position` and `.of`,
+  `PresentStop.position` and `.of`. New exports: `railKeyTarget`, `railTabStop`.
+
 ### Security: the web source stops reading at its size limit
 
 - `httpSource` read a whole body into memory and compared its size with
