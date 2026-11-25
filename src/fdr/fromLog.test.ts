@@ -111,6 +111,10 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
     const session = new CauseSelectionSession();
     session.commit({ id: 'note', parent: null, viewId: 'annotation:user', actorMeta: { actor: 'user' }, kind: 'point', field: 'pValue', value: 'look at this column', cause: { requestedBy: 'user', computedBy: 'user' } });
     session.commit({ id: 'layout', parent: 'note', viewId: 'layout:dashboard', actorMeta: { actor: 'user' }, kind: 'point', field: 'pValue', value: 'x', cause: { requestedBy: 'user', computedBy: 'user' } });
+    // a lane is a PREFIX: an arrangement scoped to something called `analysis:x` is still an arrangement
+    session.commit({ id: 'scoped', parent: 'layout', viewId: 'layout:analysis:x', actorMeta: { actor: 'user' }, kind: 'point', field: 'pValue', value: 'x', cause: { requestedBy: 'user', computedBy: 'user' } });
+    // and a commit in a test lane that is not a point commit declares no test
+    session.commit({ id: 'range', parent: 'scoped', viewId: 'analysis:corr', actorMeta: { actor: 'user' }, kind: 'interval', field: 'pValue', value: [0, 1], cause: { requestedBy: 'user', computedBy: 'user' } });
     expect(testEmissionsFromLog(session.records)).toEqual({ hypotheses: [], unreadable: [] });
   });
 
