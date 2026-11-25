@@ -104,7 +104,7 @@ interface ReportedSlice {
       }
     >
   >;
-  readonly edges?: readonly { readonly overlap?: unknown }[];
+  readonly edges?: readonly { readonly overlap?: unknown; readonly basis?: unknown }[];
   readonly truncated?: { readonly byDepth: boolean; readonly byNodes: boolean };
   readonly notes?: readonly { readonly code: string; readonly detail: string }[];
 }
@@ -129,14 +129,32 @@ export function sliceLimits(json: ReportedSlice): KernelSliceLimits {
     readsCoverage: json.readsCoverage !== undefined ? { steps: json.readsCoverage.steps, stepsWithReads: json.readsCoverage.stepsWithReads } : null,
     untracked,
     preRun,
-    uncertainEdges: (json.edges ?? []).filter((e) => e.overlap !== undefined).length,
+    // `overlap`: a possible source. `basis`: the edge rests on nested rows, so the reader of the key may not
+    // have read the part that changed. (`builtOn` is exact by the reader's own account, so it is not counted.)
+    uncertainEdges: (json.edges ?? []).filter((e) => e.overlap !== undefined || e.basis !== undefined).length,
     notes: (json.notes ?? []).map((n) => ({ code: n.code, detail: n.detail })),
   };
 }
 
-/** Did the reader report nothing it could not establish? */
-export function sliceIsComplete(limits: KernelSliceLimits): boolean {
-  return limits.truncated === null && limits.readsCoverage !== null && limits.untracked.length === 0 && limits.preRun.length === 0 && limits.uncertainEdges === 0 && limits.notes.length === 0;
+/**
+ * Did the reader report anything it could not establish?
+ *
+ * A run where NO step had a recorded read counts: the reader then cannot see
+ * any dependency (its own formatter prints "reads were not recorded …
+ * dependencies below are unknowable, NOT absent"), and every caveat that
+ * depends on reads disappears with them — so zero coverage is the only sign
+ * left. Some steps without reads is not a limit: a step may simply read nothing.
+ */
+export function sliceHasLimits(limits: KernelSliceLimits): boolean {
+  return (
+    limits.truncated !== null ||
+    limits.readsCoverage === null ||
+    limits.readsCoverage.stepsWithReads === 0 ||
+    limits.untracked.length > 0 ||
+    limits.preRun.length > 0 ||
+    limits.uncertainEdges > 0 ||
+    limits.notes.length > 0
+  );
 }
 
 /**

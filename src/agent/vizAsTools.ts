@@ -198,7 +198,9 @@ const WHY_DESCRIPTION =
   'what it shows (the last commit that shaped it, plus every reaching clause with its response, ' +
   'binding, arrangement, link edit and the act that computed each derived column it draws — an ' +
   'untouched chart answers declared-in-def). Tiers that were not threaded come back as typed misses, ' +
-  'never faked.';
+  'never faked. When a kernel chain is returned, kernel.limits says where its proof stops (cut by a ' +
+  'budget, reads not recorded, untracked input, a value from before the run, uncertain edges) and ' +
+  'flags.kernelLimitsReported is true when any applies: report such a chain as partial, never as complete.';
 
 const FORK_DESCRIPTION =
   'Travel back: move the read-only cursor to a prior commit id and rebuild the visible selection there. ' +

@@ -7,13 +7,15 @@
 - `why()`'s kernel tier gains `kernel.limits` (`KernelSliceLimits`): whether a
   budget cut the slice, how reads were known and counted, which commits took
   untracked input, which read a value from before the run, how many edges are
-  only possible sources, and the record reader's own notes. The answer used to
-  keep the commit ids and drop all of it, so a cut or partly-blind chain looked
-  complete.
-- `flags.kernelSliceComplete` is `true` only when a kernel slice resolved and
-  the reader reported none of the above.
-- Both fields are additive. An answer that was already complete gains an empty
-  `limits` and `kernelSliceComplete: true`.
+  not certain, and the record reader's own notes. The answer used to keep the
+  commit ids and drop all of it, so a cut or partly-blind chain looked complete.
+- `flags.kernelLimitsReported` is `true` when the reader reported any of those,
+  including a run where no reads were recorded. `false` means none was
+  reported; it is not a claim that the chain is complete.
+- Reading an answer is unaffected. Code that BUILDS a `CrossTierSlice` or a
+  `WhyFlags` by hand must add the two fields.
+- The `viz.why` tool's description tells the agent to report a chain with
+  limits as partial.
 
 ### Correction: an export refuses a row count it cannot trust
 
