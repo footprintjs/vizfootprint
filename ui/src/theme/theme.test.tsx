@@ -36,7 +36,7 @@ function rulesOf(css: string, media = ''): Rule[] {
       if (media === '' && /^@(media|supports|container)/.test(prelude)) rules.push(...rulesOf(body, prelude));
     } else {
       const declares: Record<string, string> = {};
-      for (const m of body.matchAll(/(--vzf-[a-z0-9-]+)\s*:\s*([^;]+);/g)) declares[m[1]!] = m[2]!.trim();
+      for (const m of body.matchAll(/(--vzf-[a-z0-9-]+)\s*:\s*([^;}]+)/g)) declares[m[1]!] = m[2]!.trim();
       rules.push({ selector: prelude.replace(/\s+/g, ' '), media, declares });
     }
     at = close;
@@ -47,9 +47,10 @@ function rulesOf(css: string, media = ''): Rule[] {
 const RULES = rulesOf(CSS);
 const W = ':where(.vzf, .vzf-theme)';
 const ROOT_RULE = `${W}:not(${W} *)`;
-const DARK_AUTO_RULE = `${W}:not([data-theme="light"]):not(${W} *)`;
-const DARK_RULE = `${W}[data-theme="dark"]`;
-const LIGHT_RULE = `${W}[data-theme="light"]`;
+const DARK_AUTO_RULE = `${W}:where(:not([data-theme="light"])):not(${W} *)`;
+const DARK_RULE = `${W}:where([data-theme="dark"])`;
+const LIGHT_RULE = `${W}:where([data-theme="light"])`;
+const DARK_PREFERENCE = '@media (prefers-color-scheme: dark)';
 
 function declared(selector: string, media = ''): Readonly<Record<string, string>> {
   const found = RULES.filter((r) => r.selector === selector && r.media === media);
@@ -109,7 +110,7 @@ describe('the token table and the stylesheet agree', () => {
 
   it('the two dark rules declare exactly what the dark preset changes, and the automatic one only under a dark preference', () => {
     expect(Object.keys(darkChanges).length).toBeGreaterThan(0);
-    expect(declared(DARK_AUTO_RULE, '@media (prefers-color-scheme: dark)')).toEqual(darkChanges);
+    expect(declared(DARK_AUTO_RULE, DARK_PREFERENCE)).toEqual(darkChanges);
     expect(declared(DARK_RULE)).toEqual(darkChanges);
   });
 
@@ -117,21 +118,33 @@ describe('the token table and the stylesheet agree', () => {
     expect(declared(LIGHT_RULE)).toEqual(lightOfThose);
   });
 
-  it('no other rule declares a token: a component that did would reset its ancestor\u2019s theme', () => {
-    const themeRules = new Set([ROOT_RULE, DARK_AUTO_RULE, DARK_RULE, LIGHT_RULE]);
-    const elsewhere = RULES.filter((r) => !themeRules.has(r.selector)).flatMap((r) => Object.keys(r.declares).filter((name) => tokenVars.includes(name)).map((name) => `${r.selector} declares ${name}`));
-    expect(elsewhere).toEqual([]);
+  it('a token is declared in the four theme rules and nowhere else in the stylesheet', () => {
+    // counted over the WHOLE stylesheet, not over the rules the parser recognised: a declaration
+    // inside `@layer`, a nested at-rule, `@keyframes`, or a copy of a theme rule in another
+    // at-rule would reset an ancestor's theme, and none of them is one of the four rules below
+    const everywhere = [...CSS.matchAll(/(--vzf-[a-z0-9-]+)\s*:/g)].map((m) => m[1]!).filter((name) => tokenVars.includes(name));
+    const inThemeRules = [declared(ROOT_RULE), declared(DARK_AUTO_RULE, DARK_PREFERENCE), declared(DARK_RULE), declared(LIGHT_RULE)].flatMap((rule) => Object.keys(rule));
+    expect(everywhere.sort()).toEqual(inThemeRules.sort());
   });
 
-  it('the theme rules carry no specificity of their own beyond the mode attribute, so a host rule wins', () => {
-    // `:where()` is zero specificity; nothing in these selectors names a class outside it
+  it('the theme rules have zero specificity: every part of each selector sits in :where', () => {
+    const outsideWhere = (selector: string): string => {
+      let rest = selector;
+      for (let before = ''; before !== rest; ) {
+        before = rest;
+        rest = rest.replace(/:where\([^()]*(\([^()]*\)[^()]*)*\)/g, '');
+      }
+      return rest;
+    };
     for (const selector of [ROOT_RULE, DARK_AUTO_RULE, DARK_RULE, LIGHT_RULE]) {
-      expect(selector.replaceAll(W, '').replace(/\[data-theme="(light|dark)"\]/g, '')).toMatch(/^(:not\(( \*)?\))*$/);
+      expect(outsideWhere(selector)).toMatch(/^(:not\( \*\))?$/);
     }
   });
 
-  it('a theme wrapper takes no box', () => {
-    expect(CSS.replace(/\s+/g, ' ')).toContain(':where(.vzf-theme) { display: contents; }');
+  it('a theme wrapper takes no box, and only one rule says so', () => {
+    const wrapperRules = RULES.filter((r) => /(^|[^-\w])\.vzf-theme(?![-\w])/.test(r.selector.replaceAll(W, '')));
+    expect(wrapperRules.map((r) => [r.selector, r.media])).toEqual([['.vzf-theme', '']]);
+    expect(CSS.replace(/\s+/g, ' ')).toContain('.vzf-theme { display: contents; }');
   });
 
   it('a token that follows another has no declaration and carries its fallback at every read', () => {
@@ -190,6 +203,13 @@ describe('tokensToCSSVars', () => {
     ['a separator inside a quote', { fontFamily: { body: '"A;B"' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
     ['an unclosed comment', { colors: { brand: 'red/*' } }, 'token "colors.brand" must be one non-empty CSS value'],
     ['a comment close', { colors: { brand: 'red*/' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['an open square bracket', { colors: { brand: 'x [' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['a stray closing square bracket', { colors: { brand: 'x ]' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['brackets closed out of order', { colors: { brand: 'a(b[c)d]' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['an unquoted url', { colors: { brand: 'url(a")") x' } }, 'token "colors.brand" must be one non-empty CSS value'],
+    ['a carriage return inside a quote', { fontFamily: { body: '"a\rb"' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
+    ['a form feed inside a quote', { fontFamily: { body: '"a\fb"' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
+    ['a tab', { fontFamily: { body: 'a\tb' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
     ['a comment inside a function', { colors: { brand: 'rgb(1 2 3 /* x */)' } }, 'token "colors.brand" must be one non-empty CSS value'],
     ['an open quote', { fontFamily: { body: '"Inter' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
     ['a newline inside a quote', { fontFamily: { body: '"In\nter"' } }, 'token "fontFamily.body" must be one non-empty CSS value'],
@@ -214,6 +234,9 @@ describe('one CSS value', () => {
     ['nested functions', { colors: { brand: 'color-mix(in srgb, var(--x, rgb(1 2 3)) 40%, white)' } }],
     ['an escaped quote', { fontFamily: { body: '"a\\"b"' } }],
     ['a bracket inside a quote', { fontFamily: { body: '"a(b"' } }],
+    ['a quoted url', { colors: { brand: 'url( "a.png")' } }],
+    ['square brackets', { spacing: { md: 'calc(1px * [x])' } }],
+    ['an alpha slash', { colors: { brand: 'rgb(1 2 3 / 50%)' } }],
   ])('accepts %s', (_case, tokens) => {
     expect(Object.keys(tokensToCSSVars(tokens as ThemeTokens))).toHaveLength(1);
   });

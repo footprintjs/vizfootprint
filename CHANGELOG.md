@@ -18,7 +18,7 @@
   A nested `data-theme` re-declares only the tokens that differ between light
   and dark.
 - The theme rules have zero specificity, so a host rule naming `.vzf` now wins
-  whatever the load order.
+  whatever the load order and whichever mode is in force.
 - `--vzf-zero` and `--vzf-map-empty` have no default declaration. They are read
   with a fallback to `--vzf-ink-faint` and `--vzf-surface-2`. A host that read
   either property itself must add the same fallback; `EMPTY_FILL` is exported
@@ -47,6 +47,7 @@ Migration:
 4. `applyTheme(el, config)` becomes setting each entry of
    `tokensToCSSVars(tokens)` with `el.style.setProperty`, and setting the
    element's `data-theme` attribute yourself when you force a mode.
+
 ### Correction: an export refuses a row option that is not a number
 
 - `exportWindows` and `exportFromSession` refuse the whole export with

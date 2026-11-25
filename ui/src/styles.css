@@ -30,9 +30,9 @@
 /* THE THEME ROOT. Every token is declared ONCE, on the OUTERMOST `.vzf` or
    `.vzf-theme` element, and everything beneath inherits — so a themed ancestor
    (`<VizTheme>`, a host's own rule, a themed cockpit) reaches every component
-   inside it, and a nested `.vzf` re-declares nothing over it. The rule has ZERO
-   specificity (`:where`), so any host rule that names `.vzf` or `.vzf-theme`
-   wins whatever the load order. The values are the `slateLight` preset's
+   inside it, and a nested `.vzf` re-declares nothing over it. This rule and the
+   three mode rules below have ZERO specificity (every part sits in `:where`), so
+   any host rule that names `.vzf` or `.vzf-theme` wins whatever the load order. The values are the `slateLight` preset's
    (`src/theme/presets.ts`); `theme.test.tsx` holds the two equal. */
 :where(.vzf, .vzf-theme):not(:where(.vzf, .vzf-theme) *) {
   /* ── neutrals (light) ───────────────────────────────────── */
@@ -144,7 +144,7 @@
 }
 
 /* a theme wrapper takes no box: it only declares tokens for what it wraps */
-:where(.vzf-theme) {
+.vzf-theme {
   display: contents;
 }
 
@@ -159,7 +159,7 @@
 
 /* ── dark tokens: OS-auto (unless a light override is stamped) … ── */
 @media (prefers-color-scheme: dark) {
-  :where(.vzf, .vzf-theme):not([data-theme="light"]):not(:where(.vzf, .vzf-theme) *) {
+  :where(.vzf, .vzf-theme):where(:not([data-theme="light"])):not(:where(.vzf, .vzf-theme) *) {
     --vzf-paper: #0b0f16;
     --vzf-surface: #131924;
     --vzf-surface-2: #1a2231;
@@ -196,7 +196,7 @@
 }
 
 /* … and the explicit override wins in BOTH directions. */
-:where(.vzf, .vzf-theme)[data-theme="dark"] {
+:where(.vzf, .vzf-theme):where([data-theme="dark"]) {
   --vzf-paper: #0b0f16;
   --vzf-surface: #131924;
   --vzf-surface-2: #1a2231;
@@ -234,7 +234,7 @@
 /* A FORCED LIGHT element re-declares the same tokens the dark rules change, at
    their light values — and nothing else, so an ancestor's brand, fonts and
    radii survive a forced mode in either direction. */
-:where(.vzf, .vzf-theme)[data-theme="light"] {
+:where(.vzf, .vzf-theme):where([data-theme="light"]) {
   --vzf-paper: #f5f7fa;
   --vzf-surface: #ffffff;
   --vzf-surface-2: #eef2f7;

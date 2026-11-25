@@ -137,18 +137,22 @@ function isPlain(value: unknown): value is Readonly<Record<string, unknown>> {
 
 /**
  * Is `value` ONE CSS value? It must be a non-empty string that ends where it
- * began: no `;`, `{`, `}` or comment mark anywhere (inside a quoted string
- * too — the stricter rule is the one a reader can check by eye), every quote
- * closed and every bracket matched. An open quote, bracket or comment would
- * swallow the declarations after it when a server prints the style attribute
- * as text.
+ * began, so that nothing after it is swallowed when a server prints the style
+ * attribute as text. The rule is strict on purpose — a reader can check it by
+ * eye, and no token needs what it refuses:
+ *  - no `;`, `{`, `}`, comment mark or control character anywhere, quoted or not;
+ *  - every quote closed, every `(` and `[` closed by its own partner, in order;
+ *  - no value ends on a backslash;
+ *  - `url(` is followed by a quote (CSS reads an unquoted `url(` by other rules
+ *    than the ones above, so its contents cannot be judged here).
  */
-const NEVER_IN_A_VALUE = /[;{}]|\/\*|\*\//;
+const NEVER_IN_A_VALUE = /[;{}\u0000-\u001f\u007f]|\/\*|\*\/|url\(\s*[^"'\s]/i;
+const CLOSES: Readonly<Record<string, string>> = { ')': '(', ']': '[' };
 
 function isOneCSSValue(value: unknown): value is string {
   if (typeof value !== 'string' || value.trim() === '' || NEVER_IN_A_VALUE.test(value)) return false;
   let quote = '';
-  let depth = 0;
+  const open: string[] = [];
   for (let i = 0; i < value.length; i += 1) {
     const c = value[i]!;
     if (c === '\\') {
@@ -156,15 +160,13 @@ function isOneCSSValue(value: unknown): value is string {
       if (i >= value.length) return false;
     } else if (quote !== '') {
       if (c === quote) quote = '';
-      else if (c === '\n') return false;
     } else if (c === '"' || c === "'") quote = c;
-    else if (c === '(') depth += 1;
-    else if (c === ')') {
-      depth -= 1;
-      if (depth < 0) return false;
+    else if (c === '(' || c === '[') open.push(c);
+    else if (c === ')' || c === ']') {
+      if (open.pop() !== CLOSES[c]) return false;
     }
   }
-  return quote === '' && depth === 0;
+  return quote === '' && open.length === 0;
 }
 
 const refuse = (what: string): never => {

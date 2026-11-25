@@ -17,9 +17,14 @@ consumer to change.
   defaults on itself, so a themed cockpit did not theme a sheet placed inside it.
 - **A forced mode changes the ground, not the brand.** An element that stamps
   `data-theme` re-declares only the tokens that differ between light and dark.
-  The brand, fonts, radii and spacing of an ancestor's theme survive it.
-- **The theme rules have zero specificity.** They are written with `:where()`,
-  so any host rule that names `.vzf` or `.vzf-theme` wins, whatever the load order.
+  The brand, fonts, radii and spacing of an ancestor's theme survive it. The
+  tokens that do differ are reset to the shipped values: the ground, ink and
+  lines, the accent tints, `agentDeep`, `onAgent`, `clay`, the ramp, the
+  shadows and the glass. To keep your own, restate them on the forced element:
+  `<VizTheme mode="dark" tokens={{ colors: accentColors('brand', x, 'dark') }}>`.
+- **The theme rules have zero specificity.** Every part of their selectors sits
+  in `:where()`, so any host rule that names `.vzf` or `.vzf-theme` wins,
+  whatever the load order and whichever mode is in force.
 - **Two tokens follow another.** `colors.zero` follows `inkFaint` and
   `colors.mapEmpty` follows `surfaceRaised` (`FOLLOWING_TOKENS`). They have no
   value by default and are read with a fallback, so they track their source
@@ -106,13 +111,20 @@ const compact = mergeTokens(slateLight, { spacing: { md: '12px', lg: '16px' } })
 
 ## Plain CSS, no React
 
-The provider is a convenience. A rule that sets a property on a theme root
-(`.vzf` or `.vzf-theme`) does the same thing, and wins over the stylesheet
-whatever the load order.
+The provider is a convenience. Put a class of your own on the outermost theme
+root and set the properties there. It wins over the stylesheet whatever the
+load order, and nested themes still override it.
+
+```html
+<div class="vzf-theme my-theme">…the components…</div>
+```
 
 ```css
-.my-app .vzf-theme, .my-app .vzf { --vzf-brand: #0a7d5a; }
+.my-theme { --vzf-brand: #0a7d5a; }
 ```
+
+A rule that names `.vzf` itself (`.my-app .vzf { … }`) also works, but it
+matches every nested component root too, so it overrides an inner `<VizTheme>`.
 
 A property set on an element ABOVE the outermost theme root does not reach the
 components: the root declares every default on itself. Wrap the subtree in
@@ -141,8 +153,9 @@ root.
 ## Limits, stated
 
 - **Token values are host configuration.** Never build one from record content
-  or user input. A value must be one CSS value: a `;`, `{`, `}` or comment
-  mark anywhere, an unclosed quote or an unmatched bracket is refused. Nothing
+  or user input. A value must be one CSS value: a `;`, `{`, `}`, comment
+  mark or control character anywhere, an unclosed quote, an unmatched bracket
+  or an unquoted `url(` is refused. Nothing
   else about the CSS is checked.
 - **Not every size is a token yet.** Type sizes, most pixel sizes and motion are
   still written in the stylesheet. `COMPONENT_VARS` in `theme.test.tsx` lists
@@ -152,5 +165,10 @@ root.
   user, ok and danger fills, and on the dark theme's agent fill, is below it.
   These are the values the library already shipped; this layer names them and
   does not change them.
+- **The wrapper's `display: contents` is one class rule.** A host rule that
+  sets `display` on the same element with equal or higher specificity changes it.
+- **`accentColors` and the presets can disagree on ink.** Over the shipped
+  user, ok and danger bases the helper picks the dark ink, which has the higher
+  contrast; the presets keep the white the library already shipped.
 - **Host global rules still leak in.** The scoping is zero-specificity, as the
   package README explains.
