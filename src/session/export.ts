@@ -19,14 +19,16 @@
  * not, so this rides the `session` barrel). The UI's whole job is to place a
  * form beside the grid and hand the files somewhere.
  *
- * **Two versions never share a file.** A version, a cursor or the PROJECTION
- * that changes between pages refuses the WHOLE export (`reason: 'moved'`) — the
+ * **Two versions never share a file.** A version, a cursor, the PROJECTION or
+ * the COUNT that changes between pages refuses the WHOLE export (`reason: 'moved'`) — the
  * same all-or-nothing discipline `README.md`, Law 1 states for acts. Half of one
  * version stapled to half of the next is a file no receipt can address. More
  * words refuse it for the same reason (`ExportWalkRefusal`): a page answered at
- * an offset nobody asked for cannot be walked in order (`'misaligned'`), and one
- * answered short of the count it promised cannot be walked to the end
- * (`'short'`).
+ * an offset nobody asked for, or with more rows than were asked for, cannot be
+ * walked in order (`'misaligned'`); one answered short of the count it promised
+ * cannot be walked to the end (`'short'`); a count that is not a whole number of
+ * rows, or does not cover the door's own rows, cannot be stated (`'count'`); and
+ * a row option that is not a number leaves no window to ask for (`'option'`).
  *
  * **No cell may abort an export.** `cellString` names every value shape a row can
  * hold and throws for none — an invalid `Date`, a nested `BigInt` and a circular
@@ -135,11 +137,11 @@ export interface ExportWindow {
  * THIS file can be the author of.
  */
 export type ExportWalkRefusal =
-  /** A version, a cursor or the projection changed between pages: two shapes never share a file. */
+  /** A version, a cursor, the projection or the count changed between pages: two shapes never share a file. */
   | 'moved'
   /** A page answered no rows while rows remained: the end the count promised cannot be reached. */
   | 'short'
-  /** A page answered a window starting somewhere other than where it was asked: the rows cannot be walked in order. */
+  /** A page answered a window starting somewhere other than where it was asked, or holding more rows than were asked for: the rows cannot be walked in order. */
   | 'misaligned'
   /** `pageRows` or `rowCeiling` was given and is not a finite number: there is no window to ask for, so no page was asked for. */
   | 'option'
@@ -241,7 +243,7 @@ const label = (value: string | null): string => value ?? 'none';
 function countSentence(count: unknown): string | null {
   if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) return null;
   const shown = typeof count === 'number' ? String(count) : `a value of type ${typeof count}`;
-  return `the table answered a count of ${shown}, which is not a whole number of rows — nothing was exported`;
+  return `the table answered a count of ${shown}, which is not a whole number of rows this file can state exactly — nothing was exported`;
 }
 
 /**
@@ -343,6 +345,10 @@ export async function exportWindows(ask: ExportAsk, opts: ExportOptions): Promis
     const limit = Math.min(pageRows, target - offset);
     const page = await ask(offset, limit);
     if (!page.ok) return { ok: false, reason: page.reason, rejected: page.rejected };
+    // a later page's count is judged by the same rule as the first, BEFORE it is compared: a count
+    // of NaN or "10" is a bad count, not a table that moved
+    const badPageCount = countSentence(page.count);
+    if (badPageCount !== null) return { ok: false, reason: 'count', rejected: badPageCount };
     const moved = movedSentence(first, page);
     if (moved !== null) return { ok: false, reason: 'moved', rejected: moved };
     const elsewhere = misalignedSentence(page, offset, limit);

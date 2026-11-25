@@ -414,7 +414,7 @@ describe('exportWindows — the walk', () => {
   ])('refuses a count that is %s, and never reads it as an empty view', async (_case, count, shown) => {
     const { ask, calls } = makeAsk(5, { onPage: { 0: { count } } });
     const res = await exportWindows(ask, { table: 'cells', format: 'csv', pageRows: 2, now: pinned });
-    expect(res).toEqual({ ok: false, reason: 'count', rejected: `the table answered a count of ${shown}, which is not a whole number of rows — nothing was exported` });
+    expect(res).toEqual({ ok: false, reason: 'count', rejected: `the table answered a count of ${shown}, which is not a whole number of rows this file can state exactly — nothing was exported` });
     expect(calls).toHaveLength(1);
   });
 
@@ -447,6 +447,29 @@ describe('exportWindows — the walk', () => {
       reason: 'misaligned',
       rejected: 'the table answered 5 rows where at most 2 were asked for — the rows cannot be walked in order',
     });
+  });
+
+  it.each([
+    ['through the ceiling', { pageRows: 4, rowCeiling: 6 }, 2],
+    ['through the remainder', { pageRows: 4 }, 2],
+  ])('refuses a TAIL page holding more rows than its smaller limit, %s', async (_case, opts, limit) => {
+    // the last window is smaller than a page; a door that always answers a full page would push rows past the ceiling or the count
+    const all = Array.from({ length: 10 }, (_, i) => ({ id: i, name: `r${i}` }));
+    const count = 'rowCeiling' in opts ? 10 : 6;
+    const { ask, calls } = makeAsk(count, { onPage: { 1: { rows: all.slice(4, 8) } } });
+    const res = await exportWindows(ask, { table: 'cells', format: 'csv', now: pinned, ...opts });
+    expect(calls[1]).toEqual({ offset: 4, limit });
+    expect(res).toEqual({ ok: false, reason: 'misaligned', rejected: `the table answered 4 rows where at most ${limit} were asked for — the rows cannot be walked in order` });
+  });
+
+  it.each([
+    ['NaN', Number.NaN, 'NaN'],
+    ['a string that looks equal', '10' as unknown as number, 'a value of type string'],
+    ['an object with no toString', Object.create(null) as unknown as number, 'a value of type object'],
+  ])('a LATER page whose count is %s is a bad count, not a table that moved', async (_case, laterCount, shown) => {
+    const { ask } = makeAsk(10, { onPage: { 1: { count: laterCount } } });
+    const res = await exportWindows(ask, { table: 'cells', format: 'csv', pageRows: 2, now: pinned });
+    expect(res).toEqual({ ok: false, reason: 'count', rejected: `the table answered a count of ${shown}, which is not a whole number of rows this file can state exactly — nothing was exported` });
   });
 
   it('a first page larger than the ceiling is still cut to the ceiling, and the receipt says it truncated', async () => {

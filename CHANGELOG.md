@@ -13,8 +13,8 @@
   like a changed version or cursor.
 - A page holding more rows than were asked for refuses the export with
   `reason: 'misaligned'`. It used to be cut to fit.
-- `ExportWalkRefusal` gains `'count'`. A door that answered honest windows is
-  unaffected.
+- `ExportWalkRefusal` gains `'count'`. A door that answers the window it was
+  asked for, with a count that covers it, is unaffected.
 
 ### Correction: an export refuses a row option that is not a number
 
