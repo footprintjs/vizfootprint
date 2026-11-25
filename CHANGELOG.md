@@ -7,14 +7,21 @@
 - `session.replay(log)` used to start the replayed session with the full error
   budget although the log held tests. The next test was then judged as the
   first, at the loosest threshold: saving and replaying handed out a fresh
-  budget. The recorded test results are now fed through the budget in arrival
-  order, every branch counted, without running any test again. The replayed
-  session stands where the one that made the log stood.
+  budget. The recorded p-values are now fed through the budget in arrival
+  order, every branch counted, without running any test again.
+- Replayed into the dashboard that made the log, the session stands where the
+  original stood. The rows are computed by the replaying session: the log does
+  not record the procedure, its settings or the original verdicts, so a
+  dashboard configured differently gives its own verdicts for the same p-values.
 - `ReplayResult` gains `tests: { carried, unreadable }`. A test whose record
-  cannot be read is entered at p = 1 (it spends budget and can never be a
-  discovery) and listed in `unreadable` with a reason.
-- `why({ kind: 'hypothesis' }).fdr` is now present on a replayed session, as it
-  is on the one that ran the test.
+  cannot be read is entered at p = 1 and listed in `unreadable` with a reason.
+  That is the cautious side under LORD++ and is not guaranteed to be under
+  alpha-investing.
+- `why({ kind: 'hypothesis' }).fdr` is now present on a replayed session for a
+  test the replay re-performs (one that also wrote a column or a table).
+- An analysis that is not declared as a test can no longer report a test
+  result: `analyze` rejects. It used to spend a budget step with no test commit
+  behind it, which no replay could account for.
 - A consumer that relied on a replayed session having an empty ledger
   (`overview().fdr.tests === 0`) must stop: that was the fault.
 

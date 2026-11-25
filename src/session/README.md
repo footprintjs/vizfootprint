@@ -1011,8 +1011,11 @@ prose and open proposals — at the same cursor.
 **What may legitimately differ**, and why none of them is a fold: wall-clock
 stamps (a replay happens later, by definition); `cause.replayed`, which a
 replay ADDS and is the honest marker of the second run; HEAD, which is where
-the walker is standing rather than what the fold says; the FDR and gap ledgers,
-which are session-local records of what this walker asked for; and the stores
+the walker is standing rather than what the fold says; the gap ledger, which is
+a session-local record of what this walker asked for and did not get; the
+`timestamp` of an FDR ledger row, which is the session's own clock (the rows
+themselves are carried by `session.replay` — law 6, "The error budget comes
+with the log"); and the stores
 beside the log (saved pictures, bookmarks, the data journal), which live on the
 dashboard and have their own persistence doors.
 
@@ -1333,7 +1336,7 @@ with what a person would see if a row were missing:
 | `activeProse`, `activeProposals` | yes, re-seeded from the def's words first | correct |
 | the derived-column registry (`runtime.derived`) | **not rebuilt — resolved** | correct, and better. It is a dashboard-scoped store; `derivedAt` resolves a name against `branchPath(cursor)` on every read. Visibility falls out of resolution rather than being a second mechanism beside it ([`../data/README.md`](../data/README.md), rule 3). Rebuilding it would be a second copy of the same truth. |
 | the effective-encoding memo, the `fits` memo | **not rebuilt — self-invalidating** | correct. Each is keyed by a `JSON.stringify` of exactly what it depends on (`activeEncodings`, `activeLinks`, the facets). `rebuildFold` replaces those, the key changes, the memo recomputes. Clearing them too would be belt-and-braces on a key that is already the belt. |
-| the FDR ledger (`_ledger`) | **not rebuilt, on purpose** | a session-local record of what THIS walker asked for. Alpha is spent when a test is run, not when its commit is in front of you; the ledger counts every test including those on archived paths, which is the whole point of an online-FDR budget. Rebuilding it per cursor would refund alpha by walking away — the one thing the procedure must never do. Already stated under Law 3 as a legitimate walk/replay difference. |
+| the FDR ledger (`_ledger`) | **not rebuilt, on purpose** | a session-local record of what THIS walker asked for. Alpha is spent when a test is run, not when its commit is in front of you; the ledger counts every test including those on archived paths, which is the whole point of an online-FDR budget. Rebuilding it per cursor would refund alpha by walking away — the one thing the procedure must never do. A REPLAY is different: it is a beginning, not a walk, and it carries the ledger from the log (law 6). |
 | the gap ledger (`gapLedger`) | **not rebuilt, on purpose** | likewise session-local: a record of what this walker asked for and did not get, including asks that landed nothing at all and so have no position. Already stated under Law 3. |
 | the chart register (`_charts`) | **not rebuilt, on purpose — a third session-local record** | a proposal spends ledger budget the moment it is made, so a chart carries `ledgered: true` and a `ledgerStep`. If `charts()` hid a chart when you walked to another path, the ledger would still be charging you for a claim you could no longer see. It belongs on the same side of the line as `_ledger`, and it is named here because it is the one row of this table that could plausibly have gone either way. Its `view.commitId` names the moment the claim was made — and `overview().charts` now CARRIES that moment (`commitId`) plus `onPath`, whether it is on the branch you are standing on, so a reader can tell a claim about now from one made somewhere this position never saw. Listed, never hidden; disclosed, never concealed. `adoptPath` skips a chart commit for the matching reason: a proposal is re-proposed, never replayed. |
 | the `why` provenance maps (`whyByColumn`, `whyByAnalysisId`) | **not rebuilt — resolved, like the derived registry** | keyed by SLOT and by analysis id, and read through `slotForColumn` / `provenanceForAnalysis`, which resolve at a position. `whyByAnalysisId` used to be a last-wins slot, which is the bug this law names: run `correlation` on two branches and both branches answered with whichever ran last, ledger row and all. It is a list now, and the resolver applies the law `slotForColumn` already stated — the run on your branch, else the only run there has ever been, else no answer. |
@@ -1604,16 +1607,36 @@ session.ledger().length;                      // 2 — the next test is step 3, 
 
 What it will not pretend:
 
+- **The verdicts are this dashboard's.** The log records the p-values. It does
+  not record the procedure, its settings, or the verdict each test got. The
+  carried rows are computed by the replaying session from the p-values, so in
+  the dashboard that made the log they are the original rows, and in a
+  dashboard configured differently they are what that configuration says of the
+  same p-values. A log made under LORD++ and replayed under alpha-investing can
+  show a discovery the original never made. Recording the row on the test's own
+  commit, so a replay can check it, is the next step and is not done yet.
 - **A test whose record cannot be read still spent budget.** Its p-value is
   unknown, so it is entered at p = 1: it costs what a test costs and can never
-  be a discovery, which can only make later thresholds stricter. It is listed in
-  `tests.unreadable` with the reason, so a consumer can say "N tests in this
-  history could not be read".
+  be a discovery. It is listed in `tests.unreadable` with the reason, so a
+  consumer can say "N tests in this history could not be read". Under **LORD++**
+  that is the cautious side: raising a p-value can never add a discovery or
+  loosen a later threshold. Under **alpha-investing** it is not guaranteed to
+  be — that procedure's wealth is not monotone in the p-values — and no fixed
+  value would be.
 - **A carried row's `timestamp` is this session's own clock**, not the
   original's. The log does not record that clock, and no threshold depends on it.
-- **A carried row is named as the original was only when this session declares
-  the analysis.** The hypothesis name comes from the analysis's own declaration;
-  for an analysis the session does not declare, the row goes under the act's id.
+- **A carried row's name and branch label come from this session.** The
+  hypothesis name is read from the analysis this session declares under the
+  act's id (the act's id itself when it declares none). An analysis declared
+  twice under one id, a module that named its own hypothesis, and a `branchId`
+  are not reproduced: the log does not record them.
+- **`why({ kind: 'hypothesis' }).fdr` comes back only for a test the replay
+  re-performs** (one that also wrote a column or a table). A plain-statistic
+  test is carried into the ledger and is still not answerable by `why` on the
+  replayed session, as before.
+- **Charts are charged and not shown.** A chart claim's budget is carried, but
+  `charts()` is not rebuilt by a replay, so the replayed session holds a ledger
+  row for a chart it does not list.
 
 The rebuild table under Law 5 still holds: travelling to another cursor never
 rebuilds the ledger, because walking away must not refund budget. A replay is

@@ -1287,11 +1287,20 @@ class InteractionSessionImpl implements InteractionSession {
    * order, and write the ledger rows. Called once, by `replay`, on a session
    * that holds nothing yet.
    *
+   * The rows are COMPUTED HERE, by this session's procedure and settings, from
+   * the recorded p-values: the log records neither the settings it was made
+   * under nor the verdicts it got. Replayed into the dashboard that made it,
+   * the rows are the original's. Replayed into one configured differently they
+   * are what THAT configuration says of the same p-values — see the README.
+   *
    * A test whose record cannot be read still happened and still spent budget.
    * Its p-value is unknown, so it is entered at p = 1: it costs what a test
-   * costs and can never be a discovery — the same rule an untested chart claim
-   * enters on, and the side that can only make later thresholds stricter. It
-   * is returned in `unreadable` so the caller can say so.
+   * costs and can never be a discovery — the rule an untested chart claim
+   * enters on. Under LORD++ that is the cautious side: raising a p-value can
+   * never add a discovery or loosen a later threshold. Under alpha-investing
+   * it is NOT guaranteed cautious (that procedure's wealth is not monotone in
+   * the p-values), and no fixed value would be. It is returned in `unreadable`
+   * so the caller can say so.
    */
   private carryErrorBudget(records: readonly CommitRecord[]): { readonly steps: Map<string, FdrStep>; readonly unreadable: UnreadableTest[] } {
     const steps = new Map<string, FdrStep>();
@@ -5103,6 +5112,9 @@ class InteractionSessionImpl implements InteractionSession {
         related,
         timestamp: ++this.testClock,
         sink: (h) => {
+          // only a declared test lands a test commit; a result from anything else would spend a
+          // step the log has no record of, and a replay of that log would stand looser than this session
+          if (analysis.kind !== 'test') refuse(`reported a test result, but is declared as "${analysis.kind}", not as a test`);
           if (hypothesis !== undefined) refuse('reported a second test result — one declared test has one result');
           if (!isPValue(h.pValue)) refuse(`reported the p-value ${String(h.pValue)} — a p-value is a finite number in [0,1]`);
           hypothesis = h;

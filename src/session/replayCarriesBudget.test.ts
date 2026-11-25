@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildDashboard } from '../def/index.js';
+import type { AnalysisModule } from '../analysis/index.js';
 import type { FdrStep } from '../fdr/index.js';
 import { makeDashboardDef } from './dashboard.fixture.js';
 
@@ -72,18 +73,21 @@ describe('replay carries the error budget', () => {
     expect(row(onReplay).wealthBefore).not.toBe(row(onFirst).wealthBefore);
   });
 
-  it('counts the tests of every branch, in the order they were made', async () => {
+  it('counts the tests of every branch, in the order they were made — an abandoned branch included', async () => {
     const source = fresh();
-    const a = await source.declareAnalysis('correlation');
-    await source.dispatch(analyze('regression'));
-    // travel back and test again: a second branch, a second test
-    await source.dispatch({ verb: 'fork', fromCommitId: a.commit!.id, cause });
-    await source.dispatch(analyze('correlation'));
+    const root = await source.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: 'Formal', cause });
+    if (!root.ok) throw new Error('the fixture select was refused');
+    // a test on a branch…
+    await source.declareAnalysis('correlation');
+    // …then travel back to before it and test again: the first test now sits on a branch the cursor has left
+    await source.dispatch({ verb: 'fork', fromCommitId: root.commit!.id, cause });
+    await source.declareAnalysis('correlation');
     expect(source.branches().length).toBeGreaterThan(1);
+    expect((await source.overview()).time.cursorTests).toBe(1);
+    expect(source.ledger()).toHaveLength(2);
 
     const replayed = fresh();
     const res = await replayed.replay(source.log.records);
-    expect(source.ledger()).toHaveLength(2); // one test on each branch
     expect(res.ok && res.tests.carried).toBe(2);
     expect(money(replayed.ledger())).toEqual(money(source.ledger()));
   });
@@ -142,6 +146,17 @@ describe('a carried row is named as the row it replaces was', () => {
     expect((await without.overview()).fdr.wealth).toBe((await source.overview()).fdr.wealth);
   });
 
+  it('a test whose analysis the log itself declares is named by that declaration, on a session that declares nothing', async () => {
+    // the declaration rides on the test's own commit, so it must be registered BEFORE the budget is carried
+    const source = fresh();
+    const made = await source.dispatch({ verb: 'analyze', analysisId: 'c1', def: { builtin: 'correlation', x: 'price', y: 'rating', id: 'named-by-its-record' }, cause });
+    expect(made.ok).toBe(true);
+    expect(source.ledger()[0]!.hypothesisId).toBe('named-by-its-record');
+    const replayed = fresh(); // declares no `c1`
+    await replayed.replay(source.log.records);
+    expect(replayed.ledger().map((r) => r.hypothesisId)).toEqual(['named-by-its-record']);
+  });
+
   it('an unreadable test made under a correlation id is named by it', async () => {
     const source = fresh();
     await source.declareAnalysis('correlation', { correlationId: 'call-9' });
@@ -169,7 +184,80 @@ describe('a test the log holds and nobody can read', () => {
     // it costs what a test costs, and can never be a discovery
     expect(replayed.ledger()[0]).toMatchObject({ step: 1, pValue: 1, reject: false, hypothesisId: test.id });
     expect(replayed.ledger()).toHaveLength(source.ledger().length);
-    // entering it at p = 1 can only leave less to spend than the original had, never more
+    // under LORD++ (this fixture's procedure) raising a p-value can never leave more to spend
+    expect(res.overview.fdr.procedure).toBe('LORD++');
     expect(res.overview.fdr.wealth).toBeLessThanOrEqual((await source.overview()).fdr.wealth);
+  });
+});
+
+describe('what a carried budget does not claim', () => {
+  const investing = () => buildDashboard({ ...makeDashboardDef(), fdr: { procedure: 'alpha-investing', alpha: 0.05 } }).createSession({ as: 'agent' });
+
+  it('the verdicts are the replaying dashboard\u2019s: the log records p-values, not the settings it was made under', async () => {
+    // one log, two dashboards. The rows are computed where the log is replayed.
+    const source = fresh();
+    await source.declareAnalysis('correlation');
+    const same = fresh();
+    const other = investing();
+    await same.replay(source.log.records);
+    await other.replay(source.log.records);
+    expect(money(same.ledger())).toEqual(money(source.ledger()));
+    expect(other.ledger()).toHaveLength(1);
+    expect(other.ledger()[0]!.pValue).toBe(source.ledger()[0]!.pValue);
+    // a different procedure judges the same p-value at its own threshold
+    expect(other.ledger()[0]!.alphaThreshold).not.toBe(source.ledger()[0]!.alphaThreshold);
+    expect((await other.overview()).fdr.procedure).toBe('alpha-investing');
+  });
+
+  it('an unreadable test is entered at p = 1 under alpha-investing too, with no claim that it is the cautious side', async () => {
+    const source = investing();
+    await source.declareAnalysis('correlation');
+    const log = structuredClone(source.log.records) as unknown as { id: string; field: string; value: unknown }[];
+    log.find((r) => r.field === 'pValue')!.value = 0.0001;
+    const replayed = investing();
+    const res = await replayed.replay(log as never);
+    expect(res.ok && res.tests.unreadable).toHaveLength(1);
+    expect(replayed.ledger()[0]).toMatchObject({ pValue: 1, reject: false });
+  });
+
+  it('a plain-statistic test is carried into the ledger and is still not answerable by why on the replay', async () => {
+    const source = fresh();
+    await source.declareAnalysis('correlation');
+    expect(source.why({ kind: 'hypothesis', analysisId: 'correlation' }).ok).toBe(true);
+    const replayed = fresh();
+    await replayed.replay(source.log.records);
+    expect(replayed.ledger()).toHaveLength(1);
+    expect(replayed.why({ kind: 'hypothesis', analysisId: 'correlation' })).toMatchObject({ ok: false, missing: 'no-such-target' });
+  });
+
+  it('a chart claim is charged and not listed', async () => {
+    const source = fresh();
+    const chart = await source.proposeChart({ id: 'pr', spec, claim: 'price relates to rating' });
+    expect(chart.ok).toBe(true);
+    const replayed = fresh();
+    await replayed.replay(source.log.records);
+    expect(replayed.ledger()).toHaveLength(1);
+    expect(replayed.charts()).toEqual([]);
+  });
+});
+
+describe('only a declared test spends budget', () => {
+  it('an analysis declared as something else cannot report a test result', async () => {
+    // it used to spend a step with no test commit behind it, which no replay could account for
+    const def = makeDashboardDef();
+    const real = def.analyses!['regression'] as AnalysisModule;
+    expect(real.kind).not.toBe('test');
+    const reporting: AnalysisModule = {
+      ...real,
+      run: async (input, opts) => {
+        const result = await real.run(input, opts);
+        opts?.sink?.({ hypothesisId: 'sneaked', pValue: 0.5, timestamp: 1 });
+        return result;
+      },
+    };
+    const s = buildDashboard({ ...def, analyses: { ...def.analyses, regression: reporting } }).createSession({ as: 'agent' });
+    await expect(s.dispatch(analyze('regression'))).rejects.toThrow(`reported a test result, but is declared as "${real.kind}", not as a test`);
+    expect(s.ledger()).toEqual([]);
+    expect(s.log.records).toEqual([]);
   });
 });

@@ -468,10 +468,18 @@ export type ReplayResult =
        * through this session's budget in the order it arrived, WITHOUT being run
        * again, so the session stands where the one that made the log stood.
        *
+       * The carried rows are computed by THIS session's procedure and settings
+       * from the recorded p-values. The log records neither the settings it was
+       * made under nor the verdicts it got, so a log replayed into a dashboard
+       * configured differently gets that dashboard's verdicts, which may differ
+       * from the original's.
+       *
        * `unreadable` lists the test commits whose result could not be read. Each
        * was entered at p = 1 — it costs what a test costs and can never be a
-       * discovery — and is counted in `carried`. A consumer that states an error
-       * rate over a replayed session must say how many of these there are.
+       * discovery — and is counted in `carried`. Under LORD++ that is the
+       * cautious side; under alpha-investing it is not guaranteed to be. A
+       * consumer that states an error rate over a replayed session must say how
+       * many of these there are.
        */
       readonly tests: { readonly carried: number; readonly unreadable: readonly UnreadableTest[] };
       /** How many gaps this replay filed — one per act it could not re-perform. */
