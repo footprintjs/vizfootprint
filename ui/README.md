@@ -1177,6 +1177,8 @@ hand-bound run over a real two-table session that proves the loop closes.
 
 ## The layers (each importable alone)
 
+The package is being split into four layers: **theme** (design tokens), **components** (render only), a **door** per feature (the interface a component calls, and its adapter) and **data logic** (pure functions, no React). `src/layers.test.ts` reads the source and fails when a file crosses a layer: a model that imports React, a component that imports a data rule, a literal colour anywhere outside the theme, or a literal size in an inline style. Features are converted one at a time; the test lists the files not converted yet, and a list only shrinks. The theme (`theme/`) and the time-travel bar (`time/`) are the first two.
+
 | module | job |
 |---|---|
 | `theme/` | the typed design tokens (`ThemeTokens`, `TOKEN_VARS`), the shipped themes (`slateLight`, `slateDark`) and `<VizTheme>` — replace the theme as a whole, override part of it, or set the same `--vzf-*` properties in plain CSS. Tokens are declared on the OUTERMOST `.vzf` / `.vzf-theme` (never `:root`), so a themed ancestor reaches every component inside it; light+dark via `prefers-color-scheme` with a `data-theme` override that wins both ways. See [`src/theme/README.md`](src/theme/README.md) |
