@@ -11,8 +11,9 @@
  * `.vzf`, so the wrapper carries that class too: a chart, a panel or a sheet
  * placed inside `<VizTheme>` and nothing else is styled and laid out. It used
  * to carry only `vzf-theme`, which declared the tokens and matched none of the
- * component rules — a chart inside it had no layout and drew nothing unless
- * the host also wrote `className="vzf"` somewhere above it. Being a root also
+ * component rules — a chart inside it was drawn unstyled (no axis lines, the
+ * browser's default ticks, no frame layout) unless the host also wrote
+ * `className="vzf"` somewhere above it. Being a root also
  * means what it wraps inherits the theme's ink and type, as under any `.vzf`.
  */
 import type { ReactNode } from 'react';
