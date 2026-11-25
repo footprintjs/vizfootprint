@@ -47,6 +47,7 @@ Migration:
 4. `applyTheme(el, config)` becomes setting each entry of
    `tokensToCSSVars(tokens)` with `el.style.setProperty`, and setting the
    element's `data-theme` attribute yourself when you force a mode.
+
 ### Correction: an export refuses a row count it cannot trust
 
 - A data door's `count` that is not a whole, non-negative number of rows refuses
