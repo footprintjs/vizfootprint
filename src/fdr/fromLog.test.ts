@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CauseSelectionSession } from '../log/index.js';
-import { hypothesisRecordsFromLog, branchIdFromLog, testActOf } from './fromLog.js';
+import { hypothesisRecordsFromLog, testEmissionsFromLog, branchIdFromLog, testActOf } from './fromLog.js';
 
 /** The test lane's value: the ACT (which analysis, over which table) and the p it made. */
 const act = (pValue: unknown, over = 'data'): unknown => ({ id: 'corr', table: over, pValue });
@@ -77,19 +77,52 @@ describe('hypothesisRecordsFromLog — L1 CommitRecord -> HypothesisRecord', () 
     expect(hypothesisRecordsFromLog(session.records)[0]!.hypothesisId).toBe('test-only-id');
   });
 
-  it('an out-of-range or non-numeric "pValue" value is NOT read as a test emission (honest skip, not a fabricated record)', () => {
+  // A commit on the reserved field whose value cannot be read used to be skipped like a brush.
+  // The stream was then short by a test that had run, and nothing said so.
+  it.each([
+    ['a p-value above 1', act(1.5), 'bad-p-value'],
+    ['a p-value that is NaN', act(Number.NaN), 'bad-p-value'],
+    ['a negative p-value', act(-0.01), 'bad-p-value'],
+    ['a p-value that is a string', act('0.01'), 'bad-p-value'],
+    ['the bare number this lane used to carry', 0.01, 'not-an-act'],
+    ['null', null, 'not-an-act'],
+    ['an array', [0.01], 'not-an-act'],
+    ['an act with no analysis id', { table: 'data', pValue: 0.01 }, 'unnamed-act'],
+    ['an act with an empty table', { id: 'corr', table: '', pValue: 0.01 }, 'unnamed-act'],
+    // the first reason wins: an act that cannot be named is not judged on its p-value
+    ['an unnamed act with a bad p-value', { id: '', table: 'data', pValue: 2 }, 'unnamed-act'],
+  ])('%s is never a hypothesis, and is counted as a test nobody can read', (_case, value, reason) => {
+    for (const lane of ['analysis:corr', 'chart:c1']) check(lane, value, reason);
+  });
+
+  function check(lane: string, value: unknown, reason: string): void {
     const session = new CauseSelectionSession();
-    session.commit({
-      id: 'weird',
-      parent: null,
-      viewId: 'analysisPanel',
-      actorMeta: { actor: 'system' },
-      kind: 'point',
-      field: 'pValue',
-      value: act(1.5), // out of [0,1]
-      cause: { requestedBy: 'agent', computedBy: 'system' },
-    });
-    expect(hypothesisRecordsFromLog(session.records)).toEqual([]);
+    session.commit({ id: 'ok', parent: null, viewId: 'analysisPanel', actorMeta: { actor: 'system' }, kind: 'point', field: 'pValue', value: act(0.02), cause: { requestedBy: 'agent', computedBy: 'system' } });
+    session.commit({ id: 'weird', parent: 'ok', viewId: lane, actorMeta: { actor: 'system' }, kind: 'point', field: 'pValue', value, cause: { requestedBy: 'agent', computedBy: 'system' } });
+    const read = testEmissionsFromLog(session.records);
+    expect(read.hypotheses.map((h) => h.hypothesisId)).toEqual(['ok']);
+    expect(read.unreadable).toEqual([{ commitId: 'weird', reason }]);
+    // the stream alone cannot say a test was left out
+    expect(hypothesisRecordsFromLog(session.records)).toEqual(read.hypotheses);
+  }
+
+  it('a commit that only NAMES the reserved field, outside a test lane, is not a test that ran', () => {
+    // a note about a column called `pValue`, and an arrangement value: both are point commits on that field
+    const session = new CauseSelectionSession();
+    session.commit({ id: 'note', parent: null, viewId: 'annotation:user', actorMeta: { actor: 'user' }, kind: 'point', field: 'pValue', value: 'look at this column', cause: { requestedBy: 'user', computedBy: 'user' } });
+    session.commit({ id: 'layout', parent: 'note', viewId: 'layout:dashboard', actorMeta: { actor: 'user' }, kind: 'point', field: 'pValue', value: 'x', cause: { requestedBy: 'user', computedBy: 'user' } });
+    // a lane is a PREFIX: an arrangement scoped to something called `analysis:x` is still an arrangement
+    session.commit({ id: 'scoped', parent: 'layout', viewId: 'layout:analysis:x', actorMeta: { actor: 'user' }, kind: 'point', field: 'pValue', value: 'x', cause: { requestedBy: 'user', computedBy: 'user' } });
+    // and a commit in a test lane that is not a point commit declares no test
+    session.commit({ id: 'range', parent: 'scoped', viewId: 'analysis:corr', actorMeta: { actor: 'user' }, kind: 'interval', field: 'pValue', value: [0, 1], cause: { requestedBy: 'user', computedBy: 'user' } });
+    expect(testEmissionsFromLog(session.records)).toEqual({ hypotheses: [], unreadable: [] });
+  });
+
+  it('a brush is not a test and is not an unreadable one either', () => {
+    const session = new CauseSelectionSession();
+    session.commit({ id: 'brush', parent: null, viewId: 'B', actorMeta: { actor: 'user' }, kind: 'interval', field: 'pValue', value: [0, 1], cause: { requestedBy: 'user', computedBy: 'user' } });
+    session.commit({ id: 'pick', parent: 'brush', viewId: 'B', actorMeta: { actor: 'user' }, kind: 'point', field: 'category', value: 'Ops', cause: { requestedBy: 'user', computedBy: 'user' } });
+    expect(testEmissionsFromLog(session.records)).toEqual({ hypotheses: [], unreadable: [] });
   });
 
   it('an UNFORKED linear chain gets NO branch label (nothing to disambiguate)', () => {
