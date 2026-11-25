@@ -68,6 +68,19 @@ Migration:
 4. `applyTheme(el, config)` becomes setting each entry of
    `tokensToCSSVars(tokens)` with `el.style.setProperty`, and setting the
    element's `data-theme` attribute yourself when you force a mode.
+### Correction: an export refuses a row count it cannot trust
+
+- A data door's `count` that is not a whole, non-negative number of rows refuses
+  the export with `reason: 'count'`. It used to be read as 0, so the receipt
+  said the view was empty and the file complete while the door had delivered
+  rows. A fractional count used to be rounded down, dropping rows silently.
+- A count smaller than the rows the door itself answered is refused the same way.
+- A count that changes between pages refuses the export with `reason: 'moved'`,
+  like a changed version or cursor.
+- A page holding more rows than were asked for refuses the export with
+  `reason: 'misaligned'`. It used to be cut to fit.
+- `ExportWalkRefusal` gains `'count'`. A door that answers the window it was
+  asked for, with a count that covers it, is unaffected.
 
 ### Correction: an export refuses a row option that is not a number
 
