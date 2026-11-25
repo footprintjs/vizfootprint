@@ -54,7 +54,7 @@ export type {
 } from './types.js';
 export { PAIR_CLAUSE_KINDS, badFindReason, cellFieldLabel, clauseFields, clauseList, isPairClause, isPairKind, isRejection, neighbourhoodFieldLabel, reject } from './types.js';
 
-export { literalToSQL, matchesClause, resolvePredicateSQL, isClearedSQL, mosaicDescriptorSQL } from './predicate.js';
+export { literalToSQL, isPlainValue, notOnePlainValue, matchesClause, resolvePredicateSQL, isClearedSQL, mosaicDescriptorSQL } from './predicate.js';
 // An IN-list's membership has ONE owner: the set `membershipOf` builds once per
 // borrowed array, and the NULL verdict `isSQLNull` gives to a list's entries
 // and a row's value alike — the memory engine's match and neighbourhood arms

@@ -108,6 +108,59 @@ export function literalToSQL(value: unknown): string {
 }
 
 /**
+ * ONE PLAIN VALUE: what a selection may compare a column with. A string, a
+ * number, a boolean, `null` or a date — the values {@link literalToSQL}
+ * writes as one quoted or numeric literal. An array, a record, a function, a
+ * bigint or a symbol is not one.
+ */
+export function isPlainValue(value: unknown): boolean {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value instanceof Date;
+}
+
+const isPairOf = (value: unknown, each: (v: unknown) => boolean): boolean => Array.isArray(value) && value.length === 2 && value.every(each);
+const article = (value: unknown): string => (Array.isArray(value) ? 'an array' : value === undefined ? 'nothing' : `a ${typeof value === 'object' ? 'record' : typeof value}`);
+
+/**
+ * THE DOOR RULE for a selection's value, by kind: a sentence naming the first
+ * value that is not plain, or `null` when every value the clause compares a
+ * column with is one. A session asks it BEFORE the act is judged, so the
+ * caller gets a typed refusal that says what to send instead; the renderer's
+ * own refusal ({@link mosaicDescriptorSQL}) stays behind it for every other
+ * caller of a selection port.
+ *
+ * Only the VALUES are judged. A body of the wrong outer shape (a match with no
+ * list, a cell that is not a pair) is left to the judge that already names it.
+ * A cleared selection (`null`) has no value to judge.
+ */
+export function notOnePlainValue(kind: 'point' | 'interval' | 'match' | 'cell', value: unknown): string | null {
+  if (value === null) return null;
+  /** The first entry of a list that fails `ok`, named; `null` when none does or there is no list. */
+  const firstNot = (list: unknown, ok: (v: unknown) => boolean): string | null => {
+    if (!Array.isArray(list)) return null;
+    const at = list.findIndex((v) => !ok(v));
+    return at < 0 ? null : article(list[at]);
+  };
+  switch (kind) {
+    case 'point':
+      return isPlainValue(value)
+        ? null
+        : `a point selects ONE plain value (a string, number, boolean or date) — got ${article(value)}; send several values as \`values\`, and a range as a filter`;
+    case 'interval': {
+      const got = firstNot(value, isPlainValue);
+      return got === null ? null : `each bound of a range is one plain value or null — got ${got}`;
+    }
+    case 'match': {
+      const got = firstNot((value as { values?: unknown } | undefined)?.values, isPlainValue);
+      return got === null ? null : `each of the values is one plain value — got ${got}`;
+    }
+    case 'cell': {
+      const got = firstNot(value, (side) => isPlainValue(side) || isPairOf(side, isPlainValue));
+      return got === null ? null : `each side of a cell is one plain value or a [low, high] pair of them — got ${got}`;
+    }
+  }
+}
+
+/**
  * Double-quoted identifier, escaping an embedded `"` by doubling it (standard
  * SQL quoting). EXPORTED because `sqlWindow` quotes the same names around the
  * same fragment — one quoting rule for the whole statement, never two.
@@ -263,19 +316,53 @@ export function isClearedSQL(sql: string): boolean {
 // a cleared clause as `String(null)`.
 
 /**
- * Mosaic's `literalToSQL` (ast/literal.js) VERBATIM — including the two arms
- * the data seam's `literalToSQL` above honestly refuses: a RegExp renders its
- * source, and anything else falls through to string coercion (`${value}`), so
- * a plain object is `[object Object]`, an array is its joined elements, a
- * bigint its digits, and a Symbol throws the TypeError coercion throws. WHY
- * the fallback is kept rather than refused: the log has always carried
- * object-valued point commits (an analysis declaration, a chart's act on the
- * `pValue` lane), and the byte Mosaic persisted for them is the coercion's.
+ * A plain record whose string coercion is the language's own: `{}`-shaped,
+ * nothing on it or above it that answers `toString`, `valueOf` or
+ * `Symbol.toPrimitive` differently. Its coercion is the constant
+ * `[object Object]` whatever it holds, so nothing inside it can reach the byte.
+ */
+function coercesAsPlainRecord(value: object): boolean {
+  const v = value as { toString?: unknown; valueOf?: unknown; [Symbol.toPrimitive]?: unknown; [Symbol.toStringTag]?: unknown };
+  return (
+    Object.getPrototypeOf(value) === Object.prototype &&
+    v.toString === Object.prototype.toString &&
+    v.valueOf === Object.prototype.valueOf &&
+    v[Symbol.toPrimitive] === undefined &&
+    v[Symbol.toStringTag] === undefined
+  );
+}
+
+/**
+ * Mosaic's `literalToSQL` (ast/literal.js) for every value whose rendering is
+ * INERT, and a refusal for every value whose rendering would be the value's
+ * own text, unquoted.
+ *
+ * Mosaic's last arm is string coercion (`${value}`). For a plain record that
+ * is the constant `[object Object]`, and it is kept: the log has always
+ * carried record-valued point commits (an analysis declaration, a chart's act
+ * on the `pValue` lane), and the byte Mosaic persisted for them is that
+ * constant. A bigint coerces to its digits and is kept too.
+ *
+ * For anything else the coercion WRITES THE VALUE'S OWN CONTENT INTO THE SQL
+ * WITH NO QUOTING: an array is its elements joined by commas (so
+ * `["1) OR (1=1"]` is that text), a RegExp its source between quotes nothing
+ * escaped, a function its source code, an object with its own `toString`
+ * whatever that returns. This renderer used to reproduce all of them. Every
+ * one is refused now, with the TypeError a selection port already answers as
+ * `unsupported-shape` — and because both ports ask this judge BEFORE they mint
+ * a clause, the real engine is never handed the value either.
  */
 function mosaicLiteralSQL(value: unknown): string {
-  if (value instanceof RegExp) return `'${value.source}'`;
-  if (value !== null && typeof value === 'object' && !(value instanceof Date)) return `${value as object}`;
-  if (typeof value === 'bigint' || typeof value === 'symbol' || typeof value === 'function') return `${value as bigint}`;
+  if (typeof value === 'bigint') return `${value}`;
+  if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+    if (coercesAsPlainRecord(value)) return '[object Object]';
+    throw new TypeError(
+      `mosaicDescriptorSQL: a value must be one plain value (a string, number, boolean, null or date) or a plain record — got ${Object.prototype.toString.call(value)}, whose text would be written into the SQL unquoted`,
+    );
+  }
+  if (typeof value === 'symbol' || typeof value === 'function') {
+    throw new TypeError(`mosaicDescriptorSQL: a value must be one plain value — got a ${typeof value}`);
+  }
   return literalToSQL(value);
 }
 

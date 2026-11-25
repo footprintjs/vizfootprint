@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Security: a selection value is never written into the recorded SQL unquoted (behaviour change)
+
+- A point select accepted any value. An array was written into the commit's
+  `predicateSQL` as its elements joined by commas with no quoting, so
+  `value: ["1) OR (1=1"]` recorded `("category" IN (1) OR (1=1))`; through the
+  Mosaic adapter the same text reached the clause the engine filters with. The
+  same held for a RegExp, a function and an object with its own `toString`,
+  and for those values inside a match list, a cell side, a range bound or a
+  walked id list.
+- `mosaicDescriptorSQL` now refuses every such value (`TypeError`; a selection
+  port answers `unsupported-shape`). A plain record is still rendered as the
+  constant `[object Object]`, as the system's own commits always were.
+- `session.dispatch` refuses a select or filter whose value is not one plain
+  value (string, number, boolean, `null`, date) with `guard-failed`, and says
+  what to send instead. A point select with an array value used to land; send
+  several values as `values`, and a range with the `filter` verb.
+- New in `vizfootprint/data`: `isPlainValue`, `notOnePlainValue`.
+
 ### Correction: a replayed session carries its error budget (behaviour change)
 
 - `session.replay(log)` used to start the replayed session with the full error

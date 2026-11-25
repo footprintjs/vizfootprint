@@ -557,15 +557,77 @@ describe('mosaicDescriptorSQL — byte-identical to the real Mosaic clause for e
       ['a.b', 1],
       // Mosaic's string-coercion fallback — the byte the analysis / chart lanes have always persisted
       ['pValue', { id: 'a1', table: 'data', pValue: 0.03 }],
-      ['x', [1, 2]],
       ['x', 10n],
-      ['x', /a+/],
-      ['x', new Map([[1, 2]])],
     ];
     for (const [field, value] of shapes) {
       expect(mosaicDescriptorSQL('point', field, value), `point ${field} = ${String(value)}`).toBe(realPoint(field, value));
     }
     expect(mosaicDescriptorSQL('point', 'pValue', { id: 'a1' })).toBe('("pValue" IN ([object Object]))');
+  });
+
+  describe('a value whose own text would be written into the SQL unquoted is refused', () => {
+    // What real Mosaic renders for each — measured, and the reason it is not reproduced.
+    it('the engine itself writes these unquoted', () => {
+      expect(realPoint('x', ['1) OR (1=1'])).toBe('("x" IN (1) OR (1=1))');
+      expect(realPoint('x', [1, 2])).toBe('("x" IN (1,2))');
+      expect(realPoint('x', /a' OR '1'='1/)).toBe(`("x" IN ('a' OR '1'='1'))`);
+      expect(realPoint('x', { toString: () => '1) OR (1=1' })).toBe('("x" IN (1) OR (1=1))');
+    });
+
+    const own = { toString: () => '1) OR (1=1' };
+    const tagged = { [Symbol.toStringTag]: "x') OR ('1'='1" };
+    class Named {
+      toString(): string {
+        return '1) OR (1=1';
+      }
+    }
+    it.each<[string, unknown]>([
+      ['an array of numbers', [1, 2]],
+      ['an array holding SQL', ['1) OR (1=1']],
+      ['an empty array', []],
+      ['a nested array', [[1], [2]]],
+      ['a RegExp', /a' OR '1'='1/],
+      ['a Map', new Map([[1, 2]])],
+      ['a Set', new Set([1])],
+      ['a record with its own toString', own],
+      ['a record with its own valueOf', { valueOf: () => 7 }],
+      ['a record with Symbol.toPrimitive', { [Symbol.toPrimitive]: () => '1) OR (1=1' }],
+      ['a record with a string tag', tagged],
+      ['a class instance', new Named()],
+      ['a record with no prototype', Object.create(null)],
+      ['a record over another prototype', Object.create({ toString: () => 'x' })],
+      ['a function', () => 1],
+      ['a symbol', Symbol('s')],
+      ['a boxed string', new String("x' OR '1'='1")],
+    ])('%s, as a point value, a match entry, a cell side, an interval bound and a walked id', (_what, value) => {
+      const refused = /one plain value/;
+      expect(() => mosaicDescriptorSQL('point', 'x', value)).toThrow(TypeError);
+      expect(() => mosaicDescriptorSQL('point', 'x', value)).toThrow(refused);
+      expect(() => mosaicDescriptorSQL('match', 'x', { values: [1, value] })).toThrow(refused);
+      expect(() => mosaicDescriptorSQL('interval', 'x', [value, 2])).toThrow(refused);
+      expect(() => mosaicDescriptorSQL('neighbourhood', ['a', 'b'], { ids: [1, value] })).toThrow(refused);
+      // an array as a cell SIDE is a range, judged as one below; anything else is a point side
+      if (!Array.isArray(value)) expect(() => mosaicDescriptorSQL('cell', ['x', 'y'], [value, 1])).toThrow(refused);
+    });
+
+    it('a cell side that is an array is a range: a pair of plain bounds renders, anything else is refused', () => {
+      expect(mosaicDescriptorSQL('cell', ['x', 'y'], [[1, 2], 1])).toBe('(("x" BETWEEN 1 AND 2) AND ("y" IN (1)))');
+      expect(() => mosaicDescriptorSQL('cell', ['x', 'y'], [['1) OR (1=1'], 1])).toThrow(TypeError);
+      expect(() => mosaicDescriptorSQL('cell', ['x', 'y'], [[[1], 2], 1])).toThrow(/one plain value/);
+      expect(() => mosaicDescriptorSQL('cell', ['x', 'y'], [[1, { toString: () => 'x' }], 1])).toThrow(/one plain value/);
+    });
+
+    it('a plain record is kept, as the constant it has always been, whatever it holds', () => {
+      for (const value of [{}, { id: "a') OR ('1'='1" }, { values: ['1) OR (1=1'] }, { nested: { toString: 'not a function' } }]) {
+        expect(mosaicDescriptorSQL('point', 'pValue', value)).toBe('("pValue" IN ([object Object]))');
+        expect(mosaicDescriptorSQL('point', 'pValue', value)).toBe(realPoint('pValue', value));
+      }
+    });
+
+    it('a record whose own `toString` is data is refused, where the engine would throw', () => {
+      expect(() => mosaicDescriptorSQL('point', 'x', JSON.parse('{"toString":"x"}'))).toThrow(/one plain value/);
+      expect(() => realPoint('x', JSON.parse('{"toString":"x"}'))).toThrow(TypeError);
+    });
   });
 
   it('interval: closed / half-open both ways / string / half-open string both ways / Date / cleared by null AND by undefined', () => {

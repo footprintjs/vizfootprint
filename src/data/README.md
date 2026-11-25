@@ -260,10 +260,34 @@ import { mosaicDescriptorSQL, resolvePredicateSQL } from 'vizfootprint/data';
 mosaicDescriptorSQL('interval', 'amount', [150, null]);                                  // '("amount" BETWEEN 150 AND NULL)'  — the log's byte
 resolvePredicateSQL({ kind: 'interval', field: 'amount', value: [150, null] });           // '("amount" >= 150)'                — the SQL an engine runs
 mosaicDescriptorSQL('cell', ['price', 'category'], [[10, 20], undefined as never]);     // throws TypeError — a shape the real builders refuse
-mosaicDescriptorSQL('point', 'pValue', { id: 'a1', table: 'data' });                    // '("pValue" IN ([object Object]))' — Mosaic's coercion, kept; resolvePredicateSQL refuses the same object
+mosaicDescriptorSQL('point', 'pValue', { id: 'a1', table: 'data' });                    // '("pValue" IN ([object Object]))' — a plain record's constant, kept; resolvePredicateSQL refuses the same object
 ```
 
 Values are clause-tier (a point's `undefined` clears, its `null` is IS NULL — apply `pointValueFromWire` first); a cleared clause renders the same `"null"` `isClearedSQL` recognises.
+
+### A value is one plain value, or it is refused
+
+Mosaic's last rendering rule is string coercion, and for most values that is the value's own text written into the SQL with no quoting. Measured on the installed engine (`predicate.test.ts` pins each line):
+
+```ts
+String(clausePoint('x', ['1) OR (1=1'], src).predicate);              // '("x" IN (1) OR (1=1))'
+String(clausePoint('x', /a' OR '1'='1/, src).predicate);              // `("x" IN ('a' OR '1'='1'))`
+String(clausePoint('x', { toString: () => '1) OR (1=1' }, src).predicate);   // '("x" IN (1) OR (1=1))'
+```
+
+`mosaicDescriptorSQL` used to reproduce those bytes, so an agent that sent an array as a point's value put text of its choosing into the recorded SQL, and through the Mosaic adapter into the clause the engine filters with. It refuses them now. Both selection ports ask the judge before they mint a clause, so the engine is never handed the value.
+
+- **Rendered:** a string, number, boolean, `null`, date (one quoted or numeric literal, `literalToSQL`), a bigint (its digits), and a plain record, which is the constant `[object Object]` whatever it holds. That last one is kept because the log has always carried record-valued system commits (an analysis's act, a chart's).
+- **Refused with a `TypeError`** (a port answers `unsupported-shape`): an array, a RegExp, a Map or Set, a class instance, a function, a symbol, a boxed primitive, and a record that has `toString`, `valueOf`, `Symbol.toPrimitive` or `Symbol.toStringTag` of its own or from another prototype.
+
+The session's own door is stricter and friendlier: `notOnePlainValue(kind, value)` names the first value of a select or filter that is not one plain value (`isPlainValue`: string, number, boolean, `null`, date), and `dispatch` answers `guard-failed` with what to send instead, before anything is judged.
+
+```ts
+await session.dispatch({ verb: 'select', viewId: 'bar', field: 'category', value: ['Formal', 'Work'], cause });
+// { ok: false, rejection: { code: 'guard-failed', detail: 'select on "category": a point selects ONE plain value … got an array; send several values as `values`, and a range as a filter' } }
+```
+
+What this does not cover: a string bound of a range is still rendered as a quoted COLUMN name (Mosaic's own rule, kept for the byte), and the recorded SQL is a description of the act, not a statement this library promises is safe to execute against another database.
 
 ## One pass, many recorders
 
