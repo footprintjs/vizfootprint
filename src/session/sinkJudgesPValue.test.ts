@@ -13,26 +13,32 @@ import type { AnalysisModule } from '../analysis/index.js';
 import { isPValue } from '../fdr/index.js';
 import { makeDashboardDef } from './dashboard.fixture.js';
 
-/** The fixture's dashboard, with its correlation module reporting `pValue` to the sink in place of its own. */
-function sessionReporting(pValue: unknown, swallow = false) {
+/**
+ * The fixture's dashboard, with its correlation module replaced by a hand-written wrapper:
+ * it runs the real analysis, then tells the session's sink whatever `report` says to.
+ */
+function sessionWhere(report: (sink: (pValue: unknown) => void) => void) {
   const def = makeDashboardDef();
   const real = def.analyses!['correlation'] as AnalysisModule;
   const wrapped: AnalysisModule = {
     ...real,
-    run: (input, opts) =>
-      real.run(input, {
-        ...opts,
-        sink: (h) => {
-          try {
-            opts?.sink?.({ ...h, pValue: pValue as number });
-          } catch (error) {
-            if (!swallow) throw error;
-          }
-        },
-      }),
+    run: async (input, opts) => {
+      let seen: Parameters<NonNullable<NonNullable<typeof opts>['sink']>>[0] | undefined;
+      const result = await real.run(input, { ...opts, sink: (h) => void (seen = h) });
+      report((pValue) => opts?.sink?.({ ...seen!, pValue: pValue as number }));
+      return result;
+    },
   };
   return buildDashboard({ ...def, analyses: { ...def.analyses, correlation: wrapped } }).createSession({ as: 'agent' });
 }
+const swallowing = (fn: () => void): void => {
+  try {
+    fn();
+  } catch {
+    /* a module that ignores the sink's refusal */
+  }
+};
+const sessionReporting = (pValue: unknown, swallow = false) => sessionWhere((sink) => (swallow ? swallowing(() => sink(pValue)) : sink(pValue)));
 const analyze = { verb: 'analyze', analysisId: 'correlation', cause: { requestedBy: 'agent', computedBy: 'system' } } as const;
 
 describe('isPValue — the one rule', () => {
@@ -63,5 +69,41 @@ describe('a hand-written analysis module', () => {
     await expect(s.dispatch(analyze)).rejects.toThrow('reported the p-value NaN');
     expect(s.ledger()).toEqual([]);
     expect(s.log.records).toEqual([]);
+  });
+
+  // The budget used to be spent INSIDE the sink, while the module was still running. Anything
+  // that happened afterwards was too late: a step was spent with no commit behind it.
+  it.each([
+    ['a valid result and then an invalid one', (sink: (p: unknown) => void) => (sink(0.5), sink(Number.NaN)), 'reported a second test result'],
+    ['two valid results', (sink: (p: unknown) => void) => (sink(0.5), sink(0.4)), 'reported a second test result'],
+    ['an invalid result it swallows, then a valid one', (sink: (p: unknown) => void) => (swallowing(() => sink(Number.NaN)), sink(0.5)), 'reported the p-value NaN'],
+  ])('reporting %s spends no budget and lands nothing', async (_case, report, why) => {
+    const s = sessionWhere(report);
+    const wealthBefore = (await s.overview()).fdr.wealth;
+    await expect(s.dispatch(analyze)).rejects.toThrow(why);
+    expect(s.ledger()).toEqual([]);
+    expect(s.log.records).toEqual([]);
+    expect((await s.overview()).fdr.wealth).toBe(wealthBefore);
+  });
+
+  it('reporting a result and then throwing spends no budget either', async () => {
+    const s = sessionWhere((sink) => {
+      sink(0.5);
+      throw new Error('the module failed after reporting');
+    });
+    await expect(s.dispatch(analyze)).rejects.toThrow('the module failed after reporting');
+    expect(s.ledger()).toEqual([]);
+    expect(s.log.records).toEqual([]);
+  });
+
+  it('a refused test leaves the next one exactly where a fresh session would put it', async () => {
+    const after = sessionWhere((sink) => sink(Number.NaN));
+    await expect(after.dispatch(analyze)).rejects.toThrow();
+    const fresh = buildDashboard(makeDashboardDef()).createSession({ as: 'agent' });
+    const again = buildDashboard(makeDashboardDef()).createSession({ as: 'agent' });
+    await fresh.dispatch(analyze);
+    // a session that only ever refused has spent what a fresh one has: nothing
+    expect((await after.overview()).fdr.wealth).toBe((await again.overview()).fdr.wealth);
+    expect(fresh.ledger()).toHaveLength(1);
   });
 });

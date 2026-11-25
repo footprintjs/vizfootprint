@@ -81,11 +81,6 @@ export interface TestAct {
 }
 
 /**
- * The act a `pValue` commit records, or `undefined` when its value does not
- * carry one — a foreign log, a hand-built record, or the bare number this lane
- * used to carry. Total: it never throws and never guesses.
- */
-/**
  * THE ONE RULE for a p-value: a finite number in [0,1]. Every door a p-value
  * comes through asks it — the analysis builder's judge, the session's sink and
  * the log reader — so no door can spend budget on a number another refuses.
@@ -94,6 +89,11 @@ export function isPValue(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
+/**
+ * The act a `pValue` commit records, or `undefined` when its value does not
+ * carry one — a foreign log, a hand-built record, or the bare number this lane
+ * used to carry. Total: it never throws and never guesses.
+ */
 export function testActOf(value: unknown): TestAct | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const { id, table, pValue } = value as { id?: unknown; table?: unknown; pValue?: unknown };

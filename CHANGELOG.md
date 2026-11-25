@@ -2,13 +2,19 @@
 
 ## Unreleased
 
-### Correction: the session refuses a test result that is not a p-value
+### Correction: error budget is spent only for a test that lands
 
 - An analysis module written by hand (not built by `defineAnalysis`) could
   report a p-value such as `NaN`. The session spent error budget on it and
   landed a test commit no reader can read. The session now refuses it, as
-  `defineAnalysis` always has for its own modules: `analyze` rejects, no budget
-  is spent and nothing lands. One rule, `isPValue`, is asked at every door.
+  `defineAnalysis` always has for its own modules. One rule, `isPValue`, is
+  asked at every door.
+- The budget used to be spent the moment a module reported its result, while
+  the module was still running. A module that reported and then failed had
+  spent a step with no commit behind it, and one that reported twice had spent
+  two steps for one commit. The budget is now spent once, after the run has
+  returned a result. A second reported result is refused.
+- In each refused case `analyze` rejects, no budget is spent and nothing lands.
 
 ### Correction: a `why` answer carries what the record could not establish
 
