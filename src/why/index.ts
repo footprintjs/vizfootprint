@@ -29,6 +29,7 @@ export type {
   TierCommit,
   TierCommitKind,
   WhyFlags,
+  KernelSliceLimits,
   WhyResult,
   WhySources,
   WhyTarget,

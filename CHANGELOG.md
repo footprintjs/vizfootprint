@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Correction: a `why` answer carries what the record could not establish
+
+- `why()`'s kernel tier gains `kernel.limits` (`KernelSliceLimits`): whether a
+  budget cut the slice, how reads were known and counted, which commits took
+  untracked input, which read a value from before the run, how many edges are
+  not certain, and the record reader's own notes. The answer used to keep the
+  commit ids and drop all of it, so a cut or partly-blind chain looked complete.
+- `flags.kernelLimitsReported` is `true` when the reader reported any of those,
+  including a run where no reads were recorded. `false` means none was
+  reported; it is not a claim that the chain is complete.
+- Reading an answer is unaffected. Code that BUILDS a `CrossTierSlice` or a
+  `WhyFlags` by hand must add the two fields.
+- The `viz.why` tool's description tells the agent to report a chain with
+  limits as partial.
+
 ### Migration: the time-travel bar renders a model (breaking, `vizfootprint-ui`)
 
 - `<TimeTravelBar>` takes one `model` prop in place of `commits`, `cursor`,

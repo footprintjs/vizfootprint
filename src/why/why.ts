@@ -13,7 +13,7 @@
  * the caller's: it arrives in {@link WhySources}. See `./README.md`.
  */
 
-import { isMiss, resolveAgentTier, resolveKernelTier, resolveVizTier } from './resolvers.js';
+import { isMiss, resolveAgentTier, resolveKernelTier, resolveVizTier, sliceHasLimits } from './resolvers.js';
 import type {
   CommitResponse,
   CrossTierMiss,
@@ -135,6 +135,7 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
       commitIds: kernelRes.commitIds,
       stageIds: kernelRes.stageIds,
       runId: kernelRes.runId,
+      limits: kernelRes.limits,
     };
     kernelRes.commitIds.forEach((id, i) => {
       commits.push({ tier: 'kernel', id, stageId: kernelRes.stageIds[i]!, kind: 'kernel-stage' });
@@ -156,7 +157,7 @@ export function why(target: WhyTarget, sources: WhySources): WhyResult {
     commits,
     misses,
     ...(dropped.length > 0 ? { dropped } : {}),
-    flags: { kernelRunIdAvailable: kernel?.runId != null },
+    flags: { kernelRunIdAvailable: kernel?.runId != null, kernelLimitsReported: kernel !== null && sliceHasLimits(kernel.limits) },
     ...(sources.fdrStep ? { fdr: { step: sources.fdrStep.step, reject: sources.fdrStep.reject } } : {}),
   };
 }
