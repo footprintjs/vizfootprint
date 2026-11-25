@@ -47,7 +47,7 @@ describe('replay carries the error budget', () => {
     const res = await replayed.replay(source.log.records);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.tests).toEqual({ carried: source.ledger().length, unreadable: [] });
+    expect(res.tests).toEqual({ carried: source.ledger().length, unreadable: [], rejudged: [], unchecked: [] });
     expect(money(replayed.ledger())).toEqual(money(source.ledger()));
     const summary = ({ ledger, ...rest }: Awaited<ReturnType<typeof source.overview>>['fdr']) => ({ ...rest, ledger: money(ledger) });
     expect(summary(res.overview.fdr)).toEqual(summary((await source.overview()).fdr));
@@ -108,7 +108,7 @@ describe('replay carries the error budget', () => {
     await source.dispatch({ verb: 'annotate', target: 'pValue', note: 'a note about a column of that name', cause });
     const replayed = fresh();
     const res = await replayed.replay(source.log.records);
-    expect(res.ok && res.tests).toEqual({ carried: 0, unreadable: [] });
+    expect(res.ok && res.tests).toEqual({ carried: 0, unreadable: [], rejudged: [], unchecked: [] });
     expect(replayed.ledger()).toEqual([]);
   });
 
@@ -134,7 +134,7 @@ describe('a carried row is named as the row it replaces was', () => {
     expect(replayed.ledger().map((r) => r.hypothesisId)).toEqual(['corr:price:rating', 'call-8']);
   });
 
-  it('a test of an analysis this session does not declare goes under the act\u2019s id, and still spends', async () => {
+  it('a test of an analysis this session does not declare keeps the name on its own recorded row, and still spends', async () => {
     const source = fresh();
     await source.declareAnalysis('correlation');
     const def = makeDashboardDef();
@@ -142,7 +142,14 @@ describe('a carried row is named as the row it replaces was', () => {
     const without = buildDashboard({ ...def, analyses: others }).createSession({ as: 'agent' });
     const res = await without.replay(source.log.records);
     expect(res.ok && res.tests.carried).toBe(1);
-    expect(without.ledger()[0]).toMatchObject({ step: 1, hypothesisId: 'correlation', pValue: source.ledger()[0]!.pValue });
+    // the row the test recorded names it; the session needs no declaration to read that
+    expect(without.ledger()[0]).toMatchObject({ step: 1, hypothesisId: source.ledger()[0]!.hypothesisId, pValue: source.ledger()[0]!.pValue });
+    // …and with no recorded row (a log written before rows were recorded) it falls back to the act's id
+    const older = structuredClone(source.log.records) as unknown as { value: { ledgerRow?: unknown } }[];
+    for (const r of older) if (r.value !== null && typeof r.value === 'object') delete r.value.ledgerRow;
+    const before = buildDashboard({ ...def, analyses: others }).createSession({ as: 'agent' });
+    await before.replay(older as never);
+    expect(before.ledger()[0]).toMatchObject({ step: 1, hypothesisId: 'correlation' });
     expect((await without.overview()).fdr.wealth).toBe((await source.overview()).fdr.wealth);
   });
 
@@ -180,7 +187,11 @@ describe('a test the log holds and nobody can read', () => {
     const res = await replayed.replay(log as never);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.tests).toEqual({ carried: source.ledger().length, unreadable: [{ commitId: test.id, reason: 'not-an-act' }] });
+    expect(res.tests.carried).toBe(source.ledger().length);
+    expect(res.tests.unreadable).toEqual([{ commitId: test.id, reason: 'not-an-act' }]);
+    // the later test's own recorded row shows the budget it was really judged with: entering the
+    // unreadable one at p = 1 changed it, and the replay says so rather than passing the new row off
+    expect(res.tests.rejudged.map((r) => r.differs)).toEqual([['threshold', 'budget']]);
     // it costs what a test costs, and can never be a discovery
     expect(replayed.ledger()[0]).toMatchObject({ step: 1, pValue: 1, reject: false, hypothesisId: test.id });
     expect(replayed.ledger()).toHaveLength(source.ledger().length);
