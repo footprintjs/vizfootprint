@@ -276,12 +276,6 @@ function versionOfBody(args: {
 }
 
 /**
- * The unit the CAP is judged in, per landing — real bytes for `bytes`, UTF-16
- * units for `text` (the same diagnostic the table door quotes, for the same
- * reason). One owner, because two readers ask it: the whole-body read's
- * {@link versionOfBody} and the progressive read's own early check.
- */
-/**
  * Can this answer's body be read in pieces? Only a WHATWG stream can: a host's
  * own `fetch` may hand back none (`null`) or a stream of another kind (a Node
  * stream), and both are read whole, as every read once was.
@@ -299,6 +293,12 @@ function bytesOfChunk(chunk: unknown, refuse: Refuse): Uint8Array {
   throw refuse('malformed', `malformed — the fetch in use delivered a body chunk that is not bytes (${Object.prototype.toString.call(chunk)}); pass a fetch whose body is a stream of bytes, or one with no stream at all`);
 }
 
+/**
+ * The unit the CAP is judged in, per landing — real bytes for `bytes`, UTF-16
+ * units for `text` (the same diagnostic the table door quotes, for the same
+ * reason). One owner, because two readers ask it: the whole-body read's
+ * {@link versionOfBody} and the progressive read's own early check.
+ */
 const unitOf = (format: ResourceFormat): string => (format === 'bytes' ? 'bytes' : 'UTF-16 units');
 
 /** THE READ THIS CARRIER ALWAYS MADE: the whole body in one act, and `res.body` never touched. */
@@ -565,7 +565,12 @@ async function readProgressively<S extends Counted>(args: {
     if (isOurRefusal(e)) {
       abort();
       // …and a host's own stream need not listen to that abort: tell the stream itself
-      void reader.cancel().catch(() => undefined);
+      // (a host's reader may have no `cancel` at all, or one that throws: neither may replace the refusal)
+      try {
+        void Promise.resolve(reader.cancel()).catch(() => undefined);
+      } catch {
+        // nothing to cancel with
+      }
     }
     throw e;
   }
@@ -742,8 +747,9 @@ export function httpSource(options: HttpSourceOptions = {}): SourceAdapter {
             // A response with no readable stream cannot be folded THROUGH: this transport
             // hands back a whole body, so the folds see it as the one chunk it is — the same
             // answers, and the memory the declarations hoped to save is the transport's to give.
-            if (res.body === null) return foldWhole({ res, resource, declared: length, sink, folding, onProgress, refuse });
-            return readProgressively({ stream: res.body, format: decl.format, resource, declared: length, onProgress, signal: opts.signal, maxBytes: cap, refuse, abort, sink, folding });
+            const stream = readableBodyOf(res);
+            if (stream === undefined) return foldWhole({ res, resource, declared: length, sink, folding, onProgress, refuse });
+            return readProgressively({ stream, format: decl.format, resource, declared: length, onProgress, signal: opts.signal, maxBytes: cap, refuse, abort, sink, folding });
           },
         });
         const sunk = answer.body;

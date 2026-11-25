@@ -10,7 +10,7 @@
   that does not hold a body to its declared length) could fill the host's
   memory before the read was refused. The body is now read through its
   stream and cut off, with the transfer aborted, at the chunk that crosses the
-  cap.
+  cap. What can be held is the cap plus one chunk.
 - The `too-large` sentence for such a read now says "arrived and the read was
   stopped there", and the count is what had arrived, not the body's full size.
 - A caller's abort signal is honoured between chunks on every read.
@@ -19,7 +19,7 @@
   stream itself is cancelled.
 - Not covered: a host `fetch` whose response has no WHATWG stream (`body` is
   `null`, or a stream of another kind) is still read whole, and the cap is
-  checked afterwards. What can be held is the cap plus one chunk.
+  checked afterwards.
 
 ### A test records the row it got, and a replay checks it
 

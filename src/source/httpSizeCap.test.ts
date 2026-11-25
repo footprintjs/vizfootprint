@@ -226,4 +226,39 @@ describe('what a host’s own fetch may hand back', () => {
     await reasonOf(table(fake, 25));
     expect(fake.cancelled()).toBe(true);
   });
+
+  it('a reader with no way to be cancelled: the refusal still comes back as itself', async () => {
+    const res = {
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      body: { getReader: () => ({ read: async () => ({ done: false, value: 'not bytes' }) }) },
+      text: async () => '',
+      arrayBuffer: async () => new ArrayBuffer(0),
+    };
+    const fetchIt = (async () => res) as unknown as typeof fetch;
+    const read = (await httpSource({ fetch: fetchIt }).open({ format: 'csv', via: 'http', at: AT }, { table: 'rows' })).snapshot();
+    expect(await reasonOf(read)).toMatch(/^malformed: .*not bytes/);
+  });
+
+  it('a reader whose cancel throws: the same', async () => {
+    const res = {
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      body: {
+        getReader: () => ({
+          read: async () => ({ done: false, value: 7 }),
+          cancel: () => {
+            throw new Error('no');
+          },
+        }),
+      },
+      text: async () => '',
+      arrayBuffer: async () => new ArrayBuffer(0),
+    };
+    const fetchIt = (async () => res) as unknown as typeof fetch;
+    const read = (await httpSource({ fetch: fetchIt }).open({ format: 'csv', via: 'http', at: AT }, { table: 'rows' })).snapshot();
+    expect(await reasonOf(read)).toMatch(/^malformed: /);
+  });
 });
