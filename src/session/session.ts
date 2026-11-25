@@ -54,7 +54,7 @@ import { judgeAnalysisReads, neighbourhoodEndpoints, relationEdgeId } from '../d
 // (with the id ceiling), so the door below judges and lands while the walking
 // stays pure functions anybody can read.
 import { walkNeighbourhood, walkRefusal } from './neighbourhood.js';
-import { isPValue, isTestAnalogCommit, loggedTests, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type LoggedTest, type TestAct, type UnreadableTest } from '../fdr/index.js';
+import { isPValue, isTestAnalogCommit, ledgerRowDifferences, ledgerRowToRecord, loggedTests, TEST_ANALOG_FIELD, type FdrStep, type HypothesisRecord, type LoggedTest, type TestAct, type UnreadableTest } from '../fdr/index.js';
 import { gateChartSpec } from '../renderer/index.js';
 import { canNameSlot, cellFieldLabel, clauseFields, derivedColumnName, isPairKind, isRejection, notOnePlainValue, mintDerivedTable, mintFilledTable, neighbourhoodFieldLabel, renameClauseFields, renameRowSlots, resolveDerived, type CellClause, type ColumnInfo, type ResolvedColumn, type DataProvider, type DerivedColumn, type DerivedTable, type EvaluateOptions, type FilledTable, type EvaluateResult, type DataProviderRejection, type MatchClause, type MatchValue, type NeighbourhoodClause, type NeighbourhoodValue, type NeighbourhoodValueBody, type FindOptions, type FindResult, type PredicateClause, type Row, type SortSpec } from '../data/index.js';
 import { isClearedSelection } from '../branches/fold.js';
@@ -169,6 +169,8 @@ import type {
   BookmarkResult,
   TableInfo,
   ViewSilence,
+  RejudgedTest,
+  ReplayedTests,
 } from './types.js';
 
 /**
@@ -1258,7 +1260,7 @@ class InteractionSessionImpl implements InteractionSession {
       }
       // The invocation's finally restores the CURRENT head before any listener
       // runs, even if a re-performance exits while visiting an earlier record.
-      return { reran, tests: { carried: carried.steps.size, unreadable: carried.unreadable } };
+      return { reran, tests: { carried: carried.steps.size, unreadable: carried.unreadable, rejudged: carried.rejudged, unchecked: carried.unchecked } };
     }, true);
 
     // Publication has attempted its effects before these reads, so observer
@@ -1288,10 +1290,11 @@ class InteractionSessionImpl implements InteractionSession {
    * that holds nothing yet.
    *
    * The rows are COMPUTED HERE, by this session's procedure and settings, from
-   * the recorded p-values: the log records neither the settings it was made
-   * under nor the verdicts it got. Replayed into the dashboard that made it,
-   * the rows are the original's. Replayed into one configured differently they
-   * are what THAT configuration says of the same p-values — see the README.
+   * the recorded p-values, because this session's procedure is the one that
+   * goes on judging. Each is then CHECKED against the row the test recorded
+   * for itself (`TestAct.ledgerRow`): a row that differs is returned in
+   * `rejudged` with both rows, and a readable test with no recorded row in
+   * `unchecked`. Replayed whole into the dashboard that made it, both are empty.
    *
    * A test whose record cannot be read still happened and still spent budget.
    * Its p-value is unknown, so it is entered at p = 1: it costs what a test
@@ -1302,17 +1305,35 @@ class InteractionSessionImpl implements InteractionSession {
    * the p-values), and no fixed value would be. It is returned in `unreadable`
    * so the caller can say so.
    */
-  private carryErrorBudget(records: readonly CommitRecord[]): { readonly steps: Map<string, FdrStep>; readonly unreadable: UnreadableTest[] } {
+  private carryErrorBudget(records: readonly CommitRecord[]): Omit<ReplayedTests, 'carried'> & { readonly steps: Map<string, FdrStep> } {
     const steps = new Map<string, FdrStep>();
     const unreadable: UnreadableTest[] = [];
+    const rejudged: RejudgedTest[] = [];
+    const unchecked: string[] = [];
     for (const test of loggedTests(records)) {
-      const hypothesisId = this.carriedHypothesisId(test);
+      const recorded = test.act?.ledgerRow;
+      // the row's own name when it has one: it is the name the test was entered under
+      const hypothesisId = recorded?.hypothesisId ?? this.carriedHypothesisId(test);
       if (test.unreadable !== undefined) unreadable.push({ commitId: test.commitId, reason: test.unreadable });
-      const step = deepFreeze(this.fdrStepper.step({ hypothesisId, pValue: test.act?.pValue ?? 1, timestamp: ++this.testClock }));
+      const step = deepFreeze(
+        this.fdrStepper.step({
+          hypothesisId,
+          pValue: test.act?.pValue ?? 1,
+          timestamp: ++this.testClock,
+          ...(recorded?.branchId !== undefined ? { branchId: recorded.branchId } : {}),
+        }),
+      );
       this._ledger.push(step);
       steps.set(test.commitId, step);
+      // THE CHECK. A readable test either carries the row it got, and the row
+      // computed here is compared with it, or it carries none and is listed as
+      // unchecked. Neither stops the replay: the acts happened either way.
+      if (recorded !== undefined) {
+        const differs = ledgerRowDifferences(recorded, step);
+        if (differs.length > 0) rejudged.push(deepFreeze({ commitId: test.commitId, recorded, computed: step, differs }));
+      } else if (test.act !== undefined) unchecked.push(test.commitId);
     }
-    return { steps, unreadable };
+    return { steps, unreadable, rejudged, unchecked };
   }
 
   /** Every (view, emission kind) this dashboard can be acted on with — see `./offers.ts`. */
@@ -5102,6 +5123,8 @@ class InteractionSessionImpl implements InteractionSession {
       const fills = tableFilledBy(this.runtime.def, id);
       let hypothesis: AnalysisCommit['hypothesis'];
       let fdrStep: FdrStep | undefined;
+      /** The row as the test's own commit will carry it; empty until a test has been stepped. */
+      let rowOnTheCommit: { readonly ledgerRow?: FdrStep } = {};
       // THE SINK JUDGES AND HOLDS; THE BUDGET IS SPENT AFTER THE RUN.
       //
       // The sink is called from inside the analysis, while code this library did
@@ -5150,6 +5173,7 @@ class InteractionSessionImpl implements InteractionSession {
         // is finished the moment it is written, and `ledger()` copies the list
         // but shares the rows
         this._ledger.push(deepFreeze(fdrStep));
+        rowOnTheCommit = ledgerRowToRecord(fdrStep);
       }
 
       // Land ONE cause-tagged provenance commit for the invocation.
@@ -5173,7 +5197,9 @@ class InteractionSessionImpl implements InteractionSession {
         // to be the bare number, which named neither the analysis nor the table
         // it read — so a test that ALSO writes columns could not be replayed.
         landField = TEST_ANALOG_FIELD;
-        landValue = { id, table, ...declaration, pValue: hypothesis.pValue } satisfies TestAct;
+        // …and the ROW IT GOT, computed just above: the one thing a replay cannot
+        // otherwise know is what this test was judged against where it was made.
+        landValue = { id, table, ...declaration, pValue: hypothesis.pValue, ...rowOnTheCommit } satisfies TestAct;
       }
       const { record } = publication.commit({
         ...(agentCall !== undefined ? { agentCall } : {}),
@@ -5436,7 +5462,7 @@ class InteractionSessionImpl implements InteractionSession {
         // ONE shape on this lane, for every writer of it: the act, and the
         // p-value it entered at. A chart's act is the chart, read over the table
         // its claim was judged against just above.
-        value: { id, table: this.defaultTable, pValue: 1 } satisfies TestAct,
+        value: { id, table: this.defaultTable, pValue: 1, ...ledgerRowToRecord(fdrStep) } satisfies TestAct,
         cause: stamped,
       });
       this.landed(hypothesisCommit);
