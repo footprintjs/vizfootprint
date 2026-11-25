@@ -473,6 +473,34 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, sentence: string
   });
 }
 
+/**
+ * The one line of script the browser worker is started from: `importScripts`
+ * of the bundle's worker address.
+ *
+ * THE ADDRESS IS WRITTEN AS DATA. It used to be pasted between two quote marks,
+ * so an address holding a quote mark ended the string and the rest of it ran
+ * as script inside the worker. It is parsed as an absolute URL first (the blob
+ * the worker starts from is no base for a relative one, so a relative address
+ * never worked) and then written with `JSON.stringify`, whose output is one
+ * JavaScript string literal whatever the address holds.
+ *
+ * Which addresses a page may load a worker from is the host's decision, made
+ * with its own content security policy; this function only makes sure the
+ * address stays an address.
+ */
+export function workerScriptFor(mainWorker: unknown): string {
+  if (typeof mainWorker !== 'string' || mainWorker.length === 0) {
+    throw new Error('vizfootprint: the DuckDB bundle names no worker script (`mainWorker`) — pass `bundles` with an absolute URL for each flavour');
+  }
+  let address: string;
+  try {
+    address = new URL(mainWorker).href;
+  } catch {
+    throw new Error(`vizfootprint: the DuckDB worker script address must be an absolute URL — got ${JSON.stringify(mainWorker)}`);
+  }
+  return `importScripts(${JSON.stringify(address)});`;
+}
+
 /* v8 ignore start -- fetching a CDN bundle and spawning a browser Worker: unrunnable in this suite by
  * design (a node process has no `Worker`, which is the very fact the judgement above reads). It is kept
  * to a dozen lines that hand a real handle to `sqlConnectionOver`, which IS tested, so the unrun part
@@ -484,7 +512,7 @@ async function openInBrowser(options: DuckDBConnectionOptions): Promise<SqlConne
   const bundle = await duckdb.selectBundle(browserBundlesOf(options.bundles, duckdb.getJsDelivrBundles));
   // The worker is loaded from a blob that imports the bundle's own script — the recipe
   // DuckDB-WASM documents and Mosaic's own connector uses (`connectors/wasm.js`, `initDatabase`).
-  const workerUrl = URL.createObjectURL(new Blob([`importScripts("${String(bundle.mainWorker)}");`], { type: 'text/javascript' }));
+  const workerUrl = URL.createObjectURL(new Blob([workerScriptFor(bundle.mainWorker)], { type: 'text/javascript' }));
   const worker = new Worker(workerUrl);
   const logger = options.log === true ? new duckdb.ConsoleLogger() : new duckdb.VoidLogger();
   const database = new duckdb.AsyncDuckDB(logger, worker);
