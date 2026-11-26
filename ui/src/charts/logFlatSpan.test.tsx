@@ -17,15 +17,34 @@
  * | two or more distinct values                 | their own extent                     | the same                               |
  * | a flat span on a LINEAR axis                | one each side                        | the same                               |
  * | one value at or below zero on a log axis    | the placeholder decade, counted      | the same                               |
+ * | a drag over that one value on a scatter     | (the point was off the chart)        | the span covered, to four digits       |
+ * | a value near the smallest or largest number | drawn                                | drawn: the decade is kept representable|
+ * | a value outside a declared flat log domain  | counted against value ± 1            | counted against the decade drawn       |
  */
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render } from '@testing-library/react';
 import { VizLine } from './VizLine.js';
 import { VizScatter } from './VizScatter.js';
+import { VizHistogram } from './VizHistogram.js';
+import { VizHeatmap } from './VizHeatmap.js';
 import { VizFrame, framePad, framePlotBox } from './VizFrame.js';
-import { domainOr, extentFor, logDomain } from '../primitives/scales.js';
+import { domainOr, extentFor, logDomain, logTicks, outsideNotes, roundToAxis } from '../primitives/scales.js';
 
 afterEach(cleanup);
+
+// jsdom has no PointerEvent: without one a pointer event carries no clientX and a drag reads NaN
+beforeAll(() => {
+  if (typeof window.PointerEvent === 'undefined') {
+    class PE extends MouseEvent {
+      pointerId: number;
+      constructor(type: string, params: PointerEventInit = {}) {
+        super(type, params);
+        this.pointerId = params.pointerId ?? 1;
+      }
+    }
+    (window as unknown as { PointerEvent: typeof PE }).PointerEvent = PE;
+  }
+});
 
 const num = (el: Element, name: string): number => Number(el.getAttribute(name));
 const LOG = (channels: 'x' | 'y' | 'xy') => ({ transform: { ...(channels.includes('x') ? { x: 'log' as const } : {}), ...(channels.includes('y') ? { y: 'log' as const } : {}) } });
@@ -51,6 +70,40 @@ describe('the rules', () => {
     expect(domainOr(undefined, [2, 3], 'log')).toEqual([2, 3]);
     expect(extentFor([{ v: 3 }, { v: 30 }], (r) => r.v, 0, 'log')).toEqual([3, 30]);
     expect(extentFor([{ v: Number.NaN }], (r) => r.v, 0, 'log')).toEqual([0, 0]);
+  });
+});
+
+describe('the rules at the ends of what a number can hold, and for a pointer', () => {
+  it('a decade either side stays inside the numbers: never zero below, never infinity above', () => {
+    expect(logDomain(5e-324, 5e-324)).toEqual([5e-324, 5e-323]);
+    expect(logDomain(0, 2e-323)[0]).toBeGreaterThan(0);
+    const [lo, hi] = logDomain(Number.MAX_VALUE, Number.MAX_VALUE);
+    expect(lo).toBe(Number.MAX_VALUE / 10);
+    expect(hi).toBe(Number.MAX_VALUE);
+    expect(logDomain(1, Infinity)[1]).toBe(Number.MAX_VALUE);
+  });
+
+  it('a span with no finite end has no decade ticks, and asking for them ends', () => {
+    expect(logTicks(1, Infinity)).toEqual([]);
+    expect(logTicks(Number.MAX_VALUE / 10, Number.MAX_VALUE).length).toBeGreaterThan(0);
+  });
+
+  it('a pointer’s value on a logarithmic axis is rounded to four significant digits, whatever its size', () => {
+    expect(roundToAxis(0.000735642, 0, 'log')).toBe(0.0007356);
+    expect(roundToAxis(3.67821, 0, 'log')).toBe(3.678);
+    expect(roundToAxis(123456789, 0, 'log')).toBe(123500000);
+    expect(roundToAxis(Number.NaN, 0, 'log')).toBeNaN();
+    // …and a linear axis keeps its rule: a flat span is a hundredth
+    expect(roundToAxis(0.000735642, 0)).toBe(0);
+    expect(roundToAxis(0.000735642, 0, 'linear')).toBe(0);
+  });
+
+  it('a value is outside a declared flat logarithmic pair when it is outside the decade drawn', () => {
+    const ask = { channel: 'x', given: [0.05, 0.05] as const, values: [0.05, 0.4, 0.8] };
+    expect(outsideNotes([{ ...ask, kind: 'log' }])).toEqual(['x has 1 value outside its declared bounds [0.005, 0.5] — bounds say what the quantity CAN be, so either they are wrong or this data is']);
+    // on a linear axis the same pair is one either side, so nothing is outside
+    expect(outsideNotes([ask])).toEqual([]);
+    expect(outsideNotes([{ ...ask, kind: 'linear' }])).toEqual([]);
   });
 });
 
@@ -93,6 +146,57 @@ describe('one value on a logarithmic axis, in the charts', () => {
     expect(line).toBeCloseTo((52 + 520 - 18) / 2, 6);
   });
 
+  it('a declared flat domain on y, on the scatter and on the line', () => {
+    const domain = { y: [0.05, 0.05] as const, ...LOG('y') };
+    const scatter = render(<VizScatter data={[{ id: 'a', x: 1, y: 0.05 }]} domain={domain} width={520} height={340} />).container;
+    expect(num(scatter.querySelector('circle.vzf-dot')!, 'cy')).toBeCloseTo((18 + 340 - 44) / 2, 6);
+    cleanup();
+    const line = render(<VizLine data={[{ date: '2026-04-01', value: 0.05 }]} domain={domain} width={520} height={340} />).container;
+    const axis = line.querySelector('[data-axis-orient="left"] > line.vzf-axis')!;
+    expect(num(line.querySelector('circle.vzf-line-dot')!, 'cy')).toBeCloseTo((num(axis, 'y1') + num(axis, 'y2')) / 2, 6);
+  });
+
+  it('a histogram and a heat map under a declared flat logarithmic x: a bucket around the value is centred on the plot', () => {
+    const domain = { x: [0.05, 0.05] as const, ...LOG('x') };
+    // a bucket from half the value to twice it is centred on it, on a logarithmic axis
+    const hist = render(<VizHistogram data={[{ x0: 0.025, x1: 0.1, count: 3 }]} field="mass" domain={domain} width={420} />).container;
+    const bar = hist.querySelector('rect.vzf-histbar')!;
+    expect(num(bar, 'x') + num(bar, 'width') / 2).toBeCloseTo((30 + 420 - 30) / 2, 0);
+    cleanup();
+    const heat = render(<VizHeatmap data={[{ x0: 0.025, x1: 0.1, y: 'Casual', count: 3 }]} xField="mass" yField="category" domain={domain} width={420} />).container;
+    const cell = heat.querySelector('rect.vzf-heatcell')!;
+    expect(num(cell, 'x') + num(cell, 'width') / 2).toBeCloseTo((74 + 420 - 16) / 2, 0);
+  });
+
+  it('a drag over the one value on a scatter reads back the span it covered, not [0, 0]', () => {
+    const onEmit = vi.fn();
+    const { container } = render(<VizScatter data={[{ id: 'a', x: 0.001, y: 0.001 }]} domain={LOG('xy')} width={520} height={340} xField="mass" onEmit={onEmit} />);
+    const svg = container.querySelector('svg.vzf-scatter')!;
+    // the plot is 450 px for two decades, 0.0001 … 0.01: 30 px either side of the dot at 277
+    fireEvent.pointerDown(svg, { clientX: 247, pointerId: 1 });
+    fireEvent.pointerMove(svg, { clientX: 307, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: 307, pointerId: 1 });
+    expect(onEmit).toHaveBeenCalledTimes(1);
+    const [lo, hi] = onEmit.mock.calls[0]![0].rawValue as [number, number];
+    expect(lo).toBe(Number((0.001 * 10 ** (-30 / 225)).toPrecision(4)));
+    expect(hi).toBe(Number((0.001 * 10 ** (30 / 225)).toPrecision(4)));
+    expect(lo).toBeGreaterThan(0);
+    expect(lo).toBeLessThan(0.001);
+    expect(hi).toBeGreaterThan(0.001);
+  });
+
+  it('a value near the smallest or the largest number a chart can hold is still drawn', () => {
+    for (const v of [5e-324, 2.5e-323, 1e-300, 1e300, Number.MAX_VALUE]) {
+      const scatter = render(<VizScatter data={[{ id: 'a', x: v, y: 1 }]} domain={LOG('x')} width={520} />).container;
+      const cx = num(scatter.querySelector('circle.vzf-dot')!, 'cx');
+      expect(cx, String(v)).toBeGreaterThanOrEqual(52);
+      expect(cx, String(v)).toBeLessThanOrEqual(502);
+      cleanup();
+      expect(() => render(<VizLine data={[{ at: v, value: 1 }]} domain={LOG('x')} />), String(v)).not.toThrow();
+      cleanup();
+    }
+  });
+
   it('a frame’s guide is drawn over the same decade either side, so the value is mid-plot there too', () => {
     const layer = { layerId: 'a', kind: 'line' as const, render: (): JSX.Element => <svg /> };
     const { container } = render(<VizFrame layers={[layer]} x={{ scale: 'quantitative' }} domain={{ x: [0.05, 0.05], ...LOG('x') }} width={400} height={300} />);
@@ -105,7 +209,6 @@ describe('one value on a logarithmic axis, in the charts', () => {
     const on = (v: number): number => plot.left + ((plot.right - plot.left) * Math.log10(v / 0.005)) / 2;
     expect(ticks[0]!.at).toBeCloseTo(on(0.01), 6);
     expect(ticks[1]!.at).toBeCloseTo(on(0.1), 6);
-    expect(on(0.05)).toBeCloseTo((plot.left + plot.right) / 2, 6);
   });
 });
 

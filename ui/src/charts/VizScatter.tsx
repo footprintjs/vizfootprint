@@ -210,8 +210,9 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
     plotRight: width - pad.r,
     width,
     field: xField,
-    // rounded to what THIS axis can show (`roundToAxis`): a hundredth for an axis of ten or more, finer for a smaller one
-    snap: (loPx, hiPx) => [roundToAxis(x.invert(loPx), xhi - xlo), roundToAxis(x.invert(hiPx), xhi - xlo)],
+    // rounded to what THIS axis can show (`roundToAxis`): a hundredth for an axis of ten or more, finer for a
+    // smaller one, and four significant digits on a logarithmic one
+    snap: (loPx, hiPx) => [roundToAxis(x.invert(loPx), xhi - xlo, xKind), roundToAxis(x.invert(hiPx), xhi - xlo, xKind)],
     onEmit,
   });
 
@@ -253,8 +254,8 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // …and the words for a value outside the extent the axis was DECLARED on (`outsideNotes`, the one owner)
   // — counted off the marks this chart DREW, so a cell a logarithm already excluded is not said twice
   const outside = outsideNotes([
-    { channel: 'x', given: props.domain?.x, values: drawable.map((d) => d.x) },
-    { channel: 'y', given: props.domain?.y, values: drawable.map((d) => d.y) },
+    { channel: 'x', given: props.domain?.x, values: drawable.map((d) => d.x), ...(xKind === undefined ? {} : { kind: xKind }) },
+    { channel: 'y', given: props.domain?.y, values: drawable.map((d) => d.y), ...(yKind === undefined ? {} : { kind: yKind }) },
   ]);
 
   return (

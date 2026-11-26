@@ -886,7 +886,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const zeroNotes = zeroGuideNotes(zeroY);
   // …and the words for a mean outside the extent the value axis was DECLARED on (`outsideNotes`, the one
   // owner) — counted off the means this chart PLACED, so one a logarithm already excluded is not said twice
-  const outside = outsideNotes([{ channel: 'y', given: props.domain?.y, values: allMeans.map((p) => p.mean) }]);
+  const outside = outsideNotes([{ channel: 'y', given: props.domain?.y, values: allMeans.map((p) => p.mean), ...(yKind === undefined ? {} : { kind: yKind }) }]);
 
   // one answer, read by path, dot and legend swatch alike: the series' colour where the chart is split, `markInk` where it is not
   const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : markInk);
