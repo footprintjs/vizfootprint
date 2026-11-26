@@ -129,7 +129,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, roundTicks, ticksThatFit, squeezedLength, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { linearScale, extent, roundTicksThatFit, ticksThatFit, squeezedLength, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
@@ -850,7 +850,9 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // a LINEAR value axis is ticked at round values inside the span it drew (`roundTicks`), each labelled
   // to the step's precision; a LOGARITHMIC one at decades, read off the scale's own clamped domain
   // (the span the marks were actually placed on) rather than the raw pair
-  const yTicks: readonly RoundTick[] = ticksThatFit(yKind === 'log' ? logTicks(y.domain[0], y.domain[1], 4).map((value) => ({ value, label: logTickLabel(value) })) : roundTicks(vlo, vhi, 4), y, 'height');
+  // …and only labels that do not touch are drawn: a coarser round step, or the decades that fit
+  const yTicks: readonly RoundTick[] =
+    yKind === 'log' ? ticksThatFit(logTicks(y.domain[0], y.domain[1], 4).map((value) => ({ value, label: logTickLabel(value) })), y, 'height') : roundTicksThatFit(vlo, vhi, 4, y, 'height');
 
   // ZERO IS A PLACE ON THE AXIS (law 12), and on a line it is a place on the VALUE axis only: a difference,
   // a log ratio or a z-score over time crosses zero and the sign is the reading. Its x does not take one —

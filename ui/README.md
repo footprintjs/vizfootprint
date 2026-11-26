@@ -504,18 +504,21 @@ roundTicks(-3_710_000, -3_704_000, 4).map((t) => t.label); // ['-3.710M', '-3.70
 
 A declared `domain` is drawn as declared, with no room added, and ticked by the same rule. A logarithmic axis is unchanged: no room, decade ticks.
 
-Two more rules keep the labels readable, on the same charts:
+Four more rules keep the labels readable, on the same charts. Each one is the rule a well-known chart library already uses, so the axes behave the way a developer expects:
 
-- **Two labels do not touch** (`ticksThatFit`). When neighbouring labels would run together, every second (or third, …) tick is kept, with the first and the last always kept. The smallest gap between neighbouring ticks decides, so it holds on a logarithmic axis, whose ticks are not evenly spaced. A dropped tick takes its mark with it. A horizontal axis is judged by the longest label's width, a vertical one by a line of text.
+- **Fewer ticks is a coarser round step** (`roundTicksThatFit`). When the labels of a linear axis would run together, the axis asks for fewer ticks and takes the next round step: 0 200 400 … becomes 0 500 1000, never 0 400 800. This is how D3 is used (`axis.ticks(width / 80)`: the count follows the room, the scale picks the step) and what visx's `numTicks` does. Zero is a multiple of every step, so a zero line never loses its label.
+- **A logarithmic axis keeps every label that has room** (`ticksThatFit`). Its ticks crowd at one end only. The axis is walked from its first tick and each label is kept when it does not touch the last one kept, each measured by its own width. This is Vega's `labelOverlap: 'greedy'`, which Vega-Lite also uses for logarithmic axes. An axis keeps at least its first and its last label. A dropped tick takes its mark with it.
+- **An x label stays inside the drawing** (`labelCentre`). A label that would cross the drawing's left or right edge is moved in until it ends at the edge. Its tick mark stays at the value. Highcharts calls this `overflow: 'justify'`, Vega `labelFlush`.
 - **A value label is shown whole** (`squeezedLength`). This is the y axis's rule. A value label wider than the chart's margin used to be cut off by the edge of the drawing: "12345.0010" was drawn as "345.0010", which is another number. It is now squeezed into the margin with every character kept.
 
 ```ts
-import { roundTicks, ticksThatFit, squeezedLength } from 'vizfootprint-ui';
+import { roundTicksThatFit, ticksThatFit, labelCentre, squeezedLength } from 'vizfootprint-ui';
 
-const ticks = roundTicks(1.7e12, 1.7e12 + 60_000, 5);          // seven 13-character labels
-ticksThatFit(ticks, xScale, 'width').map((t) => t.label);      // every other one on a 360 px axis; first and last kept
-squeezedLength('12345.0010', 44);                              // 44: draw it with textLength={44}
-squeezedLength('-3.710M', 44);                                 // undefined: it fits as written
+roundTicksThatFit(0, 1000, 5, xScale, 'width').map((t) => t.label); // ['0', '500', '1000'] on a 60 px axis
+ticksThatFit(decades, logX, 'width', [0, width]);                   // the decades that have room
+labelCentre(402, '1700000060000', [0, 420]);                        // 381: the label ends at the edge
+squeezedLength('12345.0010', 44);                                   // 44: draw it with textLength={44}
+squeezedLength('-3.710M', 44);                                      // undefined: it fits as written
 ```
 
 Widths are estimated at 6 px a character, the stylesheet's 10 px mono tick font (6.02 measured in Chromium). A theme that changes the tick font or size makes the estimate wrong until chart text sizes are theme tokens.
