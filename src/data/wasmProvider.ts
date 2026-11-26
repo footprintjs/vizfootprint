@@ -23,7 +23,12 @@
  *   3. `evaluate().sql` is `resolvePredicateSQL`'s string — the SAME descriptor
  *      the memory engine returns for the same clause, which is the D24
  *      invariant the commit log rests on. The statement this engine actually
- *      RUNS is that descriptor wrapped by `windowSQL`; the two are different
+ *      RUNS is the same predicate wrapped by `windowSQL`, with its numbers
+ *      written so DuckDB reads the doubles they were written from
+ *      (`executablePredicateSQL`): one renderer, two spellings of a number.
+ *      Plain decimal text is read as a fixed-point DECIMAL, and a filter
+ *      whose bound is a value in the data could then leave that row out, so
+ *      this engine and the memory engine disagreed. The two are different
  *      strings on purpose, and only the descriptor is ever reported.
  *   4. The VALUES come back as this library's own, not as DuckDB's wire types.
  *      Two halves, and both of them are load-bearing rather than cosmetic: the
@@ -56,7 +61,7 @@
  * in the backend's own words.
  */
 
-import { quoteIdent, resolvePredicateSQL } from './predicate.js';
+import { quoteIdent, resolvePredicateSQL, executablePredicateSQL } from './predicate.js';
 import { FIND_ORDINAL_COLUMN, FIND_POSITION_COLUMN, ROW_ORDER_COLUMN, WindowRefusal, findSQL, windowSQL } from './sqlWindow.js';
 import { RELAND_KEY_COLUMN, dropStagingSQL, emptyStagingSQL, relandSQL, stagingTableOf, type RelandStatements } from './sqlReland.js';
 import { canLoad, type LoadingConnection, type SqlConnection } from './sqlConnection.js';
@@ -562,7 +567,10 @@ export function wasmProvider(options: WasmProviderOptions = {}): DataProvider {
       const sql = resolvePredicateSQL(clauses);
       let statement: string;
       try {
-        statement = windowSQL(table, sql, evalOptions, { hasRowOrder: schema.hasRowOrder });
+        // …and the STATEMENT, the same predicate with its numbers written so DuckDB reads the doubles
+        // they were written from (`executablePredicateSQL`): plain decimal text is read as a DECIMAL,
+        // whose conversion can leave out the very row a bound was taken from
+        statement = windowSQL(table, executablePredicateSQL(clauses), evalOptions, { hasRowOrder: schema.hasRowOrder });
       } catch (error) {
         /* v8 ignore next -- windowSQL throws WindowRefusal and nothing else (sqlWindow.ts); rethrowing anything else is how a bug there stays visible instead of arriving as a data refusal */
         if (!(error instanceof WindowRefusal)) throw error;
@@ -631,7 +639,8 @@ export function wasmProvider(options: WasmProviderOptions = {}): DataProvider {
       const sql = resolvePredicateSQL(clauses);
       let statements: { readonly hit: string; readonly matches: string };
       try {
-        statements = findSQL(table, sql, findOptions);
+        // the statements run the same predicate with exact numbers, as `evaluate`'s does
+        statements = findSQL(table, executablePredicateSQL(clauses), findOptions);
       } catch (error) {
         /* v8 ignore next -- findSQL throws WindowRefusal and nothing else (sqlWindow.ts); rethrowing anything else is how a bug there stays visible instead of arriving as a data refusal */
         if (!(error instanceof WindowRefusal)) throw error;

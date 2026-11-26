@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Correction: a filter's bound keeps the row it was taken from, on the SQL engine too
+
+- The SQL engine (DuckDB) was handed a filter's numbers as plain decimal
+  text. DuckDB reads such text as a fixed-point DECIMAL, and its conversion
+  to the DOUBLE a column holds is not exact, so a filter whose bound is a
+  value in the data could leave that row out. Measured on 5,000 doubles,
+  `"v" BETWEEN v AND v` found its own row for 4,860. The memory engine
+  compares doubles exactly, so the two engines disagreed (a reviewer saw 21
+  of 400 intervals one row short on DuckDB).
+- The statement the SQL engine runs now writes a number with a fraction in
+  exponent form, which DuckDB reads as a DOUBLE: 5,000 of 5,000, for
+  `BETWEEN`, `>=`, `<=`, `IN` and `=`. Whole numbers are written as before.
+- **What a result reports and what the log records are unchanged.**
+  `evaluate().sql` and `CommitRecord.predicateSQL` keep the plain decimal
+  text, byte for byte. Only the statement handed to the engine differs, and
+  only where a bound has a fraction.
+- New exports from `vizfootprint/data`: `executablePredicateSQL` and
+  `exactLiteralSQL`.
+
 ### Correction: a line's drag across the whole plot holds its two end points
 
 - A line over numbers records the value under the pointer unrounded, and
