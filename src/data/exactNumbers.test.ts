@@ -16,8 +16,12 @@
  * | not a finite number               | NULL                                | NULL                         |
  * | a cleared clause; an empty list   | as before                           | the same text                |
  */
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildDashboardAsync, type DashboardDef } from '../def/index.js';
+import { memoryProvider } from './memoryProvider.js';
+import { wasmProvider } from './wasmProvider.js';
+import { canLoad, type LoadingConnection } from './sqlConnection.js';
+import { isRejection, type DataProvider } from './types.js';
 import { duckdbConnection, exactLiteralSQL, executablePredicateSQL, literalToSQL, resolvePredicateSQL, type PredicateClause } from './index.js';
 
 describe('exactLiteralSQL — a literal an engine reads as the number it was written from', () => {
@@ -81,7 +85,8 @@ describe('executablePredicateSQL — the same predicate, with exact numbers', ()
       [{ kind: 'interval', field: 'v', value: [0.5, null] }, '("v" >= 0.5)', '("v" >= 5e-1)'],
       [{ kind: 'interval', field: 'v', value: [null, 2.25] }, '("v" <= 2.25)', '("v" <= 2.25e+0)'],
       [{ kind: 'point', field: 'v', value: 0.25 }, '("v" IN (0.25))', '("v" IN (2.5e-1))'],
-      [{ kind: 'match', field: 'v', values: [0.25, 3, null] }, '("v" IN (0.25, 3) OR "v" IS NULL)', ''],
+      [{ kind: 'match', field: 'v', values: [0.25, 3, null] }, '("v" IN (0.25, 3, NULL))', '("v" IN (2.5e-1, 3, NULL))'],
+      [{ kind: 'match', field: 'v', values: [0.25], exclude: true }, '("v" NOT IN (0.25))', '("v" NOT IN (2.5e-1))'],
       [{ kind: 'cell', fields: ['v', 'c'], value: [[0.5, 1.5], 'Formal'] }, `(("v" BETWEEN 0.5 AND 1.5) AND ("c" IN ('Formal')))`, `(("v" BETWEEN 5e-1 AND 1.5e+0) AND ("c" IN ('Formal')))`],
       [{ kind: 'neighbourhood', fields: ['a', 'b'], ids: [0.5, 2] }, '(("a" IN (0.5, 2)) AND ("b" IN (0.5, 2)))', '(("a" IN (5e-1, 2)) AND ("b" IN (5e-1, 2)))'],
       [[{ kind: 'point', field: 'v', value: 0.25 }, { kind: 'point', field: 'n', value: 1 }], '(("v" IN (0.25))) AND (("n" IN (1)))', '(("v" IN (2.5e-1))) AND (("n" IN (1)))'],
@@ -89,12 +94,10 @@ describe('executablePredicateSQL — the same predicate, with exact numbers', ()
     for (const [clause, descriptor, statement] of cases) {
       const reported = resolvePredicateSQL(clause);
       const run = executablePredicateSQL(clause);
-      // the descriptor is pinned where its text is written out above (a match list's shape is pinned in predicate.test.ts)
-      if (statement !== '') {
-        expect(reported, JSON.stringify(clause)).toBe(descriptor);
-        expect(run, JSON.stringify(clause)).toBe(statement);
-      }
-      // the two say the same thing: put each number back in plain form and they are one text
+      expect(reported, JSON.stringify(clause)).toBe(descriptor);
+      expect(run, JSON.stringify(clause)).toBe(statement);
+      // the two say the same thing: put each number back in plain form and they are one text. (A check
+      // for THESE cases only: the pattern would also rewrite such text inside a quoted string.)
       expect(run.replace(/-?\d+(?:\.\d+)?e[+-]\d+/g, (text) => String(Number(text))), JSON.stringify(clause)).toBe(reported);
     }
   });
@@ -117,18 +120,18 @@ describe('the two engines keep the same rows for a filter whose bounds are value
       defaultTable: 't',
     }) as DashboardDef;
 
-  /** For each interval, the ids the engine keeps. */
-  async function kept(engine: 'memory' | 'wasm', intervals: readonly (readonly [number, number])[]): Promise<string[][]> {
+  /** For each interval, the ids the engine keeps, and beside them the number of rows it says match. */
+  async function kept(engine: 'memory' | 'wasm', intervals: readonly (readonly [number, number])[]): Promise<{ ids: string[]; count: number }[]> {
     const dashboard = await buildDashboardAsync(definition(engine), { openSqlConnection: duckdbConnection({ host: 'node' }) });
     try {
-      const out: string[][] = [];
+      const out: { ids: string[]; count: number }[] = [];
       for (const range of intervals) {
         const session = dashboard.createSession();
         const done = await session.dispatch({ verb: 'filter', viewId: 'view', field: 'v', range: [range[0], range[1]], cause });
         expect(done.ok).toBe(true);
         const answer = await session.viewQuery({ table: 't' });
         expect(answer.ok).toBe(true);
-        out.push(answer.ok ? answer.rows.map((row) => String(row['id'])).sort() : []);
+        out.push(answer.ok ? { ids: answer.rows.map((row) => String(row['id'])).sort(), count: answer.count } : { ids: [], count: -1 });
       }
       return out;
     } finally {
@@ -138,16 +141,102 @@ describe('the two engines keep the same rows for a filter whose bounds are value
 
   it('60 intervals, each from one value in the data to the third value above it: four rows, on both engines', async () => {
     const intervals = Array.from({ length: 60 }, (_, i) => [sorted[i * 3]!, sorted[i * 3 + 3]!] as const);
-    const expected = intervals.map(([lo, hi]) => rows.filter((row) => row.v >= lo && row.v <= hi).map((row) => row.id).sort());
-    for (const ids of expected) expect(ids).toHaveLength(4);
+    // the count is its own statement on the SQL engine, so it is checked beside the rows: a count that
+    // ran the plain text would say 3 beside four rows
+    const expected = intervals.map(([lo, hi]) => ({ ids: rows.filter((row) => row.v >= lo && row.v <= hi).map((row) => row.id).sort(), count: 4 }));
+    for (const one of expected) expect(one.ids).toHaveLength(4);
     expect(await kept('memory', intervals)).toEqual(expected);
     expect(await kept('wasm', intervals)).toEqual(expected);
   }, 120_000);
 
   it('an interval from a value to itself keeps exactly that row, for every one of the reviewer’s examples', async () => {
     const own = values.slice(0, 6).map((v) => [v, v] as const);
-    const expected = own.map(([v]) => rows.filter((row) => row.v === v).map((row) => row.id));
+    const expected = own.map(([v]) => ({ ids: rows.filter((row) => row.v === v).map((row) => row.id), count: 1 }));
     expect(await kept('wasm', own)).toEqual(expected);
     expect(await kept('memory', own)).toEqual(expected);
   }, 120_000);
+
+  describe('every statement the SQL engine runs for one call carries the exact numbers', () => {
+    const TABLE = 'data';
+    const own = values.slice(0, 6);
+    const asked: string[] = [];
+    let connection: LoadingConnection;
+    let live: DataProvider;
+    const memory = memoryProvider(rows, { layout: 'row' });
+
+    beforeAll(async () => {
+      const opened = await duckdbConnection({ host: 'node' })();
+      if (!canLoad(opened)) throw new Error('the shipped opener answered a connection that cannot land a table');
+      connection = opened;
+      await connection.load(TABLE, { kind: 'rows', rows });
+      live = wasmProvider({
+        sources: [TABLE],
+        connection: {
+          query: async (sql: string) => {
+            asked.push(sql);
+            return connection.query(sql);
+          },
+        },
+      });
+    });
+
+    afterAll(async () => {
+      await connection?.close?.();
+    });
+
+    /** The statements one call asked that name the column: each must carry the exact text and never the plain one. */
+    function expectExact(from: number, v: number, statements: number): void {
+      const mine = asked.slice(from).filter((sql) => sql.includes('"v"') && !sql.startsWith('DESCRIBE'));
+      expect(mine, `statements for ${String(v)}`).toHaveLength(statements);
+      for (const sql of mine) {
+        expect(sql, sql).toContain(v.toExponential());
+        expect(sql, sql).not.toContain(String(v));
+      }
+    }
+
+    it('evaluate: the rows AND the count of an interval from a value to itself are that one row, and the descriptor stays plain', async () => {
+      for (const v of own) {
+        const clause: PredicateClause = { kind: 'interval', field: 'v', value: [v, v] };
+        const from = asked.length;
+        const answer = await live.evaluate(TABLE, clause);
+        if (isRejection(answer)) throw new Error(JSON.stringify(answer));
+        expect(answer.rows?.map((row) => row['v']), String(v)).toEqual([v]);
+        // the count is a second statement: it is the one that still ran the plain text
+        expect(answer.count, String(v)).toBe(1);
+        expect(answer.sql).toBe(`("v" BETWEEN ${String(v)} AND ${String(v)})`);
+        const inMemory = await memory.evaluate(TABLE, clause);
+        if (isRejection(inMemory)) throw new Error(JSON.stringify(inMemory));
+        expect({ sql: answer.sql, count: answer.count }).toEqual({ sql: inMemory.sql, count: inMemory.count });
+        expectExact(from, v, 2);
+      }
+    }, 120_000);
+
+    it('evaluate asked only to count says one', async () => {
+      for (const v of own) {
+        const from = asked.length;
+        const answer = await live.evaluate(TABLE, { kind: 'interval', field: 'v', value: [v, v] }, { mode: 'count' });
+        if (isRejection(answer)) throw new Error(JSON.stringify(answer));
+        expect(answer.count, String(v)).toBe(1);
+        expectExact(from, v, 1);
+      }
+    }, 120_000);
+
+    it('find: the row is found inside the view its own value bounds, as the memory engine finds it', async () => {
+      for (const v of own) {
+        const clause: PredicateClause = { kind: 'interval', field: 'v', value: [v, v] };
+        const id = rows.find((row) => row.v === v)!.id;
+        const options = { text: id, columns: ['id'], from: 0, direction: 'forward' } as const;
+        const from = asked.length;
+        const found = await live.find!(TABLE, clause, options);
+        if (isRejection(found)) throw new Error(JSON.stringify(found));
+        const inMemory = await memory.find!(TABLE, clause, options);
+        if (isRejection(inMemory)) throw new Error(JSON.stringify(inMemory));
+        expect(found.matches, String(v)).toBe(1);
+        expect(found.position, String(v)).toBe(0);
+        expect({ sql: found.sql, matches: found.matches, position: found.position }).toEqual({ sql: inMemory.sql, matches: inMemory.matches, position: inMemory.position });
+        expect(found.sql).toBe(`("v" BETWEEN ${String(v)} AND ${String(v)})`);
+        expectExact(from, v, 2);
+      }
+    }, 120_000);
+  });
 });

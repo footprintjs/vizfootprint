@@ -565,12 +565,14 @@ export function wasmProvider(options: WasmProviderOptions = {}): DataProvider {
 
       // The DESCRIPTOR — what the result reports, byte-identical to the memory engine's for the same clause.
       const sql = resolvePredicateSQL(clauses);
+      // …and the predicate every STATEMENT of this call runs: the same one, with its numbers written
+      // so DuckDB reads the doubles they were written from (`executablePredicateSQL`). Plain decimal
+      // text is read as a DECIMAL, whose conversion can leave out the very row a bound was taken from.
+      // The descriptor above is reported and never run.
+      const runnable = executablePredicateSQL(clauses);
       let statement: string;
       try {
-        // …and the STATEMENT, the same predicate with its numbers written so DuckDB reads the doubles
-        // they were written from (`executablePredicateSQL`): plain decimal text is read as a DECIMAL,
-        // whose conversion can leave out the very row a bound was taken from
-        statement = windowSQL(table, executablePredicateSQL(clauses), evalOptions, { hasRowOrder: schema.hasRowOrder });
+        statement = windowSQL(table, runnable, evalOptions, { hasRowOrder: schema.hasRowOrder });
       } catch (error) {
         /* v8 ignore next -- windowSQL throws WindowRefusal and nothing else (sqlWindow.ts); rethrowing anything else is how a bug there stays visible instead of arriving as a data refusal */
         if (!(error instanceof WindowRefusal)) throw error;
@@ -591,7 +593,7 @@ export function wasmProvider(options: WasmProviderOptions = {}): DataProvider {
       // statement deliberately returned only the window's own rows. Counting
       // the rows it handed back would report the window's size as the size of
       // the selection — the number a gap check reads.
-      const counted = countFrom(await ask(connection, windowSQL(table, sql, { mode: 'count' }), table), table);
+      const counted = countFrom(await ask(connection, windowSQL(table, runnable, { mode: 'count' }), table), table);
       if (!counted.ok) return reject('wasm', 'evaluate', 'no-backend-connection', counted.detail);
       const count = counted.value;
 

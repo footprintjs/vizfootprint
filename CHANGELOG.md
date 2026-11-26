@@ -18,6 +18,12 @@
   `evaluate().sql` and `CommitRecord.predicateSQL` keep the plain decimal
   text, byte for byte. Only the statement handed to the engine differs, and
   only where a bound has a fraction.
+- Every statement of a call runs the exact text: the window, its separate
+  count, and both statements of a find.
+- Two limits. A number with a fraction compared with an integer column makes
+  DuckDB cast the column to DOUBLE for that comparison, so on a host's own
+  BIGINT table two neighbouring values past 2^53 compare equal. And the
+  Mosaic adapter still hands a host's coordinator the plain decimal text.
 - New exports from `vizfootprint/data`: `executablePredicateSQL` and
   `exactLiteralSQL`.
 

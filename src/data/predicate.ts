@@ -158,9 +158,15 @@ type LiteralWriter = (value: unknown) => string;
  * compares doubles exactly. Text with an exponent is read as a DOUBLE and
  * round-trips: 5,000 of 5,000, for `BETWEEN`, `>=`, `<=`, `IN` and `=`.
  *
- * AN INTEGER STAYS PLAIN. DuckDB reads it as an integer type and compares it
- * exactly, with no cast put on an integer column (a DOUBLE literal would cast
- * the column, and two BIGINTs past 2^53 would then compare equal).
+ * A WHOLE NUMBER STAYS PLAIN. DuckDB reads it as an integer type and compares
+ * it exactly: a whole-number literal alone puts no cast on an integer column.
+ *
+ * THE LIMIT. A number with a fraction compared with an integer column makes
+ * DuckDB cast the COLUMN to DOUBLE for that comparison (a `BETWEEN 0.5 AND 3`,
+ * or an `IN` list that holds one fraction). Up to 2^53 that changes nothing.
+ * Past it, two neighbouring BIGINTs become the same double. This library's own
+ * landings never hold such a value as a number (a JS number is a double
+ * already); a host's own BIGINT table can.
  *
  * `CAST(x AS DOUBLE)` and `x::DOUBLE` do NOT help: the text is read as a
  * DECIMAL first and converted the same inexact way (measured: 4,860 and 4,896).
