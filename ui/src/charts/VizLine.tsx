@@ -130,7 +130,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { extentFor, pointerValue, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { extentFor, pointerValue, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, dateOfEpoch, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { fitTick } from './tickFit.js';
 import { Axis, placeTicks, type AxisTick } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
@@ -890,7 +890,13 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const zeroNotes = zeroGuideNotes(zeroY);
   // …and the words for a mean outside the extent the value axis was DECLARED on (`outsideNotes`, the one
   // owner) — counted off the means this chart PLACED, so one a logarithm already excluded is not said twice
-  const outside = outsideNotes([{ channel: 'y', given: props.domain?.y, values: allMeans.map((p) => p.mean), ...(yKind === undefined ? {} : { kind: yKind }) }]);
+  // …and for a position outside the span the x axis was given (a run of numbers or dates; a band has no span)
+  const outside = outsideNotes([
+    ...(band === undefined
+      ? [{ channel: 'x', given: props.domain?.x, values: positions.map((p) => p.at), noun: ['position', 'positions'] as const, undeclared: true as const, ...(xKind === undefined ? {} : { kind: xKind }), ...(kind === 'numbers' ? {} : { format: dateOfEpoch }) }]
+      : []),
+    { channel: 'y', given: props.domain?.y, values: allMeans.map((p) => p.mean), ...(yKind === undefined ? {} : { kind: yKind }) },
+  ]);
 
   // one answer, read by path, dot and legend swatch alike: the series' colour where the chart is split, `markInk` where it is not
   const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : markInk);

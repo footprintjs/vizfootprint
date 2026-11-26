@@ -33,8 +33,9 @@ import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { Axis, placeTicks } from '../primitives/Axis.js';
+import { NoteLines } from '../primitives/NoteLines.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
-import { bandOrder, bandWidth, bandStart, bandCentre, countSpan, roundTicksThatFit, slotAt, pointerTargetWidth, crowdedMarksNote, type ChartDomain } from '../primitives/scales.js';
+import { bandOrder, bandWidth, bandStart, bandCentre, countSpan, outsideNotes, roundTicksThatFit, slotAt, pointerTargetWidth, crowdedMarksNote, type ChartDomain } from '../primitives/scales.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { slotValues, slotPress } from '../primitives/slotValues.js';
 import { announce } from '../primitives/announce.js';
@@ -201,6 +202,9 @@ export function VizBar(props: VizBarProps): JSX.Element {
   // maximum otherwise. Through `countSpan` (zero up to the ceiling, never below one; `domainOr` inside it holds the guard): a ceiling that is
   // not a finite number is not a ceiling, and dividing by it would draw every bar at NaN.
   const max = countSpan(props.domain?.y, [0, Math.max(...data.map((d) => d.count))])[1];
+  // …and the words for a bar taller than the ceiling it was GIVEN (`outsideNotes`, the one owner): it is
+  // drawn at its true length, which runs past the plot's top, so the count is what says it is there
+  const outside = outsideNotes([{ channel: 'y', given: props.domain?.y, values: data.map((d) => d.count), count: true, noun: ['bar', 'bars'], undeclared: true }]);
   // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its COUNT
   // axis alone (`'y'` — one scale of a two-scale frame whose x the frame draws once). Two flags, so the
   // category-side markup below reads one word and the count-side another.
@@ -323,7 +327,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
         viewBox={`0 0 ${width} ${height}`}
         ref={svgRef}
         role="group"
-        aria-label={(props.ariaLabel ?? `count by ${label}`) + crowded}
+        aria-label={(props.ariaLabel ?? `count by ${label}`) + crowded + outside.map((note) => ` — ${note}`).join('')}
         onPointerMove={moveRun}
         onPointerUp={endRun}
         onPointerCancel={cancelRun}
@@ -431,6 +435,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
             {crowded.replace(/^ — /, '')}
           </text>
         )}
+        <NoteLines className="vzf-outside-note" notes={outside} x={PAD.l} y={PAD.t - 6} />
         {drawX && <AxisLabel x={width / 2} y={height - 8} text={label} channel="category" onOpen={openPicker} />}
       </svg>
       <EncodingPicker
