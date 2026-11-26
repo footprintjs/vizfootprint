@@ -735,24 +735,41 @@ export function labelsFit(ticks: readonly RoundTick[], place: (value: number) =>
 
 /**
  * ROUND TICKS AN AXIS HAS ROOM TO LABEL: `roundTicks` for the most ticks, up
- * to `target`, whose labels do not touch.
+ * to `target`, whose labels do not touch. An axis that has two ticks to show
+ * always shows at least two, because one label does not give a scale.
  *
- * THE CONVENTION: fewer ticks means a COARSER ROUND STEP, never every second
- * label of a finer one. It is how D3 is used (`axis.ticks(width / 80)`: the
- * count follows the room, the scale picks the step) and what visx's `numTicks`
- * and Observable Plot's `tickSpacing` do. So the labels that remain are still
- * multiples of 1, 2 or 5, and ZERO, a multiple of every step, is never the
- * label that goes: a zero line always has its label beside it.
+ * In order, the first that holds:
  *
- * When even the coarsest step's labels touch, the scan below keeps what fits.
+ *   1. A COARSER ROUND STEP. Fewer ticks are asked for until two or more
+ *      labels fit. This is how the tick count is chosen where it follows the
+ *      room (Observable Plot's `tickSpacing`; the D3 habit `ticks(width / 80)`):
+ *      the scale picks the step, so the labels stay multiples of 1, 2 or 5.
+ *   2. EVERY SECOND (third, …) of the ticks first asked for, counted FROM
+ *      ZERO, when no round step leaves two labels that fit. This is Vega's
+ *      `labelOverlap: 'parity'`, anchored so the labels are still multiples of
+ *      one step.
+ *   3. THE FIRST AND THE LAST of the ticks first asked for, on an axis too
+ *      short for any two labels. They may touch. Vega keeps two the same way.
+ *
+ * Under 1 and 2 ZERO, a multiple of every step, is never the label that goes:
+ * a zero line has its label beside it.
  */
 export function roundTicksThatFit(lo: number, hi: number, target: number, place: (value: number) => number, along: 'width' | 'height', edges?: LabelEdges): readonly RoundTick[] {
-  let ticks: readonly RoundTick[] = [];
-  for (let count = Math.max(1, Math.floor(target)); count >= 1; count--) {
-    ticks = roundTicks(lo, hi, count);
-    if (labelsFit(ticks, place, along, edges)) return ticks;
+  const most = Number.isFinite(target) ? Math.min(MAX_TICKS, Math.max(1, Math.floor(target))) : target > 0 ? MAX_TICKS : 1;
+  const asked = roundTicks(lo, hi, most);
+  if (asked.length < 3 || labelsFit(asked, place, along, edges)) return asked;
+  for (let count = most - 1; count >= 1; count--) {
+    const ticks = roundTicks(lo, hi, count);
+    if (ticks.length >= 2 && labelsFit(ticks, place, along, edges)) return ticks;
   }
-  return ticksThatFit(ticks, place, along, edges);
+  // which multiple of the step each tick is: the step is the distance between two neighbours
+  const step = asked[1]!.value - asked[0]!.value;
+  const multiple = (tick: RoundTick): number => Math.round(tick.value / step);
+  for (let every = 2; every < asked.length; every++) {
+    const ticks = asked.filter((tick) => multiple(tick) % every === 0);
+    if (ticks.length >= 2 && labelsFit(ticks, place, along, edges)) return ticks;
+  }
+  return [asked[0]!, asked[asked.length - 1]!];
 }
 
 /**
@@ -765,7 +782,9 @@ export function roundTicksThatFit(lo: number, hi: number, target: number, place:
  * THE CONVENTION: Vega's `labelOverlap: 'greedy'`, which Vega-Lite uses for
  * logarithmic axes for the same reason: their ticks crowd at one end only, so
  * dropping every second label everywhere throws away labels that had room.
- * Like Vega, an axis keeps at least two labels, its first and its last.
+ * The walk can drop the last tick. When it would leave fewer than three
+ * labels, the axis shows its first and its last instead, as Vega does, so a
+ * two-label axis always names both ends.
  *
  * A tick that is dropped takes its mark with it, so nothing is drawn unlabelled.
  */
@@ -780,7 +799,7 @@ export function ticksThatFit<T extends RoundTick>(ticks: readonly T[], place: (v
     lastSpan = span;
   }
   if (kept.length === ticks.length) return ticks;
-  return kept.length < 2 ? [ticks[0]!, ticks[ticks.length - 1]!] : kept;
+  return kept.length < 3 ? [ticks[0]!, ticks[ticks.length - 1]!] : kept;
 }
 
 /**

@@ -5,9 +5,10 @@
  * | the axis                                        | the rule, and whose it is                                   | what is drawn                               |
  * |-------------------------------------------------|-------------------------------------------------------------|---------------------------------------------|
  * | linear, labels fit                              | —                                                           | the ticks `roundTicks` gives for the target |
- * | linear, labels would touch                      | fewer ticks = a coarser round step (D3 `ticks(count)`)      | multiples of 1, 2 or 5; never every k-th    |
+ * | linear, labels would touch                      | fewer ticks = a coarser round step (Plot `tickSpacing`)     | multiples of 1, 2 or 5                      |
  * | linear, zero inside the span                    | zero is a multiple of every step                            | "0" is always among the labels              |
- * | linear, even the coarsest step touches          | the scan below                                              | what fits; at least the first and the last  |
+ * | linear, no round step leaves two that fit       | every k-th of the ticks asked, from zero (Vega 'parity')    | multiples of one step, zero among them      |
+ * | linear, an axis too short for any two labels    | first and last of the ticks asked (Vega keeps two)          | two labels, which may touch                 |
  * | logarithmic (ticks crowd at one end)            | walk and keep what fits (Vega `labelOverlap: 'greedy'`)     | every label that has room, by its own width |
  * | an x label that would cross the drawing's edge  | move it in (Highcharts `overflow: 'justify'`, Vega flush)   | whole, ending at the edge                   |
  * | y ticks closer than a line of text              | the same rules, by line height                              | no two stacked                              |
@@ -111,37 +112,95 @@ describe('roundTicksThatFit — fewer ticks is a coarser round step', () => {
     expect(said(kept)).toEqual(['0', '2', '4', '6']);
   });
 
-  it('even one tick asked for does not fit: what the scan keeps, never fewer than it is given', () => {
-    const place = linearScale(1.7e12, 1.7e12 + 60_000, 0, 30);
-    const kept = roundTicksThatFit(1.7e12, 1.7e12 + 60_000, 5, place, 'width');
-    expect(kept.length).toBeGreaterThanOrEqual(1);
-    expect(kept.length).toBeLessThanOrEqual(2);
+  it('no round step leaves two labels that fit: every third of the ticks asked for, and never one label alone', () => {
+    // 3 … 17 on 40 px. Asked for 5 it is 4 6 … 16, which touch; 5 10 15 touch; a count of 1 is "10" alone.
+    const place = linearScale(3, 17, 0, 40);
+    expect(said(roundTicks(3, 17, 1))).toEqual(['10']);
+    expect(said(roundTicksThatFit(3, 17, 5, place, 'width'))).toEqual(['6', '12']);
   });
 
-  it('a target that is not a whole number, or below one, still asks for at least one', () => {
+  it('…counted from zero, so zero keeps its label', () => {
+    const place = linearScale(-4.66, 4.02, 38, 0);
+    expect(said(roundTicksThatFit(-4.66, 4.02, 8, place, 'height'))).toEqual(['-4', '0', '4']);
+  });
+
+  it('an axis too short for any two labels: the first and the last of the round ticks asked for, not the ends written in full', () => {
+    const place = linearScale(-4184.95, -4151.55, 0, 49);
+    const kept = said(roundTicksThatFit(-4184.95, -4151.55, 5, place, 'width'));
+    expect(kept).toEqual(['-4180', '-4155']);
+    const tiny = linearScale(1.7e12, 1.7e12 + 60_000, 0, 30);
+    expect(said(roundTicksThatFit(1.7e12, 1.7e12 + 60_000, 5, tiny, 'width'))).toEqual(['1700000000000', '1700000060000']);
+  });
+
+  it('a narrow span far from zero keeps two labels (it had one)', () => {
+    const place = linearScale(12345.1, 12352.3, 52, 182);
+    expect(roundTicksThatFit(12345.1, 12352.3, 5, place, 'width', [0, 200]).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('a target that is not a usable count: below one asks for one, a fraction rounds down, no number asks for one, and infinity is capped', () => {
     const place = linearScale(0, 10, 0, 400);
     expect(roundTicksThatFit(0, 10, 0, place, 'width')).toEqual(roundTicks(0, 10, 1));
     expect(roundTicksThatFit(0, 10, 4.9, place, 'width')).toEqual(roundTicks(0, 10, 4));
+    expect(roundTicksThatFit(0, 10, Number.NaN, place, 'width')).toEqual(roundTicks(0, 10, 1));
+    expect(roundTicksThatFit(0, 10, -Infinity, place, 'width')).toEqual(roundTicks(0, 10, 1));
+    const capped = roundTicksThatFit(0, 10, Infinity, place, 'width');
+    expect(capped.length).toBeGreaterThan(2);
+    expect(touching(capped, place, 'width')).toBe(0);
   });
 
-  it('20,000 generated axes: no two labels touch once more than two are drawn; every axis is one roundTicks answer; zero inside three or more labels is labelled', () => {
+  it('a span with nothing to tick, or one value, is what roundTicks says', () => {
+    expect(roundTicksThatFit(Number.NaN, 1, 5, () => 0, 'width')).toEqual([]);
+    expect(said(roundTicksThatFit(7, 7, 5, () => 0, 'width'))).toEqual(['7']);
+  });
+
+  it('30,000 generated axes, a third of them with drawing edges: two labels at least; touching only when two are left; every label one of the ticks of some count; zero labelled', () => {
     const next = random(7);
-    for (let run = 0; run < 20000; run++) {
+    const reached = { two: 0, threeOrMore: 0, touchingPair: 0, zero: 0, edges: 0 };
+    for (let run = 0; run < 30000; run++) {
       const width = 10 ** (next() * 8 - 4);
       const lo = (next() - 0.5) * width * (next() < 0.5 ? 2 : 2000);
       const hi = lo + width;
       const length = 30 + next() * 600;
       const along = next() < 0.5 ? 'width' : 'height';
-      const place = along === 'width' ? linearScale(lo, hi, 0, length) : linearScale(lo, hi, length, 0);
+      const margin = next() * 60;
+      const place = along === 'width' ? linearScale(lo, hi, margin, margin + length) : linearScale(lo, hi, length, 0);
+      const edges = along === 'width' && next() < 0.66 ? ([0, margin + length + 18] as const) : undefined;
       const target = 1 + Math.floor(next() * 8);
-      const kept = roundTicksThatFit(lo, hi, target, place, along);
+      const kept = roundTicksThatFit(lo, hi, target, place, along, edges);
       const what = `${lo} … ${hi} on ${length}px by ${along}, ${target} asked: ${said(kept).join(' ')}`;
-      if (kept.length > 2) expect(touching(kept, place, along), what).toBe(0);
-      const answers = Array.from({ length: target }, (_, i) => roundTicks(lo, hi, i + 1));
-      const whole = answers.some((a) => a.length === kept.length && a.every((t, i) => t.value === kept[i]!.value));
-      if (kept.length > 2) expect(whole, what).toBe(true);
-      if (kept.length > 2 && lo < 0 && hi > 0 && kept.some((t) => t.value < 0) && kept.some((t) => t.value > 0)) expect(said(kept), what).toContain('0');
+      const asked = roundTicks(lo, hi, target);
+      // never fewer than two when the axis had two to show
+      expect(kept.length, what).toBeGreaterThanOrEqual(Math.min(2, asked.length));
+      // measured where the labels are DRAWN, edges included
+      const fits = labelsFit(kept, place, along, edges);
+      if (edges !== undefined) reached.edges += 1;
+      if (kept.length > 2) {
+        reached.threeOrMore += 1;
+        expect(fits, what).toBe(true);
+        if (edges === undefined) expect(touching(kept, place, along), what).toBe(0);
+      } else if (kept.length === 2) {
+        reached.two += 1;
+        if (!fits) {
+          reached.touchingPair += 1;
+          // only on an axis too short for any two: the pair is the first and last of what was asked
+          expect([kept[0]!.value, kept[1]!.value], what).toEqual([asked[0]!.value, asked.at(-1)!.value]);
+        }
+      }
+      // every label is a tick of some count up to the target, with that tick's own words
+      const pool = new Map(Array.from({ length: target }, (_, i) => roundTicks(lo, hi, i + 1)).flat().map((t) => [`${t.value}|${t.label}`, t]));
+      for (const tick of kept) expect(pool.has(`${tick.value}|${tick.label}`), what).toBe(true);
+      // a span that crosses zero and has a zero tick to show keeps it, unless the axis is too short for any two labels
+      if (asked.some((t) => t.value === 0) && asked.length > 2 && fits) {
+        reached.zero += 1;
+        expect(said(kept), what).toContain('0');
+      }
     }
+    // the property is not vacuous: each branch was reached many times
+    expect(reached.threeOrMore).toBeGreaterThan(10000);
+    expect(reached.two).toBeGreaterThan(1000);
+    expect(reached.touchingPair).toBeGreaterThan(10);
+    expect(reached.zero).toBeGreaterThan(2000);
+    expect(reached.edges).toBeGreaterThan(5000);
   });
 });
 
@@ -155,6 +214,12 @@ describe('ticksThatFit — given ticks, walked from the first', () => {
     // 8-character labels are 48 px, single characters 6 px, ticks 30 px apart: "b" touches the long
     // first label and goes; "c", "d" and "e" have room; the long last label touches "e" and goes
     expect(said(ticksThatFit(ticks(['aaaaaaaa', 'b', 'c', 'd', 'e', 'ffffffff']), every(30), 'width'))).toEqual(['aaaaaaaa', 'c', 'd', 'e']);
+  });
+
+  it('when the walk would leave two labels, they are the first and the LAST tick', () => {
+    // 60 px labels 40 px apart: the walk keeps the 1st and the 3rd of four, which would leave the top of the axis unnamed
+    const four = ticks(['0123456789', '0123456789', '0123456789', 'the-last-1']);
+    expect(said(ticksThatFit(four, every(40), 'width'))).toEqual(['0123456789', 'the-last-1']);
   });
 
   it('labels so long that nothing else fits beside the first: the first and the last', () => {
@@ -178,8 +243,9 @@ describe('ticksThatFit — given ticks, walked from the first', () => {
     expect(touching(kept, place, 'width')).toBe(0);
   });
 
-  it('5,000 generated logarithmic axes, both ways round: the first is kept, no kept pair touches once more than two are drawn, and every dropped label touched the kept one before it', () => {
+  it('5,000 generated logarithmic axes, both ways round: the first is kept, no kept pair touches once more than two are drawn, every dropped label touched the kept one before it, and two labels are the two ends', () => {
     const next = random(11);
+    let reached = 0;
     for (let run = 0; run < 5000; run++) {
       const lo = 10 ** Math.floor(next() * 12 - 4);
       const hi = lo * 10 ** (0.3 + next() * 14);
@@ -190,7 +256,9 @@ describe('ticksThatFit — given ticks, walked from the first', () => {
         const kept = ticksThatFit(all, place, along);
         const what = `${lo} … ${hi} on ${length}px by ${along}: ${said(kept).join(' ')}`;
         if (all.length > 0) expect(kept[0], what).toBe(all[0]);
+        if (all.length > 2 && kept.length === 2) expect(kept[1], what).toBe(all.at(-1));
         if (kept.length <= 2) continue;
+        reached += 1;
         expect(touching(kept, place, along), what).toBe(0);
         let before = all[0]!;
         for (const tick of all.slice(1)) {
@@ -199,6 +267,7 @@ describe('ticksThatFit — given ticks, walked from the first', () => {
         }
       }
     }
+    expect(reached).toBeGreaterThan(5000);
   });
 
   it('one or two ticks, and places that are not numbers, are left alone', () => {
