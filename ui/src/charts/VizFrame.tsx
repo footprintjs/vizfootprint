@@ -247,8 +247,8 @@ function curveOf(axis: FrameAxis | undefined, declared: ScaleKind | undefined): 
 /** A frame's folded span, turned into the span its layers draw on. */
 type DrawnSpan = (span: readonly [number, number], kind: ScaleKind | undefined) => [number, number];
 
-/** The mark kinds whose y is a COUNT read from zero (`countSpan`). */
-const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogram']);
+/** The mark kinds whose y is a COUNT read from zero (`countSpan`). One owner: the contract's stack door reads it too. */
+export const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogram']);
 
 /**
  * THE SPAN THE LAYERS OF THIS STACK DRAW ON, for one axis — which is the span
@@ -261,10 +261,17 @@ const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogram']);
  * guide takes the count's span. Both rules have one owner in
  * `../primitives/scales.ts`, and the charts call the same functions.
  *
- * KNOWN LIMIT, older than this function: a stack that mixes a count mark with a
- * line or a point on one y whose folded span does not start at zero, or ends
- * below one, has layers that scale differently from each other, and no single
- * guide is right for both. The guide then follows the count.
+ * A STACK THAT MIXES a count mark with a line or a point that BIND one y: the
+ * contract's stack door (`../contract/renderers.tsx`) hands every such layer
+ * the count's span (`sharedYSpan`), so the marks agree with this guide, and
+ * refuses in words the stacks no one span is right for (`countMixRefusal`). A
+ * host that builds this component's layers by hand owes them the same: hand
+ * each layer that reads the frame's y the span `countSpan` gives.
+ *
+ * KNOWN LIMIT, older than this function and still here: a count that binds NO
+ * y keeps its own ceiling while a line beside it scales by the folded span.
+ * The guide follows the count's rule, so it is then right for neither when
+ * the fold does not start at zero or the two ceilings differ.
  */
 function drawnSpan(layers: readonly VizFrameLayer[], channel: 'x' | 'y'): DrawnSpan {
   const counts = channel === 'y' && layers.some((layer) => COUNT_KINDS.has(layer.kind));

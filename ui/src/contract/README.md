@@ -699,6 +699,24 @@ What it owns:
   count ceiling: a value span folded over somebody else's column is not this
   bar's height. Bind `y` to the count field on both bar layers and they share
   one ceiling, which is what makes their heights comparable.
+- **a count and a line on one shared y stand on one span.** A bar and a
+  histogram bin are lengths from zero, so they scale by zero up to the ceiling
+  whatever span they are handed, and the merged guide ticks that span; a line
+  handed the same folded pair used to scale by the pair. So where a count
+  binds the shared `y`, every layer that binds it takes the count's span.
+  Example: a bar of monthly counts and a line of a target, `y` folded as
+  40…100, are both drawn on 0…100 and the axis reads 0…100. Widening is the
+  only honest direction: a bar cut off at 40 would lie about its length. Only
+  a span folded from the rows is widened. Two such stacks are refused in
+  words: one whose `y` declares `bounds` that are not a count's span (not from
+  zero, or ending below one), because a declaration is drawn as declared or
+  not at all; and one whose folded `y` reaches below zero, because a bar is
+  drawn up from the plot's floor, not from a zero line inside it. The way out
+  is in the sentence: a bar is told to be declared first with `y` resolved as
+  `independent`; a histogram, which takes neither side of two scales, is told
+  to stand on a frame of its own.
+  Not covered: a bar that binds no `y` keeps its own ceiling, and the frame's
+  one `y` guide is then not that bar's axis.
 - **the layer's own voice.** A gesture speaks through
   `handshake.layers[layerId]`, so the commit lands under `viewId~layerId` (the
   1.2 law). With no bundle for it the view speaks and the ADDRESS is lost, not

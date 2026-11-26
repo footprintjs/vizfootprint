@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Correction: a bar and a line on one shared y are drawn on one span
+
+- In a stack, a bar or a histogram is read from zero and scales by zero up to
+  the ceiling. A line handed the same shared `y` scaled by the folded pair.
+  On a `y` folded as 40…100 the bar stood on 0…100 and the line on 40…100,
+  under one axis that read 0…100, so the line was mislabelled.
+- Where a count binds the shared `y`, every layer that binds it now takes
+  the count's span (zero up to the ceiling, never a ceiling below one), which
+  is the span the merged guide already ticked.
+- **Two stacks that drew before are now refused in words**, each a count
+  and a line that bind one shared `y`: one whose `y` declares `bounds` that
+  are not a count's span (they do not start at zero, or end below one), and
+  one whose folded `y` reaches below zero. In both the two layers stood on
+  different spans. The sentence names the way out: a bar declared first with
+  `y` resolved as `independent`; a histogram on a frame of its own.
+- Unchanged: a bar that binds no `y` beside a line on the shared `y`.
+
 ### Correction: a filter's bound keeps the row it was taken from, on the SQL engine too
 
 - The SQL engine (DuckDB) was handed a filter's numbers as plain decimal
