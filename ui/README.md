@@ -549,7 +549,7 @@ The scatter's two axes, both axes of the line chart (values; dates, numbers or b
 
 Widths are estimated at 6 px a character, the stylesheet's 10 px mono tick font (6.02 measured in Chromium). A theme that changes the tick font or size makes the estimate wrong until chart text sizes are theme tokens.
 
-Not done here: the margin does not grow with its labels, and a host cannot declare it yet; until then a long value label is squeezed, which is harder to read than a wider margin would be. A label wider than the whole drawing still leaves it on both sides. The frame's shared axes and the bar chart still use the older even cuts. The box plot's value axis follows these rules; its date axis keeps four even steps, each read back as its day, with a repeated day written once and touching labels thinned.
+Not done here: the margin does not grow with its labels, and a host cannot declare it yet; until then a long value label is squeezed, which is harder to read than a wider margin would be. A label wider than the whole drawing still leaves it on both sides. The frame's shared axes and the bar chart still use the older even cuts. The box plot's value axis follows these rules for numbers. Its date axis keeps four even steps, each read back as its day, with touching labels thinned; a span shorter than a day therefore reads as one day several times, until dates get ticks at round days and hours.
 
 ## A mark you are meant to press must be REACHABLE
 

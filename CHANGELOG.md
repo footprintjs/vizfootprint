@@ -11,8 +11,11 @@
   the axis drew, written to the step's precision, as many as have room.
 - A label wider than the margin is squeezed into it. It used to be cut off by
   the edge of the drawing.
-- A date axis keeps its four even steps. Two ticks that read as the same day
-  are now one label, and days that would touch are thinned.
+- A date axis keeps its four even steps, each read back as its day. Days that
+  would touch are now thinned, and a day wider than the margin is squeezed
+  into it (it used to start outside the drawing and read "6-04-01"). A span
+  shorter than a day still reads as one day several times.
+- The ticks are worked out only when the chart draws its axis.
 - The axis is drawn by `<Axis>`.
 
 ### Charts: the axis part takes placed ticks, and draws the line chart's x axis

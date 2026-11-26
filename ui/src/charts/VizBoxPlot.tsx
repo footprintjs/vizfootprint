@@ -309,17 +309,17 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   // date-domain ticks read back through the FULL ISO day (display only — the
   // emitted category never rides this label, so no edge-precision rule applies)
   const isDate = geoms.length > 0 && typeof geoms[0]!.q1 === 'string';
-  // THE VALUE AXIS'S TICKS, chosen the way the scatter and the line choose theirs:
-  //  - NUMBERS: round values inside the span the axis drew, as many (up to four steps) as have room
-  //    (`roundTicksThatFit`), each written to the step's precision. They used to be even cuts of the
-  //    data's extent rounded to two decimals, which could print one label twice.
-  //  - DATES: four even steps across the extent, each read back as its day. Two ticks that read as the
-  //    same day are one label, and labels that would touch are thinned (`ticksThatFit`).
-  const dayTicks = (): RoundTick[] => {
-    const days = ticks(rawLo, rawHi, 4).map((value) => ({ value, label: new Date(value).toISOString().slice(0, 10) }));
-    return days.filter((tick, i) => i === 0 || tick.label !== days[i - 1]!.label);
-  };
-  const yTicks: readonly RoundTick[] = isDate ? ticksThatFit(dayTicks(), y, 'height') : roundTicksThatFit(rawLo - outerPad, rawHi + outerPad, 4, y, 'height');
+  // THE VALUE AXIS'S TICKS, worked out only when this chart draws its axis (a frame layer draws none,
+  // and a tick it never draws must not be able to fail the chart):
+  //  - NUMBERS, chosen the way the scatter and the line choose theirs: round values inside the span
+  //    the axis drew, as many (up to four steps) as have room (`roundTicksThatFit`), each written to
+  //    the step's precision. They used to be even cuts of the data's extent rounded to two decimals,
+  //    which could print one label five times.
+  //  - DATES: four even steps across the extent, each read back as its day, as before. Days that
+  //    would touch are thinned (`ticksThatFit`). A span shorter than a day still reads as one day
+  //    several times: ticks at round days and hours are a date axis's job, which this is not yet.
+  const dayTicks = (): RoundTick[] => ticks(rawLo, rawHi, 4).map((value) => ({ value, label: new Date(value).toISOString().slice(0, 10) }));
+  const yTicks = (): readonly RoundTick[] => (isDate ? ticksThatFit(dayTicks(), y, 'height') : roundTicksThatFit(rawLo - outerPad, rawHi + outerPad, 4, y, 'height'));
 
   return (
     <>
@@ -333,7 +333,7 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
         {axes && <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />}
         {/* the value axis (`Axis`, the one part every chart's axis is drawn by): a label wider than the
             margin is squeezed into it, never cut off by the edge of the drawing */}
-        {axes && <Axis orient="left" ticks={placeTicks(yTicks, y)} at={PAD.l} range={[PAD.t, height - PAD.b]} labelBounds={[0, width]} />}
+        {axes && <Axis orient="left" ticks={placeTicks(yTicks(), y)} at={PAD.l} range={[PAD.t, height - PAD.b]} labelBounds={[0, width]} />}
         {/* boxes */}
         {geoms.map((g, i) => {
           const sel = selected === g.category;
