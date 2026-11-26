@@ -98,6 +98,17 @@ describe('a pointer held at an edge of the plot is at the axis’s own end', () 
     expect(drag(container, 52, 502, onEmit)).toEqual([0.1, 0.7]);
   });
 
+  it('the edges are the plot’s own when the value axis stands on the right: the margins swap, and so do the edge pixels', () => {
+    const onEmit = vi.fn();
+    // with the axis on the right the plot runs 18 … 468 of 520, where it runs 52 … 502 with it on the left
+    const { container } = render(<VizScatter data={points([0.1, 0.2, 0.7])} domain={{ x: [0.1, 0.7] }} width={520} axes="y" axisSide="right" xField="mass" onEmit={onEmit} />);
+    expect(drag(container, 18, 468, onEmit)).toEqual([0.1, 0.7]);
+    // a pointer at 30 px is INSIDE this plot (it would be left of a left-hand one's), so it is not the low end
+    const [lo] = drag(container, 30, 468, onEmit)!;
+    expect(lo).toBeGreaterThan(0.1);
+    expect(lo).toBeCloseTo(0.1 + (0.6 * 12) / 450, 12);
+  });
+
   it('across the whole plot holds the lowest and the highest point: 200 logarithmic charts and 200 linear ones on a declared domain', () => {
     const next = random(9);
     for (let run = 0; run < 400; run++) {
