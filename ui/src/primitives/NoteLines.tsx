@@ -2,7 +2,8 @@
  * THE LINES OF WORDS A CHART PUTS IN ITS OWN PICTURE: one sentence per line,
  * stacked from a corner of the margin. Render only: the sentences are made by
  * their one owner (`outsideNotes`, `./scales.ts`) and the look is the class's
- * (`styles.css`), so this part holds no wording and no colour.
+ * (`styles.css`), so this part holds no wording and no colour. Internal to this
+ * package's charts; the scatter and the line still place theirs inline.
  *
  * WHY IN THE PICTURE: the accessible name already carries the sentence for a
  * screen reader, and a sighted reader meets it only here. A mark drawn past
@@ -21,15 +22,16 @@ export interface NoteLinesProps {
   /** Where the first line starts. */
   readonly x: number;
   readonly y: number;
-  /** The distance from one line to the next; negative stacks upward. Absent = 11. */
-  readonly step?: number;
 }
 
-export function NoteLines({ className, notes, x, y, step = 11 }: NoteLinesProps): JSX.Element {
+/** The distance from one line to the next, as the scatter's own stacked notes use. */
+const LINE_STEP = 11;
+
+export function NoteLines({ className, notes, x, y }: NoteLinesProps): JSX.Element {
   return (
     <>
       {notes.map((note, i) => (
-        <text key={i} className={className} x={x} y={y + i * step} textAnchor="start">
+        <text key={i} className={className} x={x} y={y + i * LINE_STEP} textAnchor="start">
           {note}
         </text>
       ))}

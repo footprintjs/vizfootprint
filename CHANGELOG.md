@@ -9,19 +9,20 @@
   value axis counted those marks and said so, in the picture and in the
   accessible name. The bar, the histogram, the box plot, the heat map and
   the line's x axis drew them in silence. They now say it too.
-- A count axis (bar, histogram) is read from zero, so a mark is outside only
-  above the ceiling: `y has 1 bar outside its declared bounds [0, 5]`. Where
-  the declared pair does not start at zero the sentence names both pairs.
-- A mark with width (a histogram bin, a heat-map column, a box with its
-  whiskers and outliers) can reach past a span nobody declared, so its
-  sentence blames nobody: `x has 2 bins that reach outside the span this
-  axis was given [25, 75]`.
-- A date axis writes its span as days.
+- The new sentence blames nobody: `x has 2 bins that reach outside the span
+  this axis was given [25, 75]`. A chart is not told whether its span is
+  declared bounds or one a frame folded, so it does not say "declared".
+- It quotes the pair as it was given, and the pair as drawn where they
+  differ: a count axis (bar, histogram) is read from zero, `given [3, 5],
+  drawn as [0, 5] because a count is read from zero`; a flat or logarithmic
+  pair is opened.
+- A date axis writes a day, or the whole instant where a bound is not the
+  start of a day.
 - Nothing is moved, hidden or refused; a chart with nothing outside, or
-  with no span given, is drawn as before.
-- New part `NoteLines` (the lines of words a chart puts in its own picture)
-  and helper `dayOfEpoch`; `OutsideAsk` gains `count`, `noun`, `format`, and
-  takes a mark's two ends as a pair.
+  with no span given, is drawn as before. The scatter's and the line's value
+  axis sentences are unchanged.
+- New helper `dateOfEpoch`; `OutsideAsk` gains `undeclared`, `count`,
+  `noun`, `format`, and takes a mark's two ends as a pair.
 
 ### Correction: a refused stack is told a way out that draws, with three layers too
 

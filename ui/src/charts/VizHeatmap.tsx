@@ -41,7 +41,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedCell } from '../contract/selection.js';
-import { EMPTY_FILL, epochOf, dayOf, dayOfEpoch, rampStep, SEQ_RAMP_STEPS, domainOr, scaleFor, placeable, excludedNote, outsideNotes, type ChartDomain } from '../primitives/scales.js';
+import { EMPTY_FILL, epochOf, dayOf, dateOfEpoch, rampStep, SEQ_RAMP_STEPS, domainOr, scaleFor, placeable, excludedNote, outsideNotes, type ChartDomain } from '../primitives/scales.js';
 import { NoteLines } from '../primitives/NoteLines.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { keyActivates } from '../primitives/pointSelect.js';
@@ -234,7 +234,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
   // …and the words for a column outside the span it was GIVEN (`outsideNotes`, the one owner): one that
   // starts before the span or ends after it is drawn at its true place, past the plot's edge
   const outside = outsideNotes([
-    { channel: 'x', given: props.domain?.x, values: cols.map((c) => [c.p0, c.p1] as const), noun: ['column', 'columns'], ...(xKind === undefined ? {} : { kind: xKind }), ...(cols.length > 0 && typeof cols[0]!.x0 === 'string' ? { format: dayOfEpoch } : {}) },
+    { channel: 'x', given: props.domain?.x, values: cols.map((c) => [c.p0, c.p1] as const), noun: ['column', 'columns'], undeclared: true, ...(xKind === undefined ? {} : { kind: xKind }), ...(cols.length > 0 && typeof cols[0]!.x0 === 'string' ? { format: dateOfEpoch } : {}) },
   ]);
   const axes = props.axes ?? true;
   const { padL, maxChars } = labelGutter(width);
@@ -390,7 +390,8 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
             {excludedNote(excluded).replace(/^ — /, '')}
           </text>
         )}
-        <NoteLines className="vzf-outside-note" notes={outside} x={padL} y={PAD.t - 4} />
+        {/* on the line under the excluded note where there is one: the two would be written across each other */}
+        <NoteLines className="vzf-outside-note" notes={outside} x={padL} y={PAD.t - 4 + (excluded > 0 ? 11 : 0)} />
         <desc>{`view ${viewId}: click a cell to select ${xField} and ${yField} together; click it again to clear`}</desc>
       </svg>
       <EncodingPicker

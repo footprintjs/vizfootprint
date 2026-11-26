@@ -204,7 +204,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const max = countSpan(props.domain?.y, [0, Math.max(...data.map((d) => d.count))])[1];
   // …and the words for a bar taller than the ceiling it was GIVEN (`outsideNotes`, the one owner): it is
   // drawn at its true length, which runs past the plot's top, so the count is what says it is there
-  const outside = outsideNotes([{ channel: 'y', given: props.domain?.y, values: data.map((d) => d.count), count: true, noun: ['bar', 'bars'] }]);
+  const outside = outsideNotes([{ channel: 'y', given: props.domain?.y, values: data.map((d) => d.count), count: true, noun: ['bar', 'bars'], undeclared: true }]);
   // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its COUNT
   // axis alone (`'y'` — one scale of a two-scale frame whose x the frame draws once). Two flags, so the
   // category-side markup below reads one word and the count-side another.

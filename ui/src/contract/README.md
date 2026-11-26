@@ -450,19 +450,23 @@ off-centre. So the chart COUNTS what falls outside and says it, in the picture
 and in the accessible name, in the register the logarithm's exclusions already
 use: `x has 3 values outside its declared bounds [0, 100] — bounds say what the
 quantity CAN be, so either they are wrong or this data is` (`outsideNotes`,
-`primitives/scales.ts`, beside `excludedNote`; honoured by every chart that
-scales by a span it is given: `VizScatter` and `VizLine` on both axes, `VizBar`
-and `VizHistogram` on their count axis, and, for marks with width, `VizHistogram`
-on its bin axis, `VizBoxPlot` on its value axis and `VizHeatmap` on its column
-axis). Two spellings of the one law. A COUNT axis is read from zero, so a bar is
-outside only above the ceiling, and where the declared pair is not the count's
-span the sentence names both: `y has 1 bar outside its declared bounds [3, 5],
-drawn as [0, 5] because a count is read from zero`. A MARK WITH WIDTH (a bin, a
-column, a box with its whiskers) can reach past a span nobody declared, because
-a fold is taken over one bound column and a bin's far edge or a whisker is not
-in it; a chart cannot tell that fold from declared bounds, so that sentence
-blames nobody: `x has 2 bins that reach outside the span this axis was given
-[25, 75]`. A date axis writes its span as days. Still drawn, still at its true
+`primitives/scales.ts`, beside `excludedNote`; said by `VizScatter` on both
+axes and by `VizLine` on its value axis). Every other axis that scales by a
+span it is given says a second sentence, which blames nobody: `VizBar` and
+`VizHistogram` on their count axis, `VizHistogram` on its bin axis,
+`VizBoxPlot` on its value axis, `VizHeatmap` on its column axis and `VizLine`
+on its x axis say `x has 2 bins that reach outside the span this axis was
+given [25, 75]`. WHY NOT "DECLARED" THERE: a chart is handed a pair and is not
+told whether it is declared bounds or a span the frame folded, and a fold does
+not always hold every mark (it is taken over one bound column, so a bin's far
+edge or a whisker is not in it; a fold that reads a cell differently from the
+chart leaves that mark out too). So the sentence says what is true either
+way. It quotes the pair as given, and the pair as drawn where they differ: a
+count axis is read from zero (`given [3, 5], drawn as [0, 5] because a count
+is read from zero`), and a flat or logarithmic pair is opened. A date axis
+writes a day, or the whole instant where a bound is not a day's start. KNOWN
+LIMIT: the two older axes still say "declared" for a span that was folded;
+telling a chart which it holds is a task of its own. Still drawn, still at its true
 position — counted, never hidden, and never refused. The band spelling of that law is the same: a
 category the frame's list does not name is APPENDED, never hidden, and a slot
 the layer has no row for stays EMPTY rather than becoming a bar of zero ("no
