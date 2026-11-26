@@ -710,11 +710,14 @@ entry for the view's x (a bar's `category`, a line on a band), the slots are
 laid out in the fold's order, and a category with no row gets an empty slot,
 as in a stack. On its own extent a chart orders its slots by its rows.
 
-**A known gap with the definition door.** Two of these refusals have no twin
-at the definition door yet: bounds a count cannot stand on, and a logarithmic
-y on a histogram (the door reads a histogram's channel as its bin axis). A
-definition the door passed can therefore be refused here. Refusing is better
-than dropping the declaration; one predicate both doors ask will close it.
+**The definition door refuses the same things.** Bounds a count cannot stand
+on, a logarithmic y on a histogram, and a count that binds no y beside a layer
+that does each have one predicate and one sentence in `vizfootprint/def`
+(`boundsFitACount` and `countBoundsRefusal`, `histogramCountLogRefusal`,
+`countOffAxisRefusal`). The door and this renderer both ask them, so a
+definition the door passes is not refused here for one of them. What the door
+cannot know is the data: a shared y whose rows reach below zero under a bar
+and a line is refused only when it is drawn.
 
 **Known limits.** A scatter and a line's value axis still say "declared
 bounds" for a span that was folded, not declared (a chart is not told which).
@@ -792,9 +795,8 @@ What it owns:
   (`encodings: { category: 'shelf', y: 'count' }`), and the layers share one
   scale or take two that the frame says in words, or the stack is told its
   next step in words (a bar on a scale of its own must be declared first; a
-  shared `y` below zero is the next bullet's). Known gap: the definition
-  door accepts this stack, so a definition it passed can be refused when
-  drawn. Judged only where a `y`
+  shared `y` below zero, or with bounds a count cannot stand on, is the next
+  bullet's). The definition door refuses the same stack. Judged only where a `y`
   axis is drawn: a stack in which no layer binds `y`, or whose merged guide
   was folded with no `y`, draws none and is drawn as before.
 - **a count and a line on one shared y stand on one span.** A bar and a
@@ -842,7 +844,7 @@ picture that would be drawn a lie, not one that would merely be empty:
 | an x left to the layers, on two or more (a per-layer or independent x, or one never folded) | *x is per-layer on layers "a" and "b" — one frame has one x, drawn once by the frame. Declare guide: 'merged' on x, or draw one layer.* |
 | a THIRD y of its own | *layers "temp", "rain" and "wind" each draw a y of their own — a frame has two sides, left and right, and no third. Draw two of them here, and the rest on a frame of their own.* |
 | a count (bar, histogram) that binds no `y`, beside a layer that binds one and has a `y` axis drawn | *layer "counts" is a bar that binds no y, and layer "trend" has a y axis in the same plot: the bar's lengths would be read against an axis that is not theirs. Bind the bar's y to its count field, or give it a frame of its own.* |
-| a count and a line or a point on one shared `y` that reaches below zero, or declares bounds that do not start at zero | *layer "counts" is a bar, read from zero, and the y it shares with layer "trend" reaches below zero (-20): one scale cannot hold a length from zero and a line under it. …* |
+| a count and a line or a point on one shared `y` that reaches below zero, or declares bounds that do not start at zero or end below one | *layer "counts" is a bar, read from zero, and the y it shares with layer "trend" reaches below zero (-20): one scale cannot hold a length from zero and a line under it. …* |
 | a histogram or a box plot with a y of its own on such a frame | *layer "counts" is a histogram with a y of its own — a histogram's extent is read against one baseline, so it takes neither side of a two-scale frame. Declare guide: 'merged' on y, or draw it on a frame of its own.* — the def door already refuses BOTH shapes that draw one (`independent`, and `shared` drawn `per-layer` beside a second layer — law 9, `validateFrame`); this is the frame's OWN defense, for a `RenderState.frame` a host folds by hand, skipping the door entirely |
 | a BAR that would take the SECOND scale (the right edge) | *layer "counts" is a bar with a y of its own, but layer "rate" already takes the first scale — a bar reads its extent from the LEFT baseline, so declare it first, or give the line the independent y* — a bar may hold the FIRST scale (bars left, line right) and no other; ONE owner for the sentence, quoted from the def door (`firstScaleTakenRefusal`), so the two twins of law 9 say the same words |
 

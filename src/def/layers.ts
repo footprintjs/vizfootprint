@@ -23,7 +23,7 @@
  */
 import type { ColumnFacet } from '../data/types.js';
 import type { ColumnDecl, EncodingSurface } from '../encoding/index.js';
-import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsIntervalBrush, drawsZeroGuide, firstScaleTakenRefusal, frameScaleOf, intervalGestureRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal, logOnExtentRefusal } from '../encoding/index.js';
+import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsIntervalBrush, drawsZeroGuide, firstScaleTakenRefusal, frameScaleOf, intervalGestureRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal, logOnExtentRefusal, COUNT_MARKS, boundsFitACount, countBoundsRefusal, histogramCountLogRefusal, countOffAxisRefusal } from '../encoding/index.js';
 import { ENCODING_KIND, type LinkView } from '../links/index.js';
 import type { MintedTable } from './builtinAnalyses.js';
 import { LAYER_MARKER, holdsLayerMarker, layerAddress } from './layerAddress.js';
@@ -74,6 +74,28 @@ export function validateLayers(raw: unknown, where: string, viewId: string, data
     judgeLayerId(at, layer.layerId, viewId, seen, problems);
     judgeTable(at, layer.table, data, minted, problems);
     judgeSurface(at, layer, problems);
+  });
+  judgeCountsOnTheAxis(raw, where, problems);
+}
+
+/**
+ * A COUNT THAT BINDS NO y MAY NOT STAND BESIDE A LAYER THAT DOES. A bar or a
+ * histogram with no `y` is scaled by its own ceiling and draws no axis; a
+ * layer that binds `y` has a y axis drawn (an undeclared channel is shared and
+ * merged by default, so the frame draws it). The count's lengths would be read
+ * against an axis that is not theirs. The renderer refuses that stack, so the
+ * door does, in the same sentence (`countOffAxisRefusal`, one owner).
+ *
+ * Judged on what each layer binds at the start (`initial`): that is the stack
+ * a definition declares.
+ */
+function judgeCountsOnTheAxis(layers: readonly unknown[], where: string, problems: string[]): void {
+  const bindsY = (layer: unknown): boolean => isObject(layer) && isObject(layer.initial) && typeof layer.initial['y'] === 'string';
+  const reader = layers.find(bindsY);
+  if (!isObject(reader) || !nonEmpty(reader.layerId)) return;
+  layers.forEach((layer, j) => {
+    if (!isObject(layer) || bindsY(layer) || typeof layer.chartKind !== 'string' || !COUNT_MARKS.includes(layer.chartKind) || !nonEmpty(layer.layerId)) return;
+    problems.push(`${where}.layers[${j}]: ${countOffAxisRefusal(`layer "${layer.layerId}"`, layer.chartKind, `layer "${String(reader.layerId)}"`)}`);
   });
 }
 
@@ -466,6 +488,10 @@ function judgeBounds(at: string, channel: string, bounds: readonly [number, numb
     if (field === undefined) continue;
     const type = declaredFacet(data, binder.table, field, minted).type;
     if (type !== 'unknown' && type !== 'number') problems.push(`${at}.bounds needs a number — ${binder.subject} binds ${channel} to "${field}", a ${type}`);
+    // c. A COUNT IS DRAWN FROM ZERO. Bounds that do not start at zero (or end below one) on a bar's or a
+    //    histogram's y would be drawn from zero anyway, the declared low end dropped: refused in the
+    //    renderer's own sentence (`countBoundsRefusal`, one owner), so the two doors agree
+    if (channel === 'y' && COUNT_MARKS.includes(binder.chartKind) && !boundsFitACount(bounds)) problems.push(`${at}.bounds: ${countBoundsRefusal(binder.subject, binder.chartKind, bounds)}`);
   }
 }
 
@@ -598,6 +624,10 @@ function judgeLogarithm(at: string, channel: string, resolution: Record<string, 
     if (zeroAnchorsChannel(binder.chartKind, channel)) {
       problems.push(`${at}: ${logOnExtentRefusal(binder.subject, binder.chartKind, channel)}`);
     }
+    // d. A HISTOGRAM'S COUNT. Its bin axis (x) is a position and may be logarithmic (c above leaves it
+    //    open); its y, where it binds one, is its count, which every chart draws as a linear length. The
+    //    renderer refuses it, so this door does too, in the same sentence (`histogramCountLogRefusal`)
+    if (binder.chartKind === 'histogram' && channel === 'y' && binder.initial?.['y'] !== undefined) problems.push(`${at}: ${histogramCountLogRefusal(binder.subject)}`);
     const field = binder.initial?.[channel];
     if (field === undefined) continue;
     const type = declaredFacet(data, binder.table, field, minted).type;

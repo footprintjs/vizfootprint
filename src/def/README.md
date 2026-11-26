@@ -800,6 +800,33 @@ The shape sentences, for completeness: `encodings[i].layers, if present, must be
     ```
     `reason` is a discriminant and not a boolean so a second cause of silence can arrive without a second key. The mount-time twin is `AdapterCapabilities.silentBecause`, for the same reason the `encodings` twin exists.
 
+### A count is drawn from zero — three declarations the door refuses with the renderer
+
+**Why.** A bar and a histogram bin are counts, drawn as a length from zero. The
+renderer refuses three declarations about them, because each would draw
+something untrue. The door used to accept all three, so a definition it passed
+could be refused when drawn. Each law now has ONE predicate and ONE sentence
+in `../encoding/frame.ts`, and the door and the renderer both ask them.
+
+| the definition declares | the door says |
+|---|---|
+| `bounds: [2, 20]` on the `y` a bar or a histogram binds | *… is a bar, read from zero, and its y declares bounds [2, 20]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.* |
+| `transform: 'log'` on the `y` a histogram binds | *… is a histogram, and its y is its count: this version draws a histogram's count as a length on a linear axis only. Its bin axis, x, may be logarithmic; drop "transform" on y.* |
+| a bar or histogram layer whose `initial` binds no `y`, beside a layer that binds one | *layer "counts" is a bar that binds no y, and layer "trend" has a y axis in the same plot: the bar's lengths would be read against an axis that is not theirs. Bind the bar's y to its count field, or give it a frame of its own.* |
+
+```ts
+// refused: the bar binds no y, the line does
+layers: [
+  { layerId: 'counts', table: 'weekly', chartKind: 'bar', channels: ['x', 'y'], initial: { x: 'week' } },
+  { layerId: 'trend', table: 'weekly', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'week', y: 'fitted' } },
+]
+// accepted: initial: { x: 'week', y: 'cases' } on the bar
+```
+
+A layer is judged by what it binds at the start (`initial`). What the door
+cannot know is the data: a shared `y` whose rows reach below zero under a bar
+and a line is refused only when it is drawn.
+
 ## The card a demo cannot get wrong
 
 A demo should be able to say which of the library's features it covers, and a gallery should be able to filter on that. Written by hand, that list is a second source of truth beside the def, and it goes stale the first time somebody adds a view and forgets it. So it is **read off the build**: `defFeatures(dashboard)` projects, as data, what this dashboard can do.

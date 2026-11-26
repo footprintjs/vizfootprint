@@ -259,6 +259,51 @@ export function drawsZeroGuide(chartKind: string, channel: string): boolean {
   return (ZERO_GUIDE_CHANNELS.get(chartKind) ?? []).includes(channel);
 }
 
+// ── a count: what the definition door and the renderer both refuse, said once ──
+
+/**
+ * THE MARKS WHOSE y IS A COUNT, drawn as a length from zero: a bar, and a
+ * histogram's bin. One owner for the three laws below, which the definition
+ * door and the renderer both ask, so a definition the door passes is not one
+ * the renderer refuses.
+ */
+export const COUNT_MARKS: readonly string[] = Object.freeze(['bar', 'histogram']);
+
+/** Can a count be drawn on these bounds as declared? Only from zero, to one or more: the span a count is always drawn on. */
+export function boundsFitACount(bounds: readonly [number, number]): boolean {
+  return Math.min(...bounds) === 0 && Math.max(...bounds) >= 1;
+}
+
+/**
+ * THE WORDS FOR BOUNDS A COUNT CANNOT STAND ON. A chart draws a count from
+ * zero whatever it is handed, so a declared low end that is not zero (or a
+ * ceiling below one) would be dropped with no word. Declared, it is drawn as
+ * declared or refused.
+ */
+export function countBoundsRefusal(subject: string, chartKind: string, bounds: readonly [number, number]): string {
+  return `${subject} is a ${chartKind}, read from zero, and its y declares bounds [${String(bounds[0])}, ${String(bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.`;
+}
+
+/**
+ * THE WORDS FOR A LOGARITHM ON A HISTOGRAM'S COUNT. A histogram's bin axis
+ * (x) is a position and may be logarithmic; its y is its count, which every
+ * chart here draws as a length on a linear axis. (A bar and a box are law
+ * 11c's, {@link logOnExtentRefusal}.)
+ */
+export function histogramCountLogRefusal(subject: string): string {
+  return `${subject} is a histogram, and its y is its count: this version draws a histogram's count as a length on a linear axis only. Its bin axis, x, may be logarithmic; drop "transform" on y.`;
+}
+
+/**
+ * THE WORDS FOR A COUNT THAT BINDS NO y BESIDE A LAYER THAT DOES. The count is
+ * scaled by its own ceiling and draws no axis; the other layer has a y axis
+ * drawn; so the count's lengths would be read against an axis that is not
+ * theirs.
+ */
+export function countOffAxisRefusal(subject: string, chartKind: string, other: string): string {
+  return `${subject} is a ${chartKind} that binds no y, and ${other} has a y axis in the same plot: the ${chartKind}'s lengths would be read against an axis that is not theirs. Bind the ${chartKind}'s y to its count field, or give it a frame of its own.`;
+}
+
 /**
  * THE WORDS FOR A LOGARITHM ON A MAGNITUDE (law 11c): one owner, said by the
  * definition door and by the renderer's second fence, so a frame folded by
