@@ -23,7 +23,7 @@
  *     axis and the drawing's edge is squeezed into it, every character kept
  *     (`squeezedLength`).
  * With no `labelBounds` a label is drawn as written, wherever that puts it.
- * A tick that names its own `textAnchor`, or is `slanted`, is drawn as asked
+ * A tick anchored at its `'start'` or `'end'`, or `slanted`, is drawn as asked
  * and is NOT kept inside the drawing: the chart that asked for it placed it.
  * `textAnchor` and `slanted` are a bottom axis's; a side axis ignores them,
  * and a slanted tick ignores `textAnchor` (it ends at its tick).

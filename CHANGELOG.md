@@ -14,8 +14,9 @@
   numbers or bands, level or slanted) is drawn by the same part. What the
   chart draws is unchanged.
 - New exports: `placeTicks`, `AxisTick`, and the slant's two numbers,
-  `TICK_SLANT_DEG` and `TICK_SLANT_DROP`, which the axis part and the
-  label-fitting rule both read.
+  `TICK_SLANT_DEG` (read by the axis part and the label-fitting rule) and
+  `TICK_SLANT_DROP` (read by the axis part and the line chart's room for
+  slanted labels).
 
 ### Charts: one axis part
 
