@@ -741,7 +741,9 @@ export function roundToAxis(value: number, span: number, kind?: ScaleKind, pixel
   // point recorded a range that held every point.
   if (kind === 'log') {
     if (!Number.isFinite(value) || value === 0) return value;
-    const needed = pixel !== undefined && pixel > 0 && Number.isFinite(pixel) ? Math.ceil(Math.log10(Math.abs(value) / pixel)) + 2 : LOG_POINTER_DIGITS;
+    // a pixel worth NOTHING a number can hold (an axis narrower than one part in about 1e13) needs
+    // every digit there is; a pixel nobody measured gets the four
+    const needed = pixel === undefined || !Number.isFinite(pixel) || pixel < 0 ? LOG_POINTER_DIGITS : pixel === 0 ? MAX_POINTER_DIGITS : Math.ceil(Math.log10(Math.abs(value) / pixel)) + 2;
     return Number(value.toPrecision(Math.min(MAX_POINTER_DIGITS, Math.max(LOG_POINTER_DIGITS, needed))));
   }
   const fine = span > 0 && Number.isFinite(span) ? 3 - Math.floor(Math.log10(span) + 1e-9) : 2;
@@ -1096,7 +1098,9 @@ export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
     // counted against the bounds AS THE AXIS DRAWS THEM, so what is counted as outside is what stands
     // outside the plot. On a logarithmic axis those can differ from the pair that was declared (a flat
     // pair is a decade either side; a low bound a logarithm cannot take is lifted), and then the
-    // sentence names both: the words "declared bounds" are only ever followed by what was declared.
+    // sentence names both: on a logarithmic axis the words "declared bounds" are followed by the pair
+    // that was declared, in order. (A LINEAR flat pair is still printed widened by one each side, as
+    // it always was.)
     const linear = domainOr(ask.given, ask.given);
     const [lo, hi] = ask.kind === 'log' ? logDomain(...domainOr(ask.given, ask.given, 'log')) : linear;
     const n = ask.values.filter((v) => Number.isFinite(v) && (v < lo || v > hi)).length;

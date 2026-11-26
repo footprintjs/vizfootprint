@@ -105,8 +105,11 @@ describe('the rules at the ends of what a number can hold, and for a pointer', (
     expect(roundToAxis(1000.4554321, 0, 'log', 0.0022)).toBe(1000.4554);
     // a coarse pixel never takes it below four, a pixel that is no size at all is ignored, and a number's own fifteen digits are the ceiling
     expect(roundToAxis(123456.789, 0, 'log', 5000)).toBe(123500);
-    expect(roundToAxis(123456.789, 0, 'log', 0)).toBe(123500);
+    expect(roundToAxis(123456.789, 0, 'log', 1e9)).toBe(123500);
     expect(roundToAxis(123456.789, 0, 'log', Number.NaN)).toBe(123500);
+    expect(roundToAxis(123456.789, 0, 'log', -1)).toBe(123500);
+    // a pixel worth nothing a number can hold (an axis narrower than a number resolves) keeps every digit
+    expect(roundToAxis(1000.0000000001234, 0, 'log', 0)).toBe(1000.00000000012);
     expect(roundToAxis(1.2345678901234567, 0, 'log', 1e-30)).toBe(1.23456789012346);
     // …and a linear axis keeps its rule: a flat span is a hundredth
     expect(roundToAxis(0.000735642, 0)).toBe(0);
