@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Charts: axis labels are fitted the way the known chart libraries fit them
+
+- **Behaviour change.** When the labels of a linear axis would run together, a
+  scatter and a line now take a coarser round step (0 500 1000). They used to
+  keep every k-th label with the first and the last forced, which on that axis
+  left 0 and 1000 only. The tick count follows the room and the scale picks the
+  step (Observable Plot's `tickSpacing`; the usual D3 `ticks(count)` call).
+  When no round step leaves two labels that fit, every second (third, …) tick
+  is kept, counted from zero; failing that, zero and one end; last, the first
+  and the last round tick. An axis shows at least two labels. Zero keeps its
+  label for as long as a second label fits beside it.
+- A logarithmic axis keeps every label that has room, each measured by its own
+  width (Vega's `labelOverlap: 'greedy'`). It used to drop every second label
+  along the whole axis when only one end was crowded. The last tick can now be
+  dropped; an axis left with two labels shows its first and its last.
+- The label of an x tick near the edge of a scatter is moved in so that all of
+  it is drawn (Highcharts' `overflow: 'justify'`). It used to run past the
+  right edge and lose a character.
+- **Breaking for a host that calls it directly:** `ticksThatFit` now walks the
+  ticks and keeps what fits; it no longer keeps every k-th tick. For a linear
+  axis use the new `roundTicksThatFit`.
+- New exports: `roundTicksThatFit`, `labelsFit`, `labelCentre`.
+- Not in this change: a margin a host can declare and one that grows with its
+  labels; a line's x axis, the frame's shared axes, the box plot and the bar
+  chart.
+
 ### Charts: a value label is shown whole, and two tick labels do not touch
 
 - A value label wider than a scatter's or a line's margin was cut off at the

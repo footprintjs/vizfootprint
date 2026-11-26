@@ -614,6 +614,12 @@ const SUFFIXES: readonly (readonly [number, string])[] = [
  * in full (the function body lists the cases).
  */
 export function roundTicks(lo: number, hi: number, target: number): RoundTick[] {
+  // `String` writes a number so that it reads back as itself: two different ends never read alike
+  return roundRun(lo, hi, target) ?? [Math.min(lo, hi), Math.max(lo, hi)].map((value) => ({ value, label: String(value) }));
+}
+
+/** `roundTicks` without its last resort: `undefined` where no honest run of round ticks exists, so a caller that can do better than the two ends knows to. */
+function roundRun(lo: number, hi: number, target: number): RoundTick[] | undefined {
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [];
   const [a, b] = lo <= hi ? [lo, hi] : [hi, lo];
   if (a === b) return [{ value: a, label: String(a) }];
@@ -637,9 +643,8 @@ export function roundTicks(lo: number, hi: number, target: number): RoundTick[] 
   //  - more ticks were asked for than an axis can hold, or no round value lies inside the span;
   //  - the ticks would differ only past the thirteenth digit: a number here holds fifteen or
   //    sixteen, and two are kept back so a tick's own rounding stays far below one step.
-  // `String` writes a number so that it reads back as itself: two different ends never read alike.
   if (parts === undefined || !(step > 0) || !Number.isFinite(step) || !Number.isSafeInteger(first) || !Number.isSafeInteger(first + count) || count < 0 || count > MAX_TICKS || digits > MAX_TICK_DIGITS) {
-    return [a, b].map((value) => ({ value, label: String(value) }));
+    return undefined;
   }
   // a round step is 1, 2 or 5 times a power of ten: its decimals are that power's
   const power = parts.exponent;
@@ -690,37 +695,133 @@ export const TICK_CHAR_PX = 6;
 export const TICK_LINE_PX = 10;
 export const TICK_GAP_PX = 4;
 
+/** The two edges of the drawing a horizontal label must stay between, in pixels. */
+export type LabelEdges = readonly [min: number, max: number];
+
 /**
- * THE TICKS AN AXIS HAS ROOM TO LABEL. Given each tick's place along the axis
- * in pixels, it keeps every `k`-th tick, for the smallest `k` at which two
- * neighbouring labels no longer touch, and always keeps the first and the
- * last. Labels that already fit are all kept, in the same array.
+ * WHERE A HORIZONTAL LABEL IS CENTRED: under its tick, unless that would put
+ * part of it outside the drawing, in which case it is moved in by just enough
+ * to be whole. The tick mark stays where the value is; only the words move.
  *
- * `along` says how much of the axis one label takes: its WIDTH on a
- * horizontal axis (the longest label decides, so the kept ticks keep their
- * rhythm), its line height on a vertical one. The gap is the smallest one
- * between two neighbouring ticks, so the rule holds on an axis whose ticks are
- * not evenly spaced.
- *
- * WHY thin, and not shrink or slant: an axis that reads "2.5 2.4 2.4" run
- * together is worse than one with three labels a person can read, and a tick
- * that is dropped takes its mark with it, so nothing is drawn unlabelled.
+ * THE CONVENTION: Highcharts calls this `overflow: 'justify'` and Vega
+ * `labelFlush`; both keep the end labels of an axis inside the chart. Without
+ * it the last label of an axis ran past the right edge and lost a character.
+ * A label wider than the whole drawing is centred in it.
  */
-export function ticksThatFit<T extends RoundTick>(ticks: readonly T[], place: (value: number) => number, along: 'width' | 'height'): readonly T[] {
+export function labelCentre(at: number, label: string, edges?: LabelEdges): number {
+  if (edges === undefined) return at;
+  const half = (label.length * TICK_CHAR_PX) / 2;
+  const [min, max] = edges;
+  if (max - min < half * 2) return (min + max) / 2;
+  return Math.min(max - half, Math.max(min + half, at));
+}
+
+/** The stretch of the axis one label takes, in pixels: its width about its centre on a horizontal axis, a line of text on a vertical one. */
+function labelSpan(tick: RoundTick, place: (value: number) => number, along: 'width' | 'height', edges?: LabelEdges): readonly [number, number] {
+  const at = place(tick.value);
+  if (along === 'height') return [at - TICK_LINE_PX / 2, at + TICK_LINE_PX / 2];
+  const half = (tick.label.length * TICK_CHAR_PX) / 2;
+  const centre = labelCentre(at, tick.label, edges);
+  return [centre - half, centre + half];
+}
+
+/** Do these two labels stand too close? The same test whichever way the axis runs. A place that is not a number is never "too close": there is nothing to judge by. */
+function touch(a: readonly [number, number], b: readonly [number, number]): boolean {
+  return Math.max(b[0] - a[1], a[0] - b[1]) < TICK_GAP_PX;
+}
+
+/** Does every label keep its gap from the next? Each label is measured by its own width. */
+export function labelsFit(ticks: readonly RoundTick[], place: (value: number) => number, along: 'width' | 'height', edges?: LabelEdges): boolean {
+  for (let i = 1; i < ticks.length; i++) {
+    if (touch(labelSpan(ticks[i - 1]!, place, along, edges), labelSpan(ticks[i]!, place, along, edges))) return false;
+  }
+  return true;
+}
+
+/**
+ * ROUND TICKS AN AXIS HAS ROOM TO LABEL: `roundTicks` for the most ticks, up
+ * to `target`, whose labels do not touch. An axis that has two round ticks to
+ * show always shows at least two, because one label does not give a scale.
+ *
+ * In order, the first that holds:
+ *
+ *   1. A COARSER ROUND STEP. Fewer ticks are asked for until two or more
+ *      labels fit. This is how the tick count is chosen where it follows the
+ *      room (Observable Plot's `tickSpacing`; the D3 habit `ticks(width / 80)`):
+ *      the scale picks the step, so the labels stay multiples of 1, 2 or 5.
+ *   2. EVERY SECOND (third, …) of the finest round ticks, counted FROM ZERO,
+ *      when no round step leaves two labels that fit. This is Vega's
+ *      `labelOverlap: 'parity'`, anchored so the labels are still multiples of
+ *      one step.
+ *   3. ZERO AND ONE END of those ticks, when zero is among them and the pair
+ *      fits: a zero line keeps its label for as long as any second label fits
+ *      beside it.
+ *   4. THE FIRST AND THE LAST of those ticks. Vega keeps two the same way.
+ *      They may touch, on an axis too short for any two labels.
+ *
+ * "The finest round ticks" are `roundTicks` for the highest count, up to
+ * `target`, that HAS a run of round ticks. The two ends written in full, which
+ * `roundTicks` gives when there is no such run, are used only when no count
+ * has one: a rounder answer is never passed over for them.
+ *
+ * Under 1 and 2 zero, a multiple of every step, is never the label that goes.
+ */
+export function roundTicksThatFit(lo: number, hi: number, target: number, place: (value: number) => number, along: 'width' | 'height', edges?: LabelEdges): readonly RoundTick[] {
+  const most = Number.isFinite(target) ? Math.min(MAX_TICKS, Math.max(1, Math.floor(target))) : target > 0 ? MAX_TICKS : 1;
+  let finest: readonly RoundTick[] | undefined;
+  for (let count = most; count >= 1; count--) {
+    const ticks = roundRun(lo, hi, count);
+    if (ticks === undefined) continue;
+    finest ??= ticks;
+    if (ticks.length >= 2 && labelsFit(ticks, place, along, edges)) return ticks;
+  }
+  if (finest === undefined) return roundTicks(lo, hi, most);
+  if (finest.length < 3) return finest;
+  // which multiple of the step each tick is: the step is the distance between two neighbours
+  const step = finest[1]!.value - finest[0]!.value;
+  const multiple = (tick: RoundTick): number => Math.round(tick.value / step);
+  const fits = (ticks: readonly RoundTick[]): boolean => ticks.length >= 2 && labelsFit(ticks, place, along, edges);
+  for (let every = 2; every < finest.length; every++) {
+    const ticks = finest.filter((tick) => multiple(tick) % every === 0);
+    if (fits(ticks)) return ticks;
+  }
+  const [first, last] = [finest[0]!, finest[finest.length - 1]!];
+  const zero = finest.find((tick) => tick.value === 0);
+  if (zero !== undefined && zero !== first && zero !== last) {
+    // a pair with the further end was already tried above, as every k-th from zero: what is left is zero beside a near end
+    for (const pair of [[zero, last], [first, zero]]) if (fits(pair)) return pair;
+  }
+  return [first, last];
+}
+
+/**
+ * THE TICKS AN AXIS HAS ROOM TO LABEL, for ticks that are GIVEN and not evenly
+ * spaced (a logarithmic axis's decades and its 1-2-5 run). It walks the axis
+ * from the first tick and keeps each one whose label does not touch the last
+ * one kept. Each label is measured by its own width. Labels that all fit are
+ * returned as the same array.
+ *
+ * THE CONVENTION: Vega's `labelOverlap: 'greedy'`, which Vega-Lite uses for
+ * logarithmic axes for the same reason: their ticks crowd at one end only, so
+ * dropping every second label everywhere throws away labels that had room.
+ * The walk can drop the last tick. When it would leave fewer than three
+ * labels, the axis shows its first and its last instead, as Vega does, so a
+ * two-label axis always names both ends.
+ *
+ * A tick that is dropped takes its mark with it, so nothing is drawn unlabelled.
+ */
+export function ticksThatFit<T extends RoundTick>(ticks: readonly T[], place: (value: number) => number, along: 'width' | 'height', edges?: LabelEdges): readonly T[] {
   if (ticks.length < 3) return ticks;
-  const size = along === 'height' ? TICK_LINE_PX : Math.max(...ticks.map((t) => t.label.length)) * TICK_CHAR_PX;
-  // THE SMALLEST gap between neighbours decides. Round ticks are evenly spaced, but a logarithmic
-  // axis's are not (its last decades, and its 1-2-5 run, stand closer than its first), and any k
-  // neighbouring gaps are at least k times the smallest one — so thinning by it holds everywhere.
-  let spacing = Infinity;
-  for (let i = 1; i < ticks.length; i++) spacing = Math.min(spacing, Math.abs(place(ticks[i]!.value) - place(ticks[i - 1]!.value)));
-  if (!(spacing > 0) || !Number.isFinite(spacing)) return ticks;
-  const every = Math.ceil((size + TICK_GAP_PX) / spacing);
-  if (every <= 1) return ticks;
-  const last = ticks.length - 1;
-  // every k-th from the first; the last is always kept, and the kept tick it would crowd gives way to it
-  const kept = ticks.filter((_, i) => i % every === 0 && (i === 0 || last - i >= every || i === last));
-  return kept.at(-1) === ticks[last] ? kept : [...kept, ticks[last]!];
+  const kept: T[] = [];
+  let lastSpan: readonly [number, number] | undefined;
+  for (const tick of ticks) {
+    const span = labelSpan(tick, place, along, edges);
+    if (lastSpan !== undefined && touch(lastSpan, span)) continue;
+    kept.push(tick);
+    lastSpan = span;
+  }
+  if (kept.length === ticks.length) return ticks;
+  return kept.length < 3 ? [ticks[0]!, ticks[ticks.length - 1]!] : kept;
 }
 
 /**

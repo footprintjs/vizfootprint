@@ -129,3 +129,60 @@ describe('labels are shown whole and do not touch', () => {
   });
 });
 
+describe('labels on a narrow chart, the way the known libraries do it', () => {
+  const xLabels = (root: HTMLElement): SVGTextElement[] => [...root.querySelectorAll<SVGTextElement>('text.vzf-tick[text-anchor="middle"]')];
+
+  it('a narrow scatter takes a coarser round step, and zero keeps its label beside the zero line', () => {
+    const { container } = render(<VizScatter data={points([[-0.5, -0.5], [0, 0], [0.5, 0.5]])} width={150} height={300} domain={{ zeroGuide: { x: true } }} />);
+    const x = xLabels(container).map((t) => t.textContent);
+    expect(x).toEqual(['-0.5', '0', '0.5']);
+    expect(container.querySelector('line.vzf-zero')).not.toBeNull();
+  });
+
+  it('the last x label ends inside the drawing; its tick mark stays at the value', () => {
+    const start = 1_700_000_000_000;
+    const { container } = render(<VizScatter data={points([[start, 1], [start + 60_000, 2]])} width={420} height={300} domain={{ x: [start, start + 60_000], y: [0, 3] }} />);
+    const labels = xLabels(container);
+    expect(labels.length).toBeGreaterThan(1);
+    for (const label of labels) {
+      const centre = Number(label.getAttribute('x'));
+      const half = ((label.textContent ?? '').length * 6) / 2;
+      expect(centre - half).toBeGreaterThanOrEqual(0);
+      expect(centre + half).toBeLessThanOrEqual(420);
+    }
+    // the last label was moved in: it is no longer centred on its tick mark
+    const last = labels.at(-1)!;
+    const mark = last.previousElementSibling!;
+    expect(Number(mark.getAttribute('x1'))).toBeGreaterThan(Number(last.getAttribute('x')));
+    expect(Number(mark.getAttribute('x1'))).toBe(420 - 18);
+  });
+
+  it('a logarithmic x axis keeps every decade that has room', () => {
+    const { container } = render(<VizScatter data={points([[1, 1], [1e6, 2]])} width={420} height={300} domain={{ x: [1, 1e6], transform: { x: 'log' } }} />);
+    const x = xLabels(container).map((t) => t.textContent);
+    expect(x.length).toBeGreaterThan(2);
+    expect(x[0]).toBe('1');
+  });
+
+  it('a short line chart takes a coarser step on its value axis', () => {
+    const data = [0, 50, 100].map((value, i) => ({ date: `2026-04-0${i + 1}`, value }));
+    const tall = ticksOf(render(<VizLine data={data} width={520} height={300} />).container).filter((t) => /^\d+$/.test(t));
+    cleanup();
+    const short = ticksOf(render(<VizLine data={data} width={520} height={110} />).container).filter((t) => /^\d+$/.test(t));
+    expect(short.length).toBeLessThan(tall.length);
+    expect(short).toContain('0');
+  });
+
+  it('a short line chart over tens of millions reads in round millions, not its two ends in full', () => {
+    const data = [51.3e6, 55e6, 59.4e6].map((value, i) => ({ date: `2026-04-0${i + 1}`, value }));
+    const { container } = render(<VizLine data={data} width={520} height={100} />);
+    expect(ticksOf(container).filter((t) => t.endsWith('M'))).toEqual(['52M', '56M']);
+    expect(container.querySelector('text.vzf-tick[textLength]')).toBeNull();
+  });
+
+  it('a 121 px scatter with a zero line keeps the zero label beside it', () => {
+    const { container } = render(<VizScatter data={points([[-84.88, 1], [81.47, 2]])} width={121} height={300} domain={{ x: [-84.88, 81.47], zeroGuide: { x: true } }} />);
+    expect(xLabels(container).map((t) => t.textContent)).toEqual(['0', '50']);
+    expect(container.querySelector('line.vzf-zero')).not.toBeNull();
+  });
+});
