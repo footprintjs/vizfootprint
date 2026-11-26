@@ -1090,7 +1090,7 @@ describe('layeredRenderer — the marks, the box and the guide', () => {
     expect(guidesOf(el)).toBe(1);
     expect(el.querySelectorAll('.vzf-scatter .vzf-axis, .vzf-line .vzf-axis')).toHaveLength(0);
     // the guide's ticks are the frame's fold, not either layer's own extent
-    expect(Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['0', '33.3', '66.7', '100', '0', '3.3', '6.7', '10', 'price', 'rating']);
+    expect(Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['0', '20', '40', '60', '80', '100', '0', '2', '4', '6', '8', '10', 'price', 'rating']);
     m.unmount();
   });
 
@@ -1408,7 +1408,7 @@ describe('layeredRenderer — a temporal frame', () => {
     m.update(framed([LAYER], { x: SHARED('temporal', ['not-a-date', 'nor-this']), y: SHARED('quantitative', [0, 10]) }));
     const ticks = Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent);
     // the y ticks and the axis labels survive; not one x tick was invented
-    expect(ticks).toEqual(['0', '3.3', '6.7', '10', 'when', 'v']);
+    expect(ticks).toEqual(['0', '2', '4', '6', '8', '10', 'when', 'v']);
     m.unmount();
   });
 });
@@ -1662,7 +1662,7 @@ describe('layeredRenderer — a line on a BAND (band versus run is the x COLUMN�
     expect(refusalOf(el)).toBe('');
     expect(guidesOf(el)).toBe(1);
     // the merged guide's band is the frame's order, and the axis is named by the field both layers bind
-    expect(Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['Casual', 'Formal', 'Sporty', '0', '3.3', '6.7', '10', 'shelf', 'mean']);
+    expect(Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['Casual', 'Formal', 'Sporty', '0', '2', '4', '6', '8', '10', 'shelf', 'mean']);
     // neither layer drew an axis of its own
     expect(el.querySelectorAll('.vzf-frame-layer .vzf-axis')).toHaveLength(0);
     // THE SHARED X, per category: the bar's slot centre and the line's dot are one pixel, in the frame's pixels
@@ -1884,10 +1884,10 @@ describe('the frame renderer — a declared curve and a declared extent reach th
     // BEFORE: ['1', '334', '667', '1000'] — `ticks(1, 1000, 3)`, a linear axis under a logarithmic
     // declaration, which is a false picture rather than a plain one
     // (the two trailing entries are the axis LABELS, which wear the same class in the merged guide)
-    expect(tickTexts(el, '.vzf-frame-guide')).toEqual(['1', '10', '100', '1000', '0', '3.3', '6.7', '10', 'price', 'rating']);
+    expect(tickTexts(el, '.vzf-frame-guide')).toEqual(['1', '10', '100', '1000', '0', '2', '4', '6', '8', '10', 'price', 'rating']);
     // …and the Y axis the same way, because the curve rides per CHANNEL and neither axis is the special one
     m.update(framed([POINTS_LAYER], { x: SHARED('quantitative', [0, 100]), y: { ...LOG_X, domain: [1, 100] } as ResolvedChannel }));
-    expect(tickTexts(el, '.vzf-frame-guide')).toEqual(['0', '33.3', '66.7', '100', '1', '10', '100', 'price', 'rating']);
+    expect(tickTexts(el, '.vzf-frame-guide')).toEqual(['0', '20', '40', '60', '80', '100', '1', '10', '100', 'price', 'rating']);
     m.unmount();
   });
 
@@ -1906,7 +1906,7 @@ describe('the frame renderer — a declared curve and a declared extent reach th
     m.update(framed([POINTS_LAYER], { x: bounded, y: SHARED('quantitative', [0, 10]) }));
     // the fold says these rows run 10…90; the declaration says the quantity runs 0…200, and the axis
     // is what the quantity can be. BEFORE: ['10', '36.7', '63.3', '90'] — the fold's own union
-    expect(tickTexts(el, '.vzf-frame-guide').slice(0, 4)).toEqual(['0', '66.7', '133.3', '200']);
+    expect(tickTexts(el, '.vzf-frame-guide').slice(0, 5)).toEqual(['0', '50', '100', '150', '200']);
     m.unmount();
   });
 

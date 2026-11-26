@@ -34,7 +34,7 @@ import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
 import { Axis, placeTicks } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
-import { bandOrder, bandWidth, bandStart, bandCentre, domainOr, roundTicksThatFit, slotAt, pointerTargetWidth, crowdedMarksNote, type ChartDomain } from '../primitives/scales.js';
+import { bandOrder, bandWidth, bandStart, bandCentre, countSpan, roundTicksThatFit, slotAt, pointerTargetWidth, crowdedMarksNote, type ChartDomain } from '../primitives/scales.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { slotValues, slotPress } from '../primitives/slotValues.js';
 import { announce } from '../primitives/announce.js';
@@ -198,9 +198,9 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   // the frame's ceiling when a frame gave one (never below 1, so a band always has height), this chart's own
-  // maximum otherwise. Through `domainOr` like every other axis, because it holds the guard: a ceiling that is
+  // maximum otherwise. Through `countSpan` (zero up to the ceiling, never below one; `domainOr` inside it holds the guard): a ceiling that is
   // not a finite number is not a ceiling, and dividing by it would draw every bar at NaN.
-  const max = Math.max(1, domainOr(props.domain?.y, [0, Math.max(...data.map((d) => d.count))])[1]);
+  const max = countSpan(props.domain?.y, [0, Math.max(...data.map((d) => d.count))])[1];
   // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its COUNT
   // axis alone (`'y'` — one scale of a two-scale frame whose x the frame draws once). Two flags, so the
   // category-side markup below reads one word and the count-side another.

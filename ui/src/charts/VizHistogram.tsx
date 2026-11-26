@@ -46,7 +46,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedInterval } from '../contract/selection.js';
-import { epochOf, dayOf, domainOr, scaleFor, placeable, excludedNote, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
+import { epochOf, dayOf, domainOr, countSpan, scaleFor, placeable, excludedNote, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { keyActivates } from '../primitives/pointSelect.js';
@@ -198,9 +198,9 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
   const axes = props.axes ?? true;
 
   // the frame's ceiling when a frame gave one (never below 1, so a bin always has height), this chart's own
-  // maximum otherwise. Through `domainOr` like the x axis above, because it holds the guard: a ceiling that is
+  // maximum otherwise. Through `countSpan` (zero up to the ceiling, never below one; `domainOr` inside it holds the guard): a ceiling that is
   // not a finite number is not a ceiling, and scaling by it would draw every bin at nothing.
-  const max = Math.max(1, domainOr(props.domain?.y, [0, Math.max(...geoms.map((g) => g.count))])[1]);
+  const max = countSpan(props.domain?.y, [0, Math.max(...geoms.map((g) => g.count))])[1];
   const plot = height - PAD.t - PAD.b;
   const plotBottom = height - PAD.b;
 

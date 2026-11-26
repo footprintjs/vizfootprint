@@ -63,7 +63,7 @@ export { linearScale, extent, ticks, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS, E
 // functions that read a given domain — a host putting a chart on a shared scale needs them
 // (`domainOr` for a run of numbers, `bandOrder` for a band's slots — and `bandWidth`/`bandStart`/`bandCentre`,
 // the ONE slot geometry every mark on a band places itself by)
-export { bandOrder, bandWidth, bandStart, bandCentre, domainOr } from './scales.js';
+export { bandOrder, bandWidth, bandStart, bandCentre, domainOr, countSpan } from './scales.js';
 // a band is a range too (law 13): the ONE owner of "which slots does this pixel range cover" — a
 // consumer-built band chart brushes its slots by asking it, and says `noSlotsCoveredNote` when a drag
 // crossed no mark at all

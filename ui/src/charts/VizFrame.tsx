@@ -63,7 +63,8 @@ import { PAD as BAR_PAD } from './VizBar.js';
 import { PAD as POINT_PAD } from './VizScatter.js';
 import { PAD as HISTOGRAM_PAD } from './VizHistogram.js';
 import { PAD as BOXPLOT_PAD } from './VizBoxPlot.js';
-import { dayOf, ticks, scaleFor, logTicks, logTickLabel, bandWidth, bandCentre, padOnSide, type ChartDomain, type ScaleKind, type AxisSide } from '../primitives/scales.js';
+import { dayOf, ticks, domainOr, countSpan, scaleFor, logTicks, logTickLabel, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, bandWidth, bandCentre, padOnSide, type ChartDomain, type ScaleKind, type AxisSide, type LabelEdges, type RoundTick } from '../primitives/scales.js';
+import { Axis, placeTicks, type AxisTick } from '../primitives/Axis.js';
 import { zeroGuideFor, zeroGuideNotes, type ZeroGuide } from '../primitives/zeroGuide.js';
 
 /** The mark kinds a frame can draw: the 2D charts, and exactly those (a map, a network, a heatmap and a table each own their own frame). */
@@ -215,20 +216,12 @@ export interface VizFrameProps {
   readonly ariaLabel?: string;
 }
 
-/** How many steps the merged guide's ticks take — 3 steps, 4 labels, the same as the charts' own axes. */
+/** How many steps a NUMBER axis of the merged guide asks for. A target: the round step nearest to it is taken (`roundTicksThatFit`), and fewer when the labels would touch. */
+const FRAME_TICK_TARGET = 4;
+/** How many even steps a DATE axis takes (4 labels), and one fewer than the decades a logarithmic axis may show. */
 const FRAME_TICK_STEPS = 3;
 /** Pixels beneath the axis kept for the axis label, so a slanted tick is clipped instead of running into it. */
 const AXIS_LABEL_ROOM = 24;
-
-/** One tick of the merged guide: where it sits along the axis, and what it says. */
-interface FrameTick {
-  readonly at: number;
-  readonly text: string;
-  /** Drawn on the slant (a band label wider than its band). */
-  readonly rotate: boolean;
-  /** Set when `text` is not the whole label — the full one rides in a `<title>`. */
-  readonly full?: string;
-}
 
 /**
  * THE CURVE ONE MERGED AXIS IS DRAWN ON, and the ONE place the frame decides
@@ -251,26 +244,70 @@ function curveOf(axis: FrameAxis | undefined, declared: ScaleKind | undefined): 
   return axis?.scale === 'quantitative' ? declared : undefined;
 }
 
-/** A tick's number as the merged guide spells it: a date as its day, a decade of a logarithmic axis as its power of ten, anything else rounded to a tenth (one rule, named here, for both axes). */
-function tickText(scale: FrameAxis['scale'], value: number, kind?: ScaleKind): string {
-  if (scale === 'temporal') return dayOf(new Date(value).toISOString());
-  return kind === 'log' ? logTickLabel(value) : String(Math.round(value * 10) / 10);
+/** A frame's folded span, turned into the span its layers draw on. */
+type DrawnSpan = (span: readonly [number, number]) => [number, number];
+
+/** The mark kinds whose y is a COUNT read from zero (`countSpan`). */
+const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogram']);
+
+/**
+ * THE SPAN THE LAYERS OF THIS STACK DRAW ON, for one axis — which is the span
+ * the guide must tick, or its ticks stand where no mark does.
+ *
+ * Every chart scales by `domainOr` (in order; a flat span widened by one each
+ * side), except the y of a COUNT mark: a bar and a histogram bin are read from
+ * zero, so they scale by `countSpan` (zero up to the ceiling, never a ceiling
+ * below one). A stack that holds a count mark is read from zero, so its y
+ * guide takes the count's span. Both rules have one owner in
+ * `../primitives/scales.ts`, and the charts call the same functions.
+ *
+ * KNOWN LIMIT, older than this function: a stack that mixes a count mark with a
+ * line or a point on one y whose folded span does not start at zero, or ends
+ * below one, has layers that scale differently from each other, and no single
+ * guide is right for both. The guide then follows the count.
+ */
+function drawnSpan(layers: readonly VizFrameLayer[], channel: 'x' | 'y'): DrawnSpan {
+  const counts = channel === 'y' && layers.some((layer) => COUNT_KINDS.has(layer.kind));
+  return (span) => (counts ? countSpan(span, span) : domainOr(span, span));
 }
 
 /**
- * Ticks across a span: DECADES on a logarithmic axis, evenly spaced otherwise.
+ * THE TICKS OF A SPAN, chosen by the rules the charts' own axes use, so the
+ * guide of a stack and the axis of a chart drawn alone read the same data the
+ * same way:
+ *
+ *   - NUMBERS: round values inside the span, as many (up to
+ *     {@link FRAME_TICK_TARGET} steps) as have room, each written to the step's
+ *     precision (`roundTicksThatFit`). They used to be three even cuts rounded
+ *     to a tenth: a span of 0 … 20 read "0 6.7 13.3 20".
+ *   - A LOGARITHMIC axis: its decades, thinned to those that have room
+ *     (`ticksThatFit`).
+ *   - DATES: three even steps, each read back as its day, thinned the same
+ *     way. (Ticks at round days and months are a date axis's job, not yet done.)
+ *
  * A span that is not two finite numbers is not a span — no ticks, rather than
- * an axis of NaN.
+ * an axis of NaN. `along` and `bounds` say which way the axis runs and, for a
+ * horizontal one, where the drawing ends, so labels are judged where they are
+ * drawn.
  *
  * The logarithmic ticks are read off the scale's OWN clamped domain
  * (`scaleFor`, which is the one owner of that clamp) rather than the raw pair,
  * so the guide labels the span the layers' marks were actually placed on.
  */
-function spanTicks(scale: FrameAxis['scale'], span: readonly [number, number] | undefined, from: number, to: number, kind?: ScaleKind): readonly FrameTick[] {
+function spanTicks(scale: FrameAxis['scale'], span: readonly [number, number] | undefined, drawn: DrawnSpan, from: number, to: number, kind: ScaleKind | undefined, along: 'width' | 'height', bounds?: LabelEdges): readonly AxisTick[] {
   if (span === undefined || !Number.isFinite(span[0]) || !Number.isFinite(span[1])) return [];
-  const at = scaleFor(kind)(span[0], span[1], from, to);
-  const values = kind === 'log' ? logTicks(at.domain[0], at.domain[1], FRAME_TICK_STEPS + 1) : ticks(span[0], span[1], FRAME_TICK_STEPS);
-  return values.map((value) => ({ at: at(value), text: tickText(scale, value, kind), rotate: false }));
+  // THE SPAN THE LAYERS DRAW ON (`drawnSpan`). The guide used to tick the raw pair, so on a constant
+  // column its tick stood at the plot's edge while the mark stood in the middle.
+  const [lo, hi] = drawn(span);
+  const at = scaleFor(kind)(lo, hi, from, to);
+  const said = (values: readonly number[], label: (value: number) => string): RoundTick[] => values.map((value) => ({ value, label: label(value) }));
+  const fitted =
+    scale === 'temporal'
+      ? ticksThatFit(said(ticks(lo, hi, FRAME_TICK_STEPS), (value) => dayOf(new Date(value).toISOString())), at, along, bounds)
+      : kind === 'log'
+        ? ticksThatFit(said(logTicks(at.domain[0], at.domain[1], FRAME_TICK_STEPS + 1), logTickLabel), at, along, bounds)
+        : roundTicksThatFit(lo, hi, FRAME_TICK_TARGET, at, along, bounds);
+  return placeTicks(fitted, at);
 }
 
 /**
@@ -280,13 +317,14 @@ function spanTicks(scale: FrameAxis['scale'], span: readonly [number, number] | 
  * places itself by — so a tick and a bar's slot and a line's point for one
  * category are one x by construction, never by three charts agreeing.
  */
-function bandTicks(categories: readonly string[] | undefined, from: number, to: number, room: number): readonly FrameTick[] {
+function bandTicks(categories: readonly string[] | undefined, from: number, to: number, room: number): readonly AxisTick[] {
   const names = categories ?? [];
   const band = bandWidth(from, to, names.length);
   return names.map((name, i) => {
-    const at = bandCentre(from, band, i);
-    const fit = fitTick(name, band, room, at);
-    return { at, text: fit.text, rotate: fit.rotate, ...(fit.clipped ? { full: name } : {}) };
+    const position = bandCentre(from, band, i);
+    const fit = fitTick(name, band, room, position);
+    // a LEVEL label is always the whole label: `fitTick` shortens only what it slants
+    return fit.rotate ? { position, label: fit.text, slanted: true, ...(fit.clipped ? { title: name } : {}) } : { position, label: name };
   });
 }
 
@@ -297,8 +335,8 @@ function bandTicks(categories: readonly string[] | undefined, from: number, to: 
  * categorical Y is given none, and draws its line and no ticks rather than the
  * x's names down its side.
  */
-function axisTicks(axis: FrameAxis, categories: readonly string[] | undefined, span: readonly [number, number] | undefined, from: number, to: number, room: number, kind?: ScaleKind): readonly FrameTick[] {
-  return axis.scale === 'categorical' ? bandTicks(categories, from, to, room) : spanTicks(axis.scale, span, from, to, kind);
+function axisTicks(axis: FrameAxis, categories: readonly string[] | undefined, span: readonly [number, number] | undefined, drawn: DrawnSpan, from: number, to: number, room: number, kind: ScaleKind | undefined, along: 'width' | 'height', bounds?: LabelEdges): readonly AxisTick[] {
+  return axis.scale === 'categorical' ? bandTicks(categories, from, to, room) : spanTicks(axis.scale, span, drawn, from, to, kind, along, bounds);
 }
 
 /**
@@ -319,18 +357,20 @@ function axisTicks(axis: FrameAxis, categories: readonly string[] | undefined, s
  * draws no zero guide at all is refused upstream in words, where every other
  * frame refusal lives (`contract/renderers.tsx` · `stackRefusal`, law 12).
  */
-function frameZero(axis: FrameAxis | undefined, span: readonly [number, number] | undefined, asked: boolean | undefined, from: number, to: number, channel: string, kind: ScaleKind | undefined): ZeroGuide | undefined {
+function frameZero(axis: FrameAxis | undefined, span: readonly [number, number] | undefined, drawn: DrawnSpan, asked: boolean | undefined, from: number, to: number, channel: string, kind: ScaleKind | undefined): ZeroGuide | undefined {
   if (axis === undefined || axis.scale !== 'quantitative' || span === undefined || !Number.isFinite(span[0]) || !Number.isFinite(span[1])) return undefined;
   // `scaleFor` is the one owner of the logarithmic clamp, so building the placer is safe even for a
   // span a logarithm cannot take — and `zeroGuideFor` refuses a log axis before it ever asks for 0
-  return zeroGuideFor({ channel, asked, domain: [span[0], span[1]], ...(kind === undefined ? {} : { transform: kind }), place: scaleFor(kind)(span[0], span[1], from, to) });
+  // on the span the layers draw on (`drawnSpan`), as `spanTicks` takes it
+  const [lo, hi] = drawn(span);
+  return zeroGuideFor({ channel, asked, domain: [lo, hi], ...(kind === undefined ? {} : { transform: kind }), place: scaleFor(kind)(lo, hi, from, to) });
 }
 
 /** Both axes' zero guides, decided once: the frame draws them and its accessible label says what it could not draw. */
 function frameZeroes(frame: VizFrameProps, plot: FramePlotBox): { readonly x?: ZeroGuide; readonly y?: ZeroGuide } {
   const domain = frame.domain ?? {};
-  const x = frameZero(frame.x, domain.x, domain.zeroGuide?.x, plot.left, plot.right, 'x', curveOf(frame.x, domain.transform?.x));
-  const y = frameZero(frame.y, domain.y, domain.zeroGuide?.y, plot.bottom, plot.top, 'y', curveOf(frame.y, domain.transform?.y));
+  const x = frameZero(frame.x, domain.x, drawnSpan(frame.layers, 'x'), domain.zeroGuide?.x, plot.left, plot.right, 'x', curveOf(frame.x, domain.transform?.x));
+  const y = frameZero(frame.y, domain.y, drawnSpan(frame.layers, 'y'), domain.zeroGuide?.y, plot.bottom, plot.top, 'y', curveOf(frame.y, domain.transform?.y));
   return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }) };
 }
 
@@ -345,14 +385,17 @@ function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: Frame
   const { frame, plot, floor, zeroes } = props;
   const domain = frame.domain ?? {};
   const zeroNotes = zeroGuideNotes(zeroes.x, zeroes.y);
-  const room = Math.max(0, floor - plot.bottom - 12 - (frame.x?.label === undefined ? 0 : AXIS_LABEL_ROOM));
+  const room = Math.max(0, floor - plot.bottom - TICK_SLANT_DROP - (frame.x?.label === undefined ? 0 : AXIS_LABEL_ROOM));
+  // the drawing's two edges: a level x label stays between them, and a y label is squeezed into the room it has
+  const bounds: LabelEdges = [0, props.width];
   // x runs left→right; y runs bottom→top (a value grows upwards), which is the only difference between them
-  const xTicks = frame.x === undefined ? [] : axisTicks(frame.x, domain.categories, domain.x, plot.left, plot.right, room, curveOf(frame.x, domain.transform?.x));
-  const yTicks = frame.y === undefined ? [] : axisTicks(frame.y, undefined, domain.y, plot.bottom, plot.top, 0, curveOf(frame.y, domain.transform?.y));
+  const xTicks = frame.x === undefined ? [] : axisTicks(frame.x, domain.categories, domain.x, drawnSpan(frame.layers, 'x'), plot.left, plot.right, room, curveOf(frame.x, domain.transform?.x), 'width', bounds);
+  const yTicks = frame.y === undefined ? [] : axisTicks(frame.y, undefined, domain.y, drawnSpan(frame.layers, 'y'), plot.bottom, plot.top, 0, curveOf(frame.y, domain.transform?.y), 'height');
   return (
     <svg className="vzf-chart vzf-frame-guide" viewBox={`0 0 ${props.width} ${props.height}`} aria-hidden="true">
-      {frame.x !== undefined && <line className="vzf-axis" x1={plot.left} y1={plot.bottom} x2={plot.right} y2={plot.bottom} />}
-      {frame.y !== undefined && <line className="vzf-axis" x1={plot.left} y1={plot.top} x2={plot.left} y2={plot.bottom} />}
+      {/* the two axes (`Axis`, the one part every chart's axis is drawn by), under the zero guides */}
+      {frame.x !== undefined && <Axis orient="bottom" ticks={xTicks} at={plot.bottom} range={[plot.left, plot.right]} labelBounds={bounds} />}
+      {frame.y !== undefined && <Axis orient="left" ticks={yTicks} at={plot.left} range={[plot.top, plot.bottom]} labelBounds={bounds} />}
       {/* the zero guides of the axes the FRAME draws — furniture inside the plot, no tick and no label */}
       {zeroes.x !== undefined && 'at' in zeroes.x && <line className="vzf-zero" x1={zeroes.x.at} y1={plot.top} x2={zeroes.x.at} y2={plot.bottom} />}
       {zeroes.y !== undefined && 'at' in zeroes.y && <line className="vzf-zero" x1={plot.left} y1={zeroes.y.at} x2={plot.right} y2={zeroes.y.at} />}
@@ -362,30 +405,6 @@ function FrameGuide(props: { readonly frame: VizFrameProps; readonly plot: Frame
         <text key={`zn${i}`} className="vzf-zero-note" x={plot.left} y={plot.top - 6 + i * 11} textAnchor="start">
           {note}
         </text>
-      ))}
-      {xTicks.map((tick) => (
-        <g key={`x:${tick.text}:${tick.at}`}>
-          <line className="vzf-axis" x1={tick.at} y1={plot.bottom} x2={tick.at} y2={plot.bottom + 4} />
-          {tick.rotate ? (
-            <text className="vzf-tick" x={tick.at} y={plot.bottom + 12} textAnchor="end" transform={`rotate(-40 ${String(tick.at)} ${String(plot.bottom + 12)})`}>
-              {tick.full === undefined ? null : <title>{tick.full}</title>}
-              {tick.text}
-            </text>
-          ) : (
-            // a FLAT label is always the whole label: `fitTick` clips only what it slants
-            <text className="vzf-tick" x={tick.at} y={plot.bottom + 16} textAnchor="middle">
-              {tick.text}
-            </text>
-          )}
-        </g>
-      ))}
-      {yTicks.map((tick) => (
-        <g key={`y:${tick.text}:${tick.at}`}>
-          <line className="vzf-axis" x1={plot.left - 4} y1={tick.at} x2={plot.left} y2={tick.at} />
-          <text className="vzf-tick" x={plot.left - 8} y={tick.at + 3} textAnchor="end">
-            {tick.text}
-          </text>
-        </g>
       ))}
       {frame.x?.label === undefined ? null : (
         <text className="vzf-tick vzf-frame-axislabel" x={(plot.left + plot.right) / 2} y={floor - 8} textAnchor="middle">

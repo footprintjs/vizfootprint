@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Charts: a frame's guide is ticked the way a chart's own axis is
+
+- **Behaviour change.** The one axis a frame draws for a stack of layers was
+  ticked at three even cuts of its span, rounded to a tenth: 0 … 20 read
+  "0 6.7 13.3 20", and a signed span did not label zero. It now follows the
+  rules of the charts' own axes: round values inside the span, written to the
+  step's precision or against one unit, as many as have room. It asks for
+  four steps, as the line chart does (the scatter asks for five).
+- The guide is ticked over the span the layers draw on. A constant column
+  (a flat span) used to put its tick at the plot's edge while the mark stood
+  in the middle, and a span given backwards was mirrored against the marks.
+  A stack that holds bars or a histogram is read from zero, as those marks
+  are drawn. New export: `countSpan`, the one rule the bar, the histogram
+  and the guide share for a count's span.
+- A y label wider than the margin is squeezed into it, and an x label near
+  the edge is moved inside the drawing. Both used to be cut off.
+- A logarithmic axis shows the decades that have room. A date axis keeps its
+  three even steps, each read back as its day, and drops days that would
+  touch.
+- The guide is drawn by `<Axis>`; its elements are inside
+  `<g class="vzf-axis-part" data-axis-orient="…">`.
+
 ### Charts: the bar chart's count axis is ticked at round values
 
 - **Behaviour change.** The count axis a bar draws as the first scale of a
