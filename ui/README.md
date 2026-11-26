@@ -502,7 +502,7 @@ roundTicks(-0.55, 0.55, 5).map((t) => t.label);           // ['-0.4', '-0.2', '0
 roundTicks(-3_710_000, -3_704_000, 4).map((t) => t.label); // ['-3.710M', '-3.708M', '-3.706M', '-3.704M']
 ```
 
-A declared `domain` is drawn as declared, with no room added, and ticked by the same rule. A logarithmic axis is unchanged: no room, decade ticks. A line over a run of numbers follows a logarithm declared on its x (`domain.transform.x`), so on one frame a line, a point layer and the guide put one value on one pixel; a date and a band have no logarithm, and there the key is ignored. A point with an x of zero or below is then not drawn, and the chart says how many it left out.
+A declared `domain` is drawn as declared, with no room added, and ticked by the same rule. A logarithmic axis is unchanged: no room, decade ticks. A line over a run of numbers follows a logarithm declared on its x (`domain.transform.x`), so on one frame a line, a point layer and the guide put one value on one pixel; a date and a band have no logarithm, and there the key is ignored. A point with an x of zero or below is then not drawn, and the chart says how many it left out. One distinct value on a logarithmic axis stands in the middle of a decade either side (`logDomain`); pass the axis's kind to `domainOr` and `extentFor`, which on a linear axis widen a flat span by one each side.
 
 Four more rules keep the labels readable, on the same charts. Each one is the rule a well-known chart library already uses, so the axes behave the way a developer expects:
 

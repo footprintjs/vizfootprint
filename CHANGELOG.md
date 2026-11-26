@@ -19,6 +19,35 @@
 - **Behaviour change** for a host that pushes `RenderState.frame` to a plain
   view with any of these keys set: the picture now shows them.
 
+### Correction: one value on a logarithmic axis is drawn inside the plot
+
+- A chart with a single distinct value on a logarithmic axis widened that
+  value by plus and minus one before the logarithmic clamp, so a value below
+  about 0.11 was drawn far outside the plot with nothing said (a line or a
+  scatter with x = 0.001 put its point at −848 px). It now gets a decade
+  either side and stands in the middle, on the scatter's two axes, the line's
+  two axes, the histogram, the heat map and a frame's guide.
+- `domainOr` takes an optional third argument, the axis's kind, and
+  `extentFor` no longer widens one distinct value on a logarithmic kind. A
+  chart of your own on a logarithmic channel should pass the kind.
+- A drag across a scatter's logarithmic x is rounded to significant digits:
+  as many as it takes to tell one pixel from the next at that value, and
+  never fewer than four (`roundToAxis` takes the axis's kind and what a pixel
+  is worth). It was rounded to decimals chosen from a linear span, so a drag
+  around 0.001 recorded [0, 0]. This changes what a drag on ANY logarithmic
+  scatter records, not only one with a single value.
+- A value outside a declared pair on a logarithmic axis is counted against
+  the axis as it is drawn (`outsideNotes` takes the axis's kind). Where that
+  differs from the declared pair (a flat pair, or a low bound at or below
+  zero) the sentence names both: "outside its declared bounds [0.05, 0.05],
+  drawn as [0.005, 0.5] on a logarithmic axis".
+- `logDomain` keeps its decade inside what a number can hold, and `logTicks`
+  answers nothing for a span with no finite end. A value near the smallest
+  number threw, and one near the largest could loop without end.
+- A declared flat pair at or below zero on a logarithmic axis now gets the
+  placeholder decade 1 … 10, as an undeclared one always did.
+- A linear axis is unchanged.
+
 ### Correction: a line over numbers follows a logarithmic x
 
 - A line chart whose x is a run of numbers ignored `domain.transform.x`:

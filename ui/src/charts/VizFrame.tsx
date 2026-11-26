@@ -245,7 +245,7 @@ function curveOf(axis: FrameAxis | undefined, declared: ScaleKind | undefined): 
 }
 
 /** A frame's folded span, turned into the span its layers draw on. */
-type DrawnSpan = (span: readonly [number, number]) => [number, number];
+type DrawnSpan = (span: readonly [number, number], kind: ScaleKind | undefined) => [number, number];
 
 /** The mark kinds whose y is a COUNT read from zero (`countSpan`). */
 const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogram']);
@@ -268,7 +268,8 @@ const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogram']);
  */
 function drawnSpan(layers: readonly VizFrameLayer[], channel: 'x' | 'y'): DrawnSpan {
   const counts = channel === 'y' && layers.some((layer) => COUNT_KINDS.has(layer.kind));
-  return (span) => (counts ? countSpan(span, span) : domainOr(span, span));
+  // the curve goes with the span: a flat span on a logarithmic axis is widened by a decade, by the scale
+  return (span, kind) => (counts ? countSpan(span, span) : domainOr(span, span, kind));
 }
 
 /**
@@ -298,7 +299,7 @@ function spanTicks(scale: FrameAxis['scale'], span: readonly [number, number] | 
   if (span === undefined || !Number.isFinite(span[0]) || !Number.isFinite(span[1])) return [];
   // THE SPAN THE LAYERS DRAW ON (`drawnSpan`). The guide used to tick the raw pair, so on a constant
   // column its tick stood at the plot's edge while the mark stood in the middle.
-  const [lo, hi] = drawn(span);
+  const [lo, hi] = drawn(span, kind);
   const at = scaleFor(kind)(lo, hi, from, to);
   const said = (values: readonly number[], label: (value: number) => string): RoundTick[] => values.map((value) => ({ value, label: label(value) }));
   const fitted =
@@ -362,7 +363,7 @@ function frameZero(axis: FrameAxis | undefined, span: readonly [number, number] 
   // `scaleFor` is the one owner of the logarithmic clamp, so building the placer is safe even for a
   // span a logarithm cannot take — and `zeroGuideFor` refuses a log axis before it ever asks for 0
   // on the span the layers draw on (`drawnSpan`), as `spanTicks` takes it
-  const [lo, hi] = drawn(span);
+  const [lo, hi] = drawn(span, kind);
   return zeroGuideFor({ channel, asked, domain: [lo, hi], ...(kind === undefined ? {} : { transform: kind }), place: scaleFor(kind)(lo, hi, from, to) });
 }
 
