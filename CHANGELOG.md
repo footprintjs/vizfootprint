@@ -10,8 +10,11 @@
 - A new test takes that list and, for each key, builds a real definition,
   reads the view from the store, folds it through `viewFrameFor` and draws
   it with the scatter renderer. A key added to the definition fails the
-  test until it has a case, so it cannot be dropped on the way to the
-  picture unnoticed. No behaviour changes.
+  test until it has a case. For `transform`, `zero`, `zeroGuide`, `bounds`
+  and `basis` the case fails if the key is lost at the session, the store,
+  or the fold; for `domain` and `guide`, which have nothing to change on a
+  view with no layers, it proves only that the entry survives. No
+  behaviour changes.
 
 ### Added: `viewFrameFor`, the frame door for a view with no layers
 

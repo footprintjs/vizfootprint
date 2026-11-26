@@ -701,7 +701,9 @@ entry for its axes gets `{}` and is byte for byte the chart it was.
 takes the list of keys a plain view may declare from its one owner (`AXIS_KEYS`,
 `vizfootprint/def`) and, for each, builds a real definition, reads the view
 from the store, folds it through `viewFrameFor` and draws it. A key added to
-the definition fails that test until it has a case.
+the definition fails that test until it has a case. Two keys, `domain` and
+`guide`, have nothing to change on a view with no layers, so their cases
+prove the entry survives and no more.
 
 **A category list is the fold's too.** Where the frame holds a categorical
 entry for the view's x (a bar's `category`, a line on a band), the slots are

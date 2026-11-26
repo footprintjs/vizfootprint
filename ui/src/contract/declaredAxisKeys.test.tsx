@@ -18,16 +18,26 @@
  * |---------------|----------------------|-------------------------------------------------------------------|
  * | (none)        |                      | the chart's own extent, with its margin: the baseline             |
  * | `transform`   | `'log'`              | a logarithmic axis: decades                                       |
- * | `zero`        | `true`               | the axis starts at zero                                           |
- * | `zeroGuide`   | `true`               | one zero line across the plot                                     |
+ * | `zero`        | `true`               | the axis is folded to start at zero: a picture that is not the baseline |
+ * | `zeroGuide`   | `true`               | a sentence that zero is not on the folded span, 30…3000 (the baseline's padded axis holds zero) |
  * | `bounds`      | `[0, 10000]`         | the axis is drawn on the bounds                                   |
  * | `basis`       | `'rows'`             | the axis is measured over the rows the view draws, not the table  |
- * | `domain`      | `'union'`            | the only word there is: the folded span, as any entry gives       |
- * | `guide`       | `'per-layer'`        | nothing to change: a view alone always draws its own guide        |
+ * | `domain`      | `'union'`            | the entry SURVIVES: the picture of an entry that changes nothing else |
+ * | `guide`       | `'per-layer'`        | the entry SURVIVES: the same                                      |
  *
- * "As any entry gives" is compared with an entry that changes nothing else,
- * `{ transform: 'linear' }`. An EMPTY entry, `y: {}`, declares nothing: the
- * picture is the chart on its own extent.
+ * WHAT `domain` AND `guide` PROVE, AND WHAT THEY DO NOT. On a view with no
+ * layers neither word has anything to change: `'union'` is the only word
+ * `domain` may be, and `guide` says who draws the guide across LAYERS. So those
+ * two cases prove that the entry reaches the picture (it is on the folded span,
+ * not the baseline) and cannot prove the word did. Whether the definition door
+ * should refuse them on a plain view, as it refuses `mode`, is an open task.
+ *
+ * "An entry that changes nothing else" is `{ transform: 'linear' }`. An EMPTY
+ * entry, `y: {}`, reaches the picture as nothing: the definition door accepts
+ * it and the store's projection drops it, because it holds no axis key
+ * (`sessionView.ts · mapFrame`). A host that handed the definition's own frame
+ * to `viewFrameFor` would get it folded; the two doors differ there, and that
+ * is an open task too.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildDashboard } from 'vizfootprint/agent';
@@ -87,6 +97,12 @@ const refusal = (el: HTMLElement): string => el.querySelector('p.vzf-chart-refus
 /** An entry that changes nothing but being one: the axis is on the folded span and every other key is at its default. */
 const PLAIN_ENTRY = { transform: 'linear' } as const;
 
+/** The entry reached the picture (it is on the folded span, not the baseline), and its word changed nothing more. */
+function survives(el: HTMLElement, own: HTMLElement, entry: HTMLElement): void {
+  expect(el.innerHTML).not.toBe(own.innerHTML);
+  expect(el.innerHTML).toBe(entry.innerHTML);
+}
+
 /** One case per key: how it is declared, and what the picture must then show. */
 const CASES: Readonly<Record<string, { readonly declare: unknown; readonly shows: (el: HTMLElement, own: HTMLElement, entry: HTMLElement) => Promise<void> | void }>> = {
   transform: {
@@ -97,6 +113,8 @@ const CASES: Readonly<Record<string, { readonly declare: unknown; readonly shows
     declare: true,
     shows: (el, own) => {
       expect(yTicks(el)[0]).toBe('0');
+      // the baseline's padded axis starts at zero too, so the tick alone proves nothing: this must be another picture
+      expect(el.innerHTML).not.toBe(own.innerHTML);
       // the lowest point stands above the floor of an axis that starts at zero; on the folded span it stands on it
       const low = (root: HTMLElement): number => Math.max(...[...root.querySelectorAll('circle.vzf-dot')].map((c) => Number(c.getAttribute('cy'))));
       const floor = (root: HTMLElement): number => Math.max(...[...root.querySelectorAll('[data-axis-orient="left"] line')].flatMap((l) => [Number(l.getAttribute('y1')), Number(l.getAttribute('y2'))]));
@@ -107,7 +125,8 @@ const CASES: Readonly<Record<string, { readonly declare: unknown; readonly shows
     declare: true,
     // period never reaches zero, so the chart says in words that the line has no place, where it used to say nothing
     shows: (el, own) => {
-      expect([...el.querySelectorAll('text.vzf-zero-note')].map((t) => t.textContent ?? '').join(' ')).toContain('zero');
+      // the sentence quotes the FOLDED span: on the baseline's own padded axis zero has a place and the line would be drawn
+      expect([...el.querySelectorAll('text.vzf-zero-note')].map((t) => t.textContent ?? '')).toEqual(['y was asked for a zero guide, but its axis runs [30, 3000] — zero is not a place on it, so there is no line to draw']);
       expect(own.querySelectorAll('text.vzf-zero-note')).toHaveLength(0);
     },
   },
@@ -122,6 +141,10 @@ const CASES: Readonly<Record<string, { readonly declare: unknown; readonly shows
       const overRows = await drawn({ basis: 'rows' }, true);
       expect(overRows.querySelectorAll('circle.vzf-dot')).toHaveLength(2);
       const top = Number(yTicks(overRows).at(-1));
+      // on the span of its own two rows, with no margin: the lowest point stands on the axis floor (the baseline leaves room)
+      const lowest = Math.max(...[...overRows.querySelectorAll('circle.vzf-dot')].map((c) => Number(c.getAttribute('cy'))));
+      const axisFloor = Math.max(...[...overRows.querySelectorAll('[data-axis-orient="left"] line')].flatMap((l) => [Number(l.getAttribute('y1')), Number(l.getAttribute('y2'))]));
+      expect(lowest).toBe(axisFloor);
       document.body.innerHTML = '';
       const overTable = await drawn({ basis: 'table' }, true);
       expect(top).toBeLessThanOrEqual(300);
@@ -130,11 +153,11 @@ const CASES: Readonly<Record<string, { readonly declare: unknown; readonly shows
   },
   domain: {
     declare: 'union',
-    shows: (el, _own, entry) => expect(el.innerHTML).toBe(entry.innerHTML),
+    shows: survives,
   },
   guide: {
     declare: 'per-layer',
-    shows: (el, _own, entry) => expect(el.innerHTML).toBe(entry.innerHTML),
+    shows: survives,
   },
 };
 
@@ -158,7 +181,7 @@ describe('every axis key a plain view may declare reaches the picture', () => {
   });
 
   for (const key of AXIS_KEYS) {
-    it(`${key}: accepted by the definition door, folded by the adapter's door, drawn`, async () => {
+    it(`${key}: declared in a real definition, and the picture answers to it`, async () => {
       const own = await drawn(undefined);
       const entry = await drawn(PLAIN_ENTRY);
       const el = await drawn({ [key]: CASES[key]!.declare });
