@@ -1440,6 +1440,11 @@ function sharedYSpan(framed: readonly FramedLayer[], frame: Readonly<Record<stri
  *     not from a zero line inside it, so the floor would be labelled below
  *     zero under a bar that starts at zero.
  *
+ * THE WAY OUT IS IN THE SENTENCE, and it is one that draws: a bar may take the
+ * first of two scales (`mayTakeFirstScale`, the def door's own answer), so it
+ * is told to; a histogram takes neither, so it is told to stand on a frame of
+ * its own.
+ *
  * NOT JUDGED HERE, and unchanged: a count that binds NO y keeps its own
  * ceiling beside a line on the shared y, and the frame's one y guide is then
  * not the count's axis. That stack is drawn as it always was.
@@ -1448,10 +1453,12 @@ function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<
   const { count, position } = sharedYReaders(framed, frame);
   if (count === undefined || position === undefined) return null;
   const shared = sharedOn(frame, 'y')!; // both read it, so it is there
-  const [who, apart] = [`layer "${count.layer.layerId}" is a ${count.kind}, read from zero, and the y it shares with layer "${position.layer.layerId}"`, `Declare the ${count.kind} first and resolve y as independent, so each layer has a y of its own`];
+  const [who, apart] = [`layer "${count.layer.layerId}" is a ${count.kind}, read from zero, and the y it shares with layer "${position.layer.layerId}"`, mayTakeFirstScale(count.kind, 'y') ? `Declare the ${count.kind} first and resolve y as independent, so each layer has a y of its own` : `Draw the ${count.kind} on a frame of its own`];
   if (shared.bounds !== undefined) {
+    // in order: a pair given backwards is drawn in order by every chart, so it is the same declaration
+    const [low, high] = [Math.min(...shared.bounds), Math.max(...shared.bounds)];
     const [lo, hi] = countSpan(shared.bounds, shared.bounds);
-    if (lo === shared.bounds[0] && hi === shared.bounds[1]) return null;
+    if (lo === low && hi === high) return null;
     return `${who} declares bounds [${String(shared.bounds[0])}, ${String(shared.bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none. ${apart}.`;
   }
   const span = spanOf(shared)!; // a quantitative channel has a span
@@ -1785,8 +1792,9 @@ function fullBandOrder(framed: readonly FramedLayer[], frame: Readonly<Record<st
 function frameChartDomain(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, categories: readonly string[] | undefined): ChartDomain {
   const on = (axis: 'x' | 'y'): SharedChannel | undefined => sharedAxis(framed, frame, axis)?.resolved;
   const x = spanOf(on('x'));
-  // the raw fold: the guide widens it by the count's rule itself (`VizFrame.tsx · drawnSpan`), to the
-  // span `sharedYSpan` hands the layers
+  // the raw fold: the guide widens it by the count's rule itself (`VizFrame.tsx · drawnSpan`). For the
+  // layers that bind this y that is the span `sharedYSpan` hands them; a count that binds no y is the
+  // limit named at `countMixRefusal`
   const y = spanOf(on('y'));
   const onAxis = (axis: 'x' | 'y'): readonly string[] => axisChannels(framed, axis);
   return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(categories === undefined ? {} : { categories }), ...transformAsk(frame, onAxis), ...zeroGuideAsk(frame, onAxis) };

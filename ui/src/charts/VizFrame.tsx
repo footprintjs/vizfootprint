@@ -261,12 +261,17 @@ export const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogr
  * guide takes the count's span. Both rules have one owner in
  * `../primitives/scales.ts`, and the charts call the same functions.
  *
- * A STACK THAT MIXES a count mark with a line or a point on one y: the
- * contract's stack door (`sharedYSpan`, `../contract/renderers.tsx`) hands
- * every such layer the count's span, so the marks agree with this guide, and
- * refuses in words the stacks no one span is right for. A host that builds
- * this component's layers by hand owes them the same: hand each layer that
- * reads the frame's y the span `countSpan` gives.
+ * A STACK THAT MIXES a count mark with a line or a point that BIND one y: the
+ * contract's stack door (`../contract/renderers.tsx`) hands every such layer
+ * the count's span (`sharedYSpan`), so the marks agree with this guide, and
+ * refuses in words the stacks no one span is right for (`countMixRefusal`). A
+ * host that builds this component's layers by hand owes them the same: hand
+ * each layer that reads the frame's y the span `countSpan` gives.
+ *
+ * KNOWN LIMIT, older than this function and still here: a count that binds NO
+ * y keeps its own ceiling while a line beside it scales by the folded span.
+ * The guide follows the count's rule, so it is then right for neither when
+ * the fold does not start at zero or the two ceilings differ.
  */
 function drawnSpan(layers: readonly VizFrameLayer[], channel: 'x' | 'y'): DrawnSpan {
   const counts = channel === 'y' && layers.some((layer) => COUNT_KINDS.has(layer.kind));

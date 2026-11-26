@@ -15,8 +15,8 @@
   and a line that bind one shared `y`: one whose `y` declares `bounds` that
   are not a count's span (they do not start at zero, or end below one), and
   one whose folded `y` reaches below zero. In both the two layers stood on
-  different spans. The sentence names the way out: declare the bar first and
-  resolve `y` as `independent`.
+  different spans. The sentence names the way out: a bar declared first with
+  `y` resolved as `independent`; a histogram on a frame of its own.
 - Unchanged: a bar that binds no `y` beside a line on the shared `y`.
 
 ### Correction: a filter's bound keeps the row it was taken from, on the SQL engine too

@@ -86,10 +86,33 @@ describe('a count and a line on one shared y', () => {
     );
     expect(refusalOf(bounded([-5, 100]))).toContain('declares bounds [-5, 100]');
     expect(refusalOf(bounded([0, 0.5]))).toContain('declares bounds [0, 0.5]');
+    // a pair given backwards is the same declaration: both layers stand on 0…100, as they always did
+    expect(refusalOf(bounded([100, 0]))).toBe('');
     // bounds that ARE the count's span draw, on those bounds, whatever the rows reach
     expect(refusalOf(bounded([0, 100]))).toBe('');
     expect(bounded([0, 100]).innerHTML).toBe(barLine([0, 100]).innerHTML);
     expect(yTicks(bounded([0, 200]))).toContain('200');
+  });
+
+  it('a histogram is told the way out that exists for it: a frame of its own', () => {
+    // a histogram takes neither side of a two-scale frame, so "resolve y as independent" would be refused in turn
+    const bins: RenderLayer = { layerId: 'a', table: 't', rows: [{ x0: 0, x1: 1, count: 50 }, { x0: 1, x1: 2, count: 100 }], encodings: { x: 'x0', y: 'count' } };
+    const run: RenderLayer = { layerId: 'b', table: 'u', rows: [{ p: 0.5, v: -20 }, { p: 1.5, v: 100 }], encodings: { x: 'p', y: 'v' } };
+    const stack = (y: ResolvedChannel): HTMLElement => {
+      const el = document.createElement('div');
+      const mounted = layeredRenderer({ layers: { a: { kind: 'histogram' }, b: { kind: 'line' } } }).mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks(), layers: { a: callbacks(), b: callbacks() } });
+      mounted.update({ rows: [], encodings: {}, selection: emptySelection('v'), hover: null, theme: {}, size: { width: 400, height: 300 }, layers: [bins, run], frame: { x: shared('quantitative', [0, 2]), y } });
+      return el;
+    };
+    expect(refusalOf(stack(shared('quantitative', [-20, 100])))).toBe(
+      'layer "a" is a histogram, read from zero, and the y it shares with layer "b" reaches below zero (-20): one scale cannot hold a length from zero and a line under it. Draw the histogram on a frame of its own.',
+    );
+    expect(refusalOf(stack(shared('quantitative', [0, 100], { bounds: [40, 100] })))).toMatch(/declares bounds \[40, 100\].*Draw the histogram on a frame of its own\.$/);
+    // the way out it is NOT told is refused, which is why
+    expect(refusalOf(stack({ mode: 'independent', guide: 'per-layer', scale: 'quantitative' } as unknown as ResolvedChannel))).toContain('histogram with a y of its own');
+    // and at or above zero the histogram and the line stand on one span
+    expect(refusalOf(stack(shared('quantitative', [40, 100])))).toBe('');
+    expect(stack(shared('quantitative', [40, 100])).innerHTML).toBe(stack(shared('quantitative', [0, 100])).innerHTML);
   });
 
   it('the way out the sentence names draws: the bar first, y independent', () => {

@@ -712,7 +712,9 @@ What it owns:
   zero, or ending below one), because a declaration is drawn as declared or
   not at all; and one whose folded `y` reaches below zero, because a bar is
   drawn up from the plot's floor, not from a zero line inside it. The way out
-  is in the sentence: declare the bar first and resolve `y` as `independent`.
+  is in the sentence: a bar is told to be declared first with `y` resolved as
+  `independent`; a histogram, which takes neither side of two scales, is told
+  to stand on a frame of its own.
   Not covered: a bar that binds no `y` keeps its own ceiling, and the frame's
   one `y` guide is then not that bar's axis.
 - **the layer's own voice.** A gesture speaks through
