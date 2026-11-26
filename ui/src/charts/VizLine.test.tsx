@@ -1232,3 +1232,13 @@ describe('VizLine — A SLOT IS A NAME FOR A VALUE: a band drawn over a column t
     expect((declared.mock.calls[0]![0] as { rawValue: { values: unknown[] } }).rawValue.values).toEqual(['Formal', 'Smart']);
   });
 });
+
+describe('VizLine — its x labels are placed by the chart, not kept in by the axis part', () => {
+  it('one date on a very small chart is centred on its tick, where it always was', () => {
+    const { container } = render(<VizLine data={[{ date: '2026-04-01', value: 1 }]} width={40} height={30} />);
+    const label = container.querySelector('[data-axis-orient="bottom"] text.vzf-tick')!;
+    const mark = label.previousElementSibling!;
+    expect(label.getAttribute('text-anchor')).toBe('middle');
+    expect(label.getAttribute('x')).toBe(mark.getAttribute('x1'));
+  });
+});

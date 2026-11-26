@@ -129,8 +129,8 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, roundTicksThatFit, ticksThatFit, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
-import { TICK_ANGLE, fitTick } from './tickFit.js';
+import { linearScale, extent, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { fitTick } from './tickFit.js';
 import { Axis, placeTicks, type AxisTick } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
@@ -685,7 +685,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const bandLabels = drawX && band !== undefined ? band : [];
   const slanted = bandLabels.some((name) => fitTick(name, slot, 0).rotate);
   const padB = slanted ? Math.min(pad.b + SLANT_PAD, Math.max(pad.b, height - top - MIN_PLOT)) : pad.b;
-  const tickRoom = Math.max(0, padB - 12 - AXIS_LABEL_ROOM);
+  const tickRoom = Math.max(0, padB - TICK_SLANT_DROP - AXIS_LABEL_ROOM);
   const bottom = height - padB;
   const y = scaleFor(yKind)(vlo, vhi, bottom, top);
 
@@ -845,7 +845,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // one tick per slot, each fitted to its slot (`fitTick`: level and whole, or slanted and shortened
   // with the whole name kept for hover)
   const xAxisTicks: AxisTick[] = [
-    ...tickSpecs.map((d): AxisTick => ({ position: x(d.at), label: nameOf(d.key), anchor: d.anchor })),
+    ...tickSpecs.map((d): AxisTick => ({ position: x(d.at), label: nameOf(d.key), textAnchor: d.anchor })),
     ...bandLabels.map((name, i): AxisTick => {
       const position = bandCentre(pad.l, slot, i);
       const fit = fitTick(name, slot, tickRoom, position);
@@ -894,7 +894,9 @@ export function VizLine(props: VizLineProps): JSX.Element {
             while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
         {/* the x axis (`Axis`): on a RUN, actual data dates with the edge labels turned inward so they never
             clip at the plot edges or collide; on a BAND, one tick per slot at its centre, level when its
-            label fits the slot and slanted when it does not (the markup `VizBar` draws) */}
+            label fits the slot and slanted when it does not (the markup `VizBar` draws). NO `labelBounds`:
+            the date labels are turned inward by their own anchors, and a band's level label is centred on
+            its slot, which is how they were always drawn. */}
         {drawX && <Axis orient="bottom" ticks={xAxisTicks} at={bottom} range={[pad.l, width - pad.r]} />}
         {/* the value axis (`Axis`, the one part every chart's axis is drawn by), on the side it was given.
             It is drawn just before the zero guide, so the guide is painted over the axis as it always was;

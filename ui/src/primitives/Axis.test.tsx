@@ -8,7 +8,7 @@
  * | bottom                                    | a horizontal line; marks 4 px below it; labels 16 px below, centred    |
  * | bottom, bounds given, a label near an edge| the label moved inside the drawing; its mark stays at the value        |
  * | bottom, no bounds given                   | labels centred under their marks, wherever that is                     |
- * | bottom, a tick that names its anchor      | drawn from its start or to its end, exactly at the tick, never moved   |
+ * | bottom, a tick that names its text anchor | drawn from its start or to its end, exactly at the tick, never moved   |
  * | bottom, a slanted tick                    | 12 px below, ending at the tick, turned 40°                            |
  * | a tick with a title (a shortened label)   | the whole text kept for hover                                          |
  * | left                                      | a vertical line; marks 4 px to its left; labels end 8 px to its left   |
@@ -75,8 +75,8 @@ describe('Axis — bottom', () => {
 
   it('a tick that names its anchor is drawn at its tick as asked, and bounds do not move it', () => {
     const ticks: AxisTick[] = [
-      { position: 50, label: '2026-04-01', anchor: 'start' },
-      { position: 450, label: '2026-04-30', anchor: 'end' },
+      { position: 50, label: '2026-04-01', textAnchor: 'start' },
+      { position: 450, label: '2026-04-30', textAnchor: 'end' },
     ];
     const texts = [...draw({ ...base, ticks, labelBounds: [0, 452] }).querySelectorAll('text')];
     expect(texts.map((t) => [num(t, 'x'), t.getAttribute('text-anchor')])).toEqual([[50, 'start'], [450, 'end']]);
@@ -88,6 +88,15 @@ describe('Axis — bottom', () => {
     // the shortened label is drawn, and the whole text is kept for hover
     expect(text.querySelector('title')!.textContent).toBe('A rather long category');
     expect(text.textContent).toBe('A rather long categoryA rather long…');
+  });
+
+  it('a slanted tick ends at its tick whatever anchor it names, and bounds do not move it', () => {
+    const text = draw({ ...base, ticks: [{ position: 460, label: 'Formal', slanted: true, textAnchor: 'start' }], labelBounds: [0, 468] }).querySelector('text')!;
+    expect([num(text, 'x'), text.getAttribute('text-anchor')]).toEqual([460, 'end']);
+  });
+
+  it('a level label wider than the whole drawing is centred in it and leaves it on both sides', () => {
+    expect(num(draw({ ...base, ticks: [{ position: 50, label: 'x'.repeat(100) }], labelBounds: [0, 468] }).querySelector('text')!, 'x')).toBe(234);
   });
 
   it('a slanted tick with nothing shortened has no title; a level tick may carry one', () => {
@@ -142,6 +151,21 @@ describe('Axis — left and right', () => {
     expect(axis.querySelector('text')!.getAttribute('textLength')).toBe('10');
   });
 
+  it('the room is counted from the drawing’s own edge, wherever that is', () => {
+    // a drawing that starts at 100: the axis at 152 has the same 44 px a 0-based one has at 52
+    const axis = draw({ ...left, at: 152, labelBounds: [100, 520], ticks: [{ position: 300, label: '12345.0010' }] });
+    expect(axis.querySelector('text')!.getAttribute('textLength')).toBe('44');
+  });
+
+  it('a side label is squeezed however long it is: it never leaves the drawing', () => {
+    expect(draw({ ...left, ticks: [{ position: 300, label: 'x'.repeat(1000) }] }).querySelector('text')!.getAttribute('textLength')).toBe('44');
+  });
+
+  it('a side axis ignores what only a bottom axis can do', () => {
+    const text = draw({ ...left, ticks: [{ position: 300, label: 'a', textAnchor: 'start', slanted: true }] }).querySelector('text')!;
+    expect([text.getAttribute('text-anchor'), text.hasAttribute('transform')]).toEqual(['end', false]);
+  });
+
   it('with no bounds given every label is drawn as written', () => {
     const { labelBounds: _bounds, ...unbounded } = left;
     expect(draw({ ...unbounded, ticks: [{ position: 300, label: '12345.0010' }] }).querySelector('text')!.hasAttribute('textLength')).toBe(false);
@@ -186,5 +210,9 @@ describe('placeTicks — value ticks through a scale', () => {
       { position: 18, label: '100' },
     ]);
     expect(placeTicks([], y)).toEqual([]);
+  });
+
+  it('a value the scale cannot place is handed on as it is: the tick is the chart’s to leave out', () => {
+    expect(placeTicks([{ value: 0, label: '0' }], () => Number.NaN)).toEqual([{ position: Number.NaN, label: '0' }]);
   });
 });

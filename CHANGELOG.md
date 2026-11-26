@@ -9,11 +9,13 @@
   placed in pixels, where it was a value plus a `scale` prop. `placeTicks`
   does that step for value ticks. `edges` and `labelRoom` are one option,
   `labelBounds`, the drawing's left and right edges.
-- A tick can name its `anchor`, be `slanted`, and carry a `title` (the whole
+- A tick can name its `textAnchor`, be `slanted`, and carry a `title` (the whole
   text of a shortened label). With these the line chart's x axis (dates,
   numbers or bands, level or slanted) is drawn by the same part. What the
   chart draws is unchanged.
-- New exports: `placeTicks`, `AxisTick`, `AXIS_LABEL_SLANT`.
+- New exports: `placeTicks`, `AxisTick`, and the slant's two numbers,
+  `TICK_SLANT_DEG` and `TICK_SLANT_DROP`, which the axis part and the
+  label-fitting rule both read.
 
 ### Charts: one axis part
 

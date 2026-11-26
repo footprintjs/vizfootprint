@@ -8,12 +8,12 @@
  * Observable Plot, where an axis is itself a mark.
  *
  * TICKS ARRIVE ALREADY PLACED. A tick is its `position` along the axis, in
- * pixels, and its `label`. `d3-axis` takes a scale and asks it for ticks;
- * here a number, a date and a band are placed by three different rules, and
- * which ticks to draw is the chart's choice (`./scales.ts`), so the chart
- * places them and this part draws what it is handed. (visx's tick renderer
- * receives its ticks the same way: a position and the formatted text.) It
- * never drops a tick it was given and never invents one.
+ * pixels, and its `label`. `d3-axis` and visx's `<Axis>` take a scale and
+ * place the ticks themselves, whether the scale or the caller (`tickValues`)
+ * chose them. Here a tick also says how its own label sits (turned inward,
+ * slanted, shortened with its whole text kept), which the chart decides tick
+ * by tick, so the chart places them and this part draws what it is handed.
+ * It never drops a tick it was given and never invents one.
  *
  * WHAT IT DOES TO A LABEL, and only when `labelBounds` says where the drawing
  * ends:
@@ -23,11 +23,18 @@
  *     axis and the drawing's edge is squeezed into it, every character kept
  *     (`squeezedLength`).
  * With no `labelBounds` a label is drawn as written, wherever that puts it.
- * A tick that names its own `anchor`, or is `slanted`, is drawn as asked.
+ * A tick that names its own `textAnchor`, or is `slanted`, is drawn as asked
+ * and is NOT kept inside the drawing: the chart that asked for it placed it.
+ * `textAnchor` and `slanted` are a bottom axis's; a side axis ignores them,
+ * and a slanted tick ignores `textAnchor` (it ends at its tick).
+ *
+ * WHAT IS NOT HERE: how many ticks, and how a value is written. Those belong
+ * to whoever makes the ticks (`roundTicksThatFit`, a chart's own rule), since
+ * this part is handed ticks that are already chosen and labelled.
  *
  * It renders and nothing else: no state, no measuring, no data.
  */
-import { labelCentre, squeezedLength, type LabelEdges } from './scales.js';
+import { labelCentre, squeezedLength, TICK_SLANT_DEG, TICK_SLANT_DROP, type LabelEdges } from './scales.js';
 import { scaleHueStyle } from './scaleHue.js';
 
 /** The side of the plot an axis stands on, in `d3-axis`'s words. */
@@ -40,12 +47,13 @@ export interface AxisTick {
   /** The words drawn for it. */
   readonly label: string;
   /**
-   * A bottom axis: which part of a level label stands on the tick. `middle`
+   * A bottom axis: which part of a level label stands on the tick (SVG's own
+   * word; Vega-Lite calls it `labelAlign`). `middle`
    * (the default) is the one a `labelBounds` may move; `start` and `end` are
    * drawn exactly as asked, which is how the first and last label of an axis
    * are turned inward.
    */
-  readonly anchor?: 'start' | 'middle' | 'end';
+  readonly textAnchor?: 'start' | 'middle' | 'end';
   /** A bottom axis: draw the label on the slant, ending at its tick, because it does not fit level. */
   readonly slanted?: boolean;
   /** The whole text, when `label` is a shortened form of it: shown on hover. */
@@ -54,10 +62,8 @@ export interface AxisTick {
 
 /** The length of a tick mark, in pixels. */
 const TICK_SIZE = 4;
-/** A level bottom label's baseline this far below the line; a slanted one's end this far below it; a side label's near end this far from the line. */
-const LABEL_OFFSET = { bottom: 16, slanted: 12, side: 8 } as const;
-/** The slant of a label that does not fit level, in degrees. */
-export const AXIS_LABEL_SLANT = 40;
+/** A level bottom label's baseline this far below the line; a side label's near end this far from the line. (A slanted label's drop and angle are the tick rules': `TICK_SLANT_DROP`, `TICK_SLANT_DEG`.) */
+const LABEL_OFFSET = { bottom: 16, side: 8 } as const;
 /** How far below its tick's centre a side label's baseline sits, so the text reads as centred on the tick. */
 const SIDE_LABEL_DROP = 3;
 
@@ -89,12 +95,12 @@ export function Axis(props: AxisProps): JSX.Element {
       <g className="vzf-axis-part" data-axis-orient={orient}>
         <line className="vzf-axis" x1={range[0]} y1={at} x2={range[1]} y2={at} style={hue} />
         {ticks.map((tick, i) => {
-          const anchor = tick.anchor ?? 'middle';
+          const anchor = tick.textAnchor ?? 'middle';
           return (
             <g key={i} style={hue}>
               <line className="vzf-axis" x1={tick.position} y1={at} x2={tick.position} y2={at + TICK_SIZE} />
               {tick.slanted === true ? (
-                <text className="vzf-tick" x={tick.position} y={at + LABEL_OFFSET.slanted} textAnchor="end" transform={`rotate(-${String(AXIS_LABEL_SLANT)} ${String(tick.position)} ${String(at + LABEL_OFFSET.slanted)})`}>
+                <text className="vzf-tick" x={tick.position} y={at + TICK_SLANT_DROP} textAnchor="end" transform={`rotate(-${String(TICK_SLANT_DEG)} ${String(tick.position)} ${String(at + TICK_SLANT_DROP)})`}>
                   {tick.title === undefined ? null : <title>{tick.title}</title>}
                   {tick.label}
                 </text>
