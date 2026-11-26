@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Correction: a declared axis with no span to fold still reaches the picture
+### Correction: a declared axis with no span to fold reaches the picture of a view drawn alone
 
 - The fold answered nothing for a channel with no readable cell (the read
   was refused, every cell was a silence, `basis: 'rows'` read no rows, a
@@ -11,15 +11,28 @@
   a logarithmic axis over values a logarithm cannot place drew a linear
   one.
 - The fold now answers an entry for such a channel where one of the three
-  was declared: the declaration, `unfolded: true`, `kind` (what the column
-  would have folded as), and no span. No span is invented.
-- The renderers draw it: a logarithmic axis with the count of values it
-  could not place; declared bounds as the axis over no rows; a declared
+  was declared: the declaration, `unfolded: true`, `scaleKind` (what the
+  column would have folded as), and no span. No span is invented. Where the
+  column's type is unknown too, declared bounds or a declared logarithm say
+  it is a number.
+- A view drawn alone draws it: a logarithmic axis with the count of values
+  it could not place; declared bounds as the axis over no rows; a declared
   zero line on the chart's own extent.
-- **For a reader of `RenderState.frame`:** a shared channel may now be this
-  entry. It has no `scale` and no `domain`, so code that asks `scale ===
-  'quantitative'` (or another kind) before it reads `domain` is unaffected.
-  New exported type `UnfoldedDomain`.
+- **A stack does not, and is drawn exactly as before.** With no span each
+  layer stands on its own extent, and one axis or one zero line over them
+  would be untrue, so `layeredRenderer` reads the frame without such
+  entries. That a stack drops such a declaration with no word is older than
+  this change and is a task of its own.
+- Still dropped, for a view too: `zero: true` on a channel with no span (it
+  asks a span to reach zero, and there is none), and a zero line alone on a
+  column whose type is unknown.
+- **Protocol 1.12, for a reader of `RenderState.frame`:** a shared channel
+  may now be this entry. It has no `scale` and no `domain`. Code that reads
+  `domain` only after matching `scale` to a kind is unaffected. Code that
+  treats "not quantitative and not categorical" as a date axis and then
+  reads `domain` must add a check. New exports from `vizfootprint/def`:
+  the type `UnfoldedDomain` and `scaleKindOf(channel)`, which answers what
+  a shared channel's column is whether or not a span was folded.
 - A channel that declared none of the three still gets no entry.
 
 ### Correction: the definition door refuses what the renderer refuses about a count

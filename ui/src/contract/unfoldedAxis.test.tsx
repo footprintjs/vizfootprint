@@ -17,8 +17,14 @@
  * | `zeroGuide: true`                     | −3 … 5                    | no line                      | the zero line, on the chart's own extent         |
  * | bounds a count cannot stand on        | a bar that binds y        | drawn from zero              | refused in words, as with a span                 |
  * | a category or a date x, a no-op key   | a line                    | the chart                    | the chart: nothing was asked that changes it     |
- * | in a stack, y of two lines            |                           | each line's own extent       | the same, on the declared curve; no span is invented for the guide |
- * | in a stack, a bar and a line, no span | a line with a row below 0 | drawn                        | drawn: a y with no span reaches nowhere, so not below zero |
+ * | bounds on a DATE x (numbers on dates) | a line                    | the chart                    | the chart: bounds are read on a number axis only |
+ * | any of them, in a STACK               |                           | the stack                    | the same stack, byte for byte: a stack reads folded spans only |
+ *
+ * WHY A STACK DOES NOT TAKE THE ENTRY. With no span, each layer would draw on
+ * its own extent, and one axis, one zero line or one "shared scale" over them
+ * would be untrue. So `layeredRenderer` reads the frame without such entries,
+ * which is the frame it was handed before. That a stack still drops such a
+ * declaration with no word is older than this change and a task of its own.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { barRenderer, layeredRenderer, lineRenderer, scatterRenderer } from './renderers.js';
@@ -31,7 +37,7 @@ afterEach(() => {
 
 const callbacks = () => ({ emit: vi.fn(), hover: vi.fn(), reencodeRequest: vi.fn(), navigate: vi.fn() });
 /** The fold's answer for a declared channel with no span: the declaration, the column's kind, and no `scale` or `domain`. */
-const unfolded = (kind: 'quantitative' | 'temporal' | 'categorical', declared: object): ResolvedChannel => ({ mode: 'shared', basis: 'table', guide: 'merged', ...declared, unfolded: true, kind }) as unknown as ResolvedChannel;
+const unfolded = (kind: 'quantitative' | 'temporal' | 'categorical', declared: object): ResolvedChannel => ({ mode: 'shared', basis: 'table', guide: 'merged', ...declared, unfolded: true, scaleKind: kind }) as unknown as ResolvedChannel;
 const folded = (scale: string, domain: unknown): ResolvedChannel => ({ mode: 'shared', basis: 'table', guide: 'merged', scale, domain }) as unknown as ResolvedChannel;
 
 function drawn(renderer: Renderer, rows: readonly RenderRow[], encodings: Readonly<Record<string, string>>, frame?: Readonly<Record<string, ResolvedChannel>>): HTMLElement {
@@ -92,37 +98,44 @@ describe('a plain view', () => {
     const plain = drawn(lineRenderer(), days, { x: 'd', y: 'v' }).innerHTML;
     document.body.innerHTML = '';
     expect(drawn(lineRenderer(), days, { x: 'd', y: 'v' }, { x: unfolded('temporal', { transform: 'linear' }) }).innerHTML).toBe(plain);
+    // bounds are numbers: on a date axis they are read as nothing, folded or not, and no sentence is made of them
+    document.body.innerHTML = '';
+    const bounded = drawn(lineRenderer(), days, { x: 'd', y: 'v' }, { x: unfolded('temporal', { bounds: [0, 100] }) });
+    expect(bounded.innerHTML).toBe(plain);
+    expect(bounded.querySelector('text.vzf-outside-note')).toBeNull();
   });
 });
 
-describe('a stack', () => {
+describe('a stack reads folded spans only', () => {
   const BANDS = { category: folded('categorical', ['A', 'B']), x: folded('categorical', ['A', 'B']) };
-  function stack(kinds: readonly ['bar' | 'line', 'line'], layers: readonly RenderLayer[], y: ResolvedChannel): HTMLElement {
+  function stack(kinds: readonly ['bar' | 'line', 'line'], layers: readonly RenderLayer[], frame: Readonly<Record<string, ResolvedChannel>>): string {
     const el = document.createElement('div');
-    document.body.appendChild(el);
     layeredRenderer({ layers: { a: { kind: kinds[0] }, b: { kind: kinds[1] } } })
       .mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks(), layers: { a: callbacks(), b: callbacks() } })
-      .update({ rows: [], encodings: {}, selection: emptySelection('v'), hover: null, theme: {}, size: { width: 400, height: 300 }, layers, frame: { ...BANDS, y } });
-    return el;
+      .update({ rows: [], encodings: {}, selection: emptySelection('v'), hover: null, theme: {}, size: { width: 400, height: 300 }, layers, frame });
+    return el.innerHTML;
   }
   const line = (layerId: string, values: readonly number[]): RenderLayer => ({ layerId, table: 't', rows: values.map((v, i) => ({ k: i === 0 ? 'A' : 'B', v })), encodings: { x: 'k', y: 'v' } });
+  const bars: RenderLayer = { layerId: 'a', table: 't', rows: [{ k: 'A', count: 5 }, { k: 'B', count: 8 }], encodings: { category: 'k', y: 'count' } };
 
-  it('two lines on a declared logarithmic y with no span are drawn, each on its own extent, and no span is invented for the guide', () => {
-    const el = stack(['line', 'line'], [line('a', [1, 100]), line('b', [10, 1000])], unfolded('quantitative', { transform: 'log' }));
-    expect(refusal(el)).toBe('');
-    expect(el.querySelectorAll('circle.vzf-line-dot')).toHaveLength(4);
-    // the frame draws x; it has no y span, so it draws no y ticks
-    expect([...el.querySelectorAll('.vzf-frame-guide [data-axis-orient="left"] text.vzf-tick')]).toHaveLength(0);
+  it('with an unfolded y, whatever it declares, the stack is the stack with no y entry, byte for byte', () => {
+    const lines = [line('a', [1, 100]), line('b', [10, 1000])];
+    const without = stack(['line', 'line'], lines, BANDS);
+    for (const declared of [{ transform: 'log' }, { transform: 'linear' }, { zeroGuide: true }, { zeroGuide: false }, { bounds: [0, 5000] }, { guide: 'per-layer', transform: 'log' }]) {
+      expect(stack(['line', 'line'], lines, { ...BANDS, y: unfolded('quantitative', declared) }), JSON.stringify(declared)).toBe(without);
+    }
   });
 
-  it('a bar and a line on a y with no span: nothing reaches below zero, so the stack draws; with bounds it is judged by them', () => {
-    const bars: RenderLayer = { layerId: 'a', table: 't', rows: [{ k: 'A', count: 5 }, { k: 'B', count: 8 }], encodings: { category: 'k', y: 'count' } };
-    const el = stack(['bar', 'line'], [bars, line('b', [-4, 6])], unfolded('quantitative', { transform: 'linear' }));
-    expect(refusal(el)).toBe('');
-    expect(el.querySelectorAll('rect.vzf-barrect')).toHaveLength(2);
-    document.body.innerHTML = '';
-    expect(refusal(stack(['bar', 'line'], [bars, line('b', [4, 6])], unfolded('quantitative', { bounds: [2, 20] })))).toContain('declares bounds [2, 20]');
-    document.body.innerHTML = '';
-    expect(refusal(stack(['bar', 'line'], [bars, line('b', [4, 6])], unfolded('quantitative', { bounds: [0, 20] })))).toBe('');
+  it('…also for a bar beside a line, and for an unfolded x', () => {
+    const mixed = [bars, line('b', [4, 6])];
+    expect(stack(['bar', 'line'], mixed, { ...BANDS, y: unfolded('quantitative', { bounds: [2, 20] }) })).toBe(stack(['bar', 'line'], mixed, BANDS));
+    const lines = [line('a', [1, 100]), line('b', [10, 1000])];
+    const y = folded('quantitative', [1, 1000]);
+    expect(stack(['line', 'line'], lines, { x: unfolded('categorical', { zeroGuide: false }), y })).toBe(stack(['line', 'line'], lines, { y }));
+  });
+
+  it('a folded entry is still read: the same declaration WITH a span changes the stack', () => {
+    const lines = [line('a', [1, 100]), line('b', [10, 1000])];
+    expect(stack(['line', 'line'], lines, { ...BANDS, y: { ...folded('quantitative', [1, 1000]), transform: 'log' } as ResolvedChannel })).not.toBe(stack(['line', 'line'], lines, BANDS));
   });
 });

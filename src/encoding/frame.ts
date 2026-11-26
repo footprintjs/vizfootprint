@@ -85,8 +85,7 @@ export type ResolvedDomain =
       readonly excluded?: number;
     }
   | { readonly scale: 'temporal'; readonly domain: readonly [string, string] }
-  | { readonly scale: 'categorical'; readonly domain: readonly string[] }
-  | UnfoldedDomain;
+  | { readonly scale: 'categorical'; readonly domain: readonly string[] };
 
 /**
  * A SHARED CHANNEL WITH NO SPAN TO FOLD, kept because its definition DECLARED
@@ -98,10 +97,12 @@ export type ResolvedDomain =
  * key declared on it reached no picture, with no word: a view that declared a
  * logarithmic axis drew a linear one on its own extent. An invented span would
  * be a drawn lie, so none is invented. The entry carries the declared keys,
- * `unfolded: true` where the span would be, and `kind`: what the column would
- * have folded as (read off the column's type, not its cells). A renderer draws
- * the mark's own extent on the declared curve, with the declared zero line, or
- * on the declared bounds.
+ * `unfolded: true` where the span would be, and `scaleKind`: what the column
+ * would have folded as (read off the column's type, not its cells; where the
+ * type is unknown too, a declared logarithm or declared bounds say it is a
+ * number, because the definition door lets neither stand on anything else). A
+ * renderer draws the mark's own extent on the declared curve, with the
+ * declared zero line, or on the declared bounds.
  *
  * `scale` IS ABSENT ON PURPOSE. Every reader that asks `scale === 'temporal'`
  * (or another kind) before it reads `domain` keeps working unchanged: this arm
@@ -113,10 +114,24 @@ export type ResolvedDomain =
  */
 export interface UnfoldedDomain {
   readonly unfolded: true;
-  /** What the column would have folded as, had a cell been readable. */
-  readonly kind: 'quantitative' | 'temporal' | 'categorical';
+  /** What the column would have folded as, had a cell been readable. Ask {@link scaleKindOf}, which answers for a folded channel too. */
+  readonly scaleKind: ResolvedDomain['scale'];
   readonly scale?: undefined;
   readonly domain?: undefined;
+}
+
+/** A shared channel, folded or not: the arm of {@link ResolvedChannel} that is one scale across the layers. */
+type SharedResolvedChannel = Extract<ResolvedChannel, { readonly mode: 'shared' }>;
+
+/**
+ * WHAT A SHARED CHANNEL'S COLUMN IS — a number, a date or a category — whether
+ * or not a span could be folded for it: the fold's `scale`, or an unfolded
+ * entry's `scaleKind`. One owner, so no reader re-derives it. A question about
+ * the COLUMN asks here (is this x a band? which guide is drawn?); a question
+ * about the SPAN reads `domain`, after narrowing by `scale`.
+ */
+export function scaleKindOf(channel: SharedResolvedChannel): ResolvedDomain['scale'] {
+  return channel.scale ?? channel.scaleKind;
 }
 
 /**
@@ -145,7 +160,7 @@ export type ResolvedChannel =
        * `vizfootprint-ui/contract/renderers.tsx`).
        */
       readonly bounds?: readonly [number, number];
-    } & ResolvedDomain)
+    } & (ResolvedDomain | UnfoldedDomain))
   | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log'; readonly zeroGuide?: boolean };
 
 // ── the defaults, spelled once ────────────────────────────────────────────────
@@ -792,17 +807,24 @@ export function frameDomains(layers: readonly FrameLayer[], frame?: Readonly<Rec
     }
     const binding = layers.filter((layer) => layer.channels[channel] !== undefined);
     const scale = firstScaleOf(binding, channel);
-    if (scale === undefined) continue; // nothing folds from `unknown` — no entry, no claim
+    const bounds = resolution.bounds !== undefined ? { bounds: resolution.bounds } : {};
+    if (scale === undefined) {
+      // nothing folds from `unknown` — no span, no claim about one. But a declared LOGARITHM or declared
+      // BOUNDS say the column is a number (the definition door refuses both on anything else), so the
+      // declaration still reaches the picture with that kind (`UnfoldedDomain`). A zero line alone says
+      // nothing about the column, so with no type to read there is no entry for it.
+      if (resolution.transform === 'log' || resolution.bounds !== undefined) out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...bounds, unfolded: true, scaleKind: 'quantitative' };
+      continue;
+    }
     // only the layers whose EXTENT is read on this channel may imply a zero (a histogram's bins are a position),
     // and a LOGARITHMIC axis has no zero at all — `zeroPolicyFor` is the one predicate asked, so nothing here decides it twice
     const zero = zeroPolicyFor(binding.filter((layer) => zeroAnchorsChannel(layer.chartKind, channel)).map((layer) => layer.chartKind), resolution.zero, resolution.transform);
     const domain = foldDomain(binding, channel, scale, zero, resolution.transform);
-    const bounds = resolution.bounds !== undefined ? { bounds: resolution.bounds } : {};
     if (domain === undefined) {
       // every cell was absent or unreadable — an invented domain would be a drawn lie, so none is. But a
       // DECLARATION must still reach the picture (`UnfoldedDomain`): the entry carries it, and no span.
       // Nothing declared: no entry, as it always was.
-      if (Object.keys(nature).length > 0 || resolution.bounds !== undefined) out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...bounds, unfolded: true, kind: scale };
+      if (Object.keys(nature).length > 0 || resolution.bounds !== undefined) out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...bounds, unfolded: true, scaleKind: scale };
       continue;
     }
     out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...bounds, ...domain };

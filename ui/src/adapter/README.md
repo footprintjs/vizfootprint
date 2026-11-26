@@ -371,7 +371,8 @@ An axis with no span to fold (a refused read, a column of silences, `basis:
 'rows'` over no rows, a logarithm that can place no cell) is still answered
 where a curve, a zero line or bounds were declared on it: the entry carries the
 declaration, `unfolded: true` and no span, and the chart draws on its own
-extent with what was declared. The same holds for a layer through `frameFor`.
+extent with what was declared. `frameFor` hands a stack the same entry; the
+stack renderer does not draw on it (see `../contract/README.md`).
 Unchanged by this door:
 a histogram's span is folded over its bound column, not its bin edges, so any
 entry on its x can leave an edge bin outside the plot (said in words).

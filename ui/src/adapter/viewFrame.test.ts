@@ -106,7 +106,7 @@ describe('viewFrameFor — which rows', () => {
     const { session } = recording({ 'view:dots': 'refused', 'table:t': TABLE });
     const answer = await viewFrameFor(session, { ...VIEW, frame: { x: axis({}), y: axis({ basis: 'rows', zeroGuide: true }) } });
     expect(answer['x']).toMatchObject({ domain: [1, 9] });
-    expect(answer['y']).toEqual({ mode: 'shared', basis: 'rows', guide: 'merged', zeroGuide: true, unfolded: true, kind: 'quantitative' });
+    expect(answer['y']).toEqual({ mode: 'shared', basis: 'rows', guide: 'merged', zeroGuide: true, unfolded: true, scaleKind: 'quantitative' });
     // `basis` alone is a word about which rows; with no rows read there is nothing for a picture to answer to
     expect(await viewFrameFor(session, { ...VIEW, frame: { y: axis({ basis: 'rows' }) } })).toEqual({});
   });
@@ -135,7 +135,7 @@ describe('viewFrameFor — which rows', () => {
   it('a logarithm that can place no cell folds no span, and the declared curve and bounds still reach the picture', async () => {
     const { session } = recording({ 'table:t': [{ p: 1, v: -3 }, { p: 2, v: 0 }] });
     expect(await viewFrameFor(session, { ...VIEW, frame: { y: axis({ transform: 'log', bounds: [0.1, 5000] }) } })).toEqual({
-      y: { mode: 'shared', basis: 'table', guide: 'merged', transform: 'log', bounds: [0.1, 5000], unfolded: true, kind: 'quantitative' },
+      y: { mode: 'shared', basis: 'table', guide: 'merged', transform: 'log', bounds: [0.1, 5000], unfolded: true, scaleKind: 'quantitative' },
     });
   });
 });

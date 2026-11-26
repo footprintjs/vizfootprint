@@ -161,6 +161,33 @@ const CASES: Readonly<Record<string, { readonly declare: unknown; readonly shows
   },
 };
 
+describe('a declared key reaches the picture when the fold has no span for its axis', () => {
+  it('a logarithmic axis over a column a logarithm can place none of: from a real definition to a logarithmic picture that counts what it left out', async () => {
+    const dashboard = buildDashboard({
+      meta: { title: 'debts' },
+      data: { debts: { rows: [{ id: 'a', owed: 2, balance: 0 }, { id: 'b', owed: 20, balance: -3 }, { id: 'c', owed: 200, balance: -30 }], key: 'id' } },
+      actors: { dots: { actor: 'user', label: 'Debts' } },
+      encodings: [{ viewId: 'dots', chartKind: 'scatter', channels: ['x', 'y'], initial: { x: 'owed', y: 'balance' }, frame: { y: { transform: 'log' } } }],
+      defaultTable: 'debts',
+    } as never);
+    const session = dashboard.createSession({ as: 'user' });
+    const store = createSessionView(sessionSource(session), { as: 'user' });
+    await store.refresh();
+    const view = store.getState().views.find((v) => v.viewId === 'dots')!;
+    const encodings = { x: 'owed', y: 'balance' };
+    const frame = await viewFrameFor(session, { viewId: 'dots', table: 'debts', chartKind: 'scatter', encodings, columns: store.getState().columns as ViewFrameRequest['columns'], frame: view.frame! });
+    // the fold could place no cell: no span, and the declared curve still on the entry
+    expect(frame['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', transform: 'log', unfolded: true, scaleKind: 'quantitative' });
+    const answer = await session.viewQuery({ viewId: 'dots' });
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    scatterRenderer().mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'dots', callbacks: { emit: vi.fn(), hover: vi.fn(), reencodeRequest: vi.fn(), navigate: vi.fn() } }).update({ rows: (answer.ok ? answer.rows : []).map((row) => ({ ...row })) as RenderRow[], encodings, selection: emptySelection('dots'), hover: null, theme: {}, size: { width: 400, height: 300 }, frame });
+    expect(yTicks(el)).toEqual(['1', '10']);
+    expect(el.querySelectorAll('circle.vzf-dot')).toHaveLength(0);
+    expect(el.querySelector('text.vzf-excluded-note')!.textContent).toBe('3 values are not drawn: a logarithmic axis has no place for zero or a negative number');
+  });
+});
+
 describe('every axis key a plain view may declare reaches the picture', () => {
   it('has a case for every key the definition door accepts, and for no other', () => {
     expect(Object.keys(CASES).sort()).toEqual([...AXIS_KEYS].sort());

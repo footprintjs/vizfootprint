@@ -93,7 +93,8 @@ const holdsResourceMinor = (): boolean => (minorSpoken() ?? 0) >= 10 && /readonl
  * the next one relaxes it to `>=` the way every minor before it was relaxed.
  */
 const holdsFramingMinor = (): boolean =>
-  minorSpoken() === 11 &&
+  // the framing minor is 1.11; a later minor still speaks it (1.12 added a shape on `RenderState.frame`)
+  minorSpoken() >= 11 &&
   /bringIntoView\?\(keys: readonly string\[\]\): void;/.test(read('types.ts')) &&
   /readonly canBringIntoView\?: boolean;/.test(read('types.ts')) &&
   /'bring-into-view-unsupported'/.test(read('types.ts')) &&
