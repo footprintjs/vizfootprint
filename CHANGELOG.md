@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Correction: a view drawn alone honours what its frame holds for its axes
+
+- The five single-mark renderers (scatter, line, bar, histogram, box plot)
+  handed their chart an empty domain whatever `RenderState.frame` held. A
+  logarithmic axis, a zero line, declared bounds and a span folded to reach
+  zero were all dropped for a view with no layers, in silence. A stack of
+  layers honoured them.
+- A view drawn alone is now treated as a stack of one: for each channel it
+  binds to x or y that has an entry on the frame, the same function that
+  builds a layer's scales builds its own. A zero line its mark does not
+  draw, and a histogram whose x was folded as categories, are refused in
+  words, naming the view.
+- **A visible change:** an axis with an entry on the frame is drawn on the
+  span the fold gives it, with no empty margin at its ends, as a layer's
+  is. An axis with no entry keeps its own extent and its margin. A view
+  with no entry for either axis is drawn exactly as before.
+- Reached today by a host that folds a frame by hand; the adapter does not
+  yet fold one for a view with no layers.
+
 ### Correction: every chart says what stands outside the span its axis was given
 
 - A chart handed a span draws on it, and a mark past the span is drawn at

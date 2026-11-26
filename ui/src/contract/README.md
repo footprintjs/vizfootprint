@@ -658,6 +658,46 @@ layer is handed the frame's one `domain` object by the same reference), a
 logarithmic count axis for a bar or a histogram bin height, and a logarithmic
 colour ramp.
 
+### A view drawn alone is a stack of one
+
+**Why.** A definition may say things about the axis of a view with no layers:
+the curve it is drawn on, a line at zero, what the quantity can be, that the
+axis reaches zero, which rows it is measured over. The host folds them onto
+`RenderState.frame`. The five single-mark renderers (`scatterRenderer`,
+`lineRenderer`, `barRenderer`, `histogramRenderer`, `boxPlotRenderer`) used to
+hand their chart an empty domain, so every one of those declarations was
+dropped and nothing said so, while a stack of layers honoured them.
+
+**The rule.** Where the frame holds an entry for a channel the view binds to
+x or y, the view is described as the one layer it is and asked the stack's own
+questions: the same function builds its scales (`layerDomain`), and the same
+two refusals apply to it (a zero line its mark does not draw; a histogram
+whose x was folded as categories), naming `view "id"`. One rule, so a
+declaration means the same thing alone and in a stack.
+
+```ts
+// a scatter whose definition declared a logarithmic x and bounds on y
+scatterRenderer().mount(el, handshake).update({
+  ...state,
+  frame: {
+    x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [1, 1000], transform: 'log' },
+    y: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [3, 97], bounds: [0, 100] },
+  },
+});
+// x: decades from 1 to 1000. y: drawn on 0…100, and a value outside it is said in words.
+```
+
+**What it costs, on purpose.** An axis with an entry on the frame is drawn on
+the span the fold gives it, as a layer's is, and that span has no empty margin
+at its ends. A chart on its own extent leaves one. This is per axis: a view
+that declared only its y keeps its own x, margin and all. A view with no
+entry for its axes gets `{}` and is byte for byte the chart it was.
+
+**Not judged here.** The stack's other refusals compare one layer with another
+or place a layer in a shared box; a view alone has neither. The host decides
+what it folds: until the adapter folds a frame for a view with no layers, this
+rule is reached by a host that folds one by hand.
+
 ### The frame renderer (R6): the def's stack of 2D marks, drawn
 
 `layeredRenderer` is the GENERIC one — `canLayer: true`, and it draws the five

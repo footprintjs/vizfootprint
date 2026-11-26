@@ -167,8 +167,8 @@ interface MarkDraw {
   readonly frame?: Readonly<Record<string, ResolvedChannel>>;
 }
 
-/** A whole view as one mark's material: its rows, its voice, its own extents, its own guide. */
-function viewDraw(state: RenderState, handshake: HostHandshake): MarkDraw {
+/** A whole view as one mark's material: its rows, its voice, its own guide, and the scales it was declared (`{}` = its own extents). */
+function viewDraw(state: RenderState, handshake: HostHandshake, domain: ChartDomain): MarkDraw {
   return {
     viewId: handshake.viewId,
     rows: state.rows,
@@ -177,10 +177,53 @@ function viewDraw(state: RenderState, handshake: HostHandshake): MarkDraw {
     width: state.size.width,
     height: state.size.height,
     callbacks: handshake.callbacks,
-    domain: {},
+    domain,
     axes: true,
     frame: state.frame,
   };
+}
+
+/**
+ * A VIEW DRAWN ALONE IS A STACK OF ONE, wherever its definition said anything
+ * about an axis.
+ *
+ * A view with no layers may declare things about an axis: the curve it is
+ * drawn on, a line at zero, what the quantity can be, that the axis reaches
+ * zero, which rows it is measured over. The host folds them onto
+ * `RenderState.frame`, per channel. This door used to hand every plain view
+ * `{}`, so a view that declared any of them was drawn exactly as one that
+ * declared nothing, and nothing said so. A stack of layers always honoured
+ * them.
+ *
+ * ONE RULE, not a second copy of the stack's: the view is described as the one
+ * layer it is and asked the stack's own questions ({@link layerDomain} for the
+ * scales, {@link zeroGuideRefusal} and {@link intervalBrushRefusal} for what
+ * its mark cannot honour). So a declaration means the same thing on a plain
+ * view and on a stack, and a new axis setting reaches both or neither.
+ *
+ * WHAT IT COSTS, on purpose: an axis the definition declared something about
+ * is drawn on the span the fold gives it, as a layer's is, and that span has
+ * no empty margin at its ends. A chart on its own extent leaves one. A
+ * declared axis is drawn as declared.
+ *
+ * PER AXIS, and only where declared: a channel this mark binds to x or y with
+ * an entry on the frame. A view that declared nothing gets `{}` and is the
+ * chart it always was; one that declared only its y keeps its own x.
+ *
+ * The stack's other refusals judge one layer against another (a band under a
+ * run, two scales, a count beside a line) or a layer's place in a shared box
+ * (a line split into series), and a view alone has neither.
+ */
+function plainView(state: RenderState, handshake: HostHandshake, kind: FrameChartKind, mark: (draw: MarkDraw) => JSX.Element): JSX.Element {
+  const declared = AXES.some((axis) => state.encodings[AXIS_CHANNELS[kind][axis]] !== undefined && state.frame?.[AXIS_CHANNELS[kind][axis]] !== undefined);
+  if (!declared) return mark(viewDraw(state, handshake, {}));
+  // the view as the one layer it is. Its table is not known at this door and no question asked here reads it.
+  const self: FramedLayer = { layer: { layerId: handshake.viewId, table: '', rows: state.rows, encodings: state.encodings }, kind, spec: { kind } };
+  const named = (): string => `view "${handshake.viewId}"`;
+  const refused = zeroGuideRefusal([self], state.frame, named) ?? intervalBrushRefusal([self], state.frame, named);
+  if (refused !== null) return frameRefusal(refused);
+  // nothing else draws this view's axes, so it is asked for all of its own furniture
+  return mark(viewDraw(state, handshake, layerDomain(self, [self], state.frame, fullBandOrder([self], state.frame), { x: false, y: false })));
 }
 
 // ── scatter ────────────────────────────────────────────────────────────────────
@@ -203,7 +246,7 @@ export function scatterRenderer(options: ScatterRendererOptions = {}): Renderer 
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      return pointMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'point', (draw) => pointMark(draw, options));
     },
   });
 }
@@ -277,7 +320,7 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
       emissionKinds: ['interval', 'match', 'point'],
     },
     render(state, handshake) {
-      return lineMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'line', (draw) => lineMark(draw, options));
     },
   });
 }
@@ -409,7 +452,7 @@ export function barRenderer(options: BarRendererOptions = {}): Renderer {
       emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
     },
     render(state, handshake) {
-      return barMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'bar', (draw) => barMark(draw, options));
     },
   });
 }
@@ -549,7 +592,7 @@ export function histogramRenderer(options: HistogramRendererOptions = {}): Rende
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      return histogramMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'histogram', (draw) => histogramMark(draw, options));
     },
   });
 }
@@ -685,7 +728,7 @@ export function boxPlotRenderer(options: BoxPlotRendererOptions = {}): Renderer 
       emissionKinds: ['point'],
     },
     render(state, handshake) {
-      return boxPlotMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'boxplot', (draw) => boxPlotMark(draw, options));
     },
   });
 }
@@ -1516,7 +1559,7 @@ function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<
  * axis with no between. (A point on a band is refused two sentences earlier,
  * on stronger grounds: it draws no band at all.)
  */
-function intervalBrushRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
+function intervalBrushRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject = layerNamed): string | null {
   for (const f of framed) {
     const kinds = MARK_CAPABILITIES[f.kind].kinds;
     if (!kinds.includes('interval')) continue;
@@ -1526,7 +1569,7 @@ function intervalBrushRefusal(framed: readonly FramedLayer[], frame: Readonly<Re
     if (drawsIntervalBrush(f.kind, x.scale)) continue;
     // …and a mark with a SECOND kind still has a voice on this x — the line's band brush lands its match
     if (kinds.some((kind) => kind !== 'interval')) continue;
-    return intervalGestureRefusal(`layer "${f.layer.layerId}"`, f.kind, x.scale, x.column);
+    return intervalGestureRefusal(named(f), f.kind, x.scale, x.column);
   }
   return null;
 }
@@ -1546,16 +1589,20 @@ function intervalBrushRefusal(framed: readonly FramedLayer[], frame: Readonly<Re
  * round). The key rides on BOTH modes, because an independent channel's
  * per-layer scale is an axis too.
  */
-function zeroGuideRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
+function zeroGuideRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject = layerNamed): string | null {
   for (const f of framed) {
     for (const axis of AXES) {
       const channel = AXIS_CHANNELS[f.kind][axis];
       if (f.layer.encodings[channel] === undefined || frame?.[channel]?.zeroGuide !== true || drawsZeroGuide(f.kind, channel)) continue;
-      return zeroGuideKindRefusal(`layer "${f.layer.layerId}"`, f.kind, channel);
+      return zeroGuideKindRefusal(named(f), f.kind, channel);
     }
   }
   return null;
 }
+
+/** How a refusal names what it refuses: a layer of a stack, or a view drawn alone ({@link plainView}). */
+type Subject = (f: FramedLayer) => string;
+const layerNamed: Subject = (f) => `layer "${f.layer.layerId}"`;
 
 /** The two axes a frame has, in reading order — spelled once for the walks that ask about both. */
 const AXES: readonly ('x' | 'y')[] = Object.freeze(['x', 'y']);
