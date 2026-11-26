@@ -715,6 +715,11 @@ function roundRun(lo: number, hi: number, target: number): RoundTick[] | undefin
   return ticks;
 }
 
+/** The fewest significant digits a pointer's value keeps on a logarithmic axis. */
+const LOG_POINTER_DIGITS = 4;
+/** A number holds fifteen digits it can be trusted with. */
+const MAX_POINTER_DIGITS = 15;
+
 /**
  * A POINTER'S VALUE ON AN AXIS, rounded to what the axis can show: a hundredth,
  * or a thousandth of the span's own decade when that is finer. A drag across an
@@ -724,13 +729,15 @@ function roundRun(lo: number, hi: number, target: number): RoundTick[] | undefin
  * (2.675): it is now rounded by the number's true value, where the older
  * arithmetic rounded the product. A pointer's value is practically never one.
  *
+ * FOR SHOWING A VALUE, NOT FOR RECORDING ONE. A chart records the value under
+ * the pointer as it is (`VizScatter`, `VizLine`): rounding a recorded bound
+ * moves it, and a moved bound either drops a mark the pointer covered or
+ * claims one it did not. This is for the place a person reads the number.
+ *
  * A LOGARITHMIC axis (`kind: 'log'`) is rounded to significant digits and
  * `span` is not read: enough digits to tell one pixel from the next at this
  * value (`pixel`, what one pixel is worth there), and never fewer than four.
  */
-const LOG_POINTER_DIGITS = 4;
-/** A number holds fifteen digits it can be trusted with. */
-const MAX_POINTER_DIGITS = 15;
 export function roundToAxis(value: number, span: number, kind?: ScaleKind, pixel?: number): number {
   // ON A LOGARITHMIC AXIS a value is rounded to SIGNIFICANT DIGITS, never to a number of decimals:
   // decimals are a linear idea (a drag around 0.001 rounded to a hundredth is [0, 0]), and such an

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Correction: a drag on a scatter records the value under the pointer
+
+- A scatter rounded the two ends of a dragged range so they read cleanly. A
+  rounded end has moved: a drag that reached the edge of the plot, where the
+  smallest or the largest value can stand, left that value outside its own
+  range about half the time on a logarithmic axis. The scatter now records
+  the value under each end of the drag as it is, never rounded, which is the
+  rule the line chart already kept. A pointer held at an edge of the plot is
+  recorded as the axis's own end, exactly.
+- **Behaviour change:** a range recorded by a drag on a scatter carries all
+  its digits (107.33333333333333 where it was 107.33). Round it where it is
+  shown; `roundToAxis` is for that and is unchanged.
+
 ### Correction: one value on a logarithmic axis is drawn inside the plot
 
 - A chart with a single distinct value on a logarithmic axis widened that
