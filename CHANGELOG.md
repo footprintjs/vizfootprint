@@ -11,7 +11,7 @@
   large counts are written against one unit ("0.5M"). The ceiling itself is
   labelled only when it is a round value.
 - The ticks are still placed by the bars' own scale, and zero is always one
-  of them.
+  of them. A ceiling that is not a number draws no label, where it wrote "NaN".
 - The axis is drawn by `<Axis>`; a label wider than the margin is squeezed
   into it.
 

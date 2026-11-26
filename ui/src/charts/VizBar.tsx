@@ -165,7 +165,7 @@ const SLANT_PAD = 40;
 const AXIS_LABEL_ROOM = 24;
 /** The plot height a slant may never take the chart below. */
 const MIN_PLOT = 40;
-/** How many steps this chart's own COUNT axis takes when it draws one (`axes="y"`) — 3 steps, 4 labels, the same as every other axis in the library. */
+/** How many steps this chart's own COUNT axis ASKS for when it draws one (`axes="y"`). A target, not a count: the round step nearest to it is taken, so the axis shows two to five labels. */
 const COUNT_TICK_STEPS = 3;
 
 export function VizBar(props: VizBarProps): JSX.Element {
@@ -336,7 +336,7 @@ export function VizBar(props: VizBarProps): JSX.Element {
             in the hue that frame handed it (`Axis`, the one part every chart's axis is drawn by). Its ticks
             are ROUND values from the baseline up to the ceiling the bars are drawn against (`max`), placed
             by the bars' own scale, so a tick and a bar can never be folded from two different numbers.
-            Zero is always one of them: a bar's length is read from it. */}
+            Zero is always one of them while the ceiling is a number: a bar's length is read from it. */}
         {drawY && (
           <Axis orient="left" ticks={placeTicks(roundTicksThatFit(0, max, COUNT_TICK_STEPS, countY, 'height'), countY)} at={PAD.l} range={[PAD.t, axisY]} labelBounds={[0, width]} hue={props.scaleHue} />
         )}

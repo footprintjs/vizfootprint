@@ -11,7 +11,8 @@
  * | tallest bar 1,234,567                 | 0 411522.3 823044.7 1234567, cut off | 0 0.5M 1.0M                           |
  * | a frame's ceiling of 20               | 0 6.7 13.3 20                        | 0 5 10 15 20                          |
  * | a 120 px high chart                   | four labels                          | as many round ones as a line of text allows |
- * | any bars                              | zero labelled, on the floor          | zero labelled, on the floor           |
+ * | any bars with a ceiling that is a number | zero labelled, on the floor       | zero labelled, on the floor           |
+ * | a ceiling that is not a number        | "NaN" four times                     | the axis line and no label            |
  * | a tick                                | placed by the bars' own scale        | placed by the bars' own scale         |
  * | `axes` true or false                  | no count axis                        | no count axis                         |
  */
@@ -56,6 +57,26 @@ describe('the bar chart’s count axis', () => {
     const tiny = draw([130, 40], { height: 96 });
     expect(labels(tiny).length).toBeLessThan(3);
     expect(labels(tiny)[0]).toBe('0');
+  });
+
+  it('labels are thinned by a line of text, not by their width', () => {
+    // a ceiling of 2.04 on a 96 px high chart: "0 1 2" are narrow and would fit by width, but stand
+    // closer than a line of text
+    expect(labels(draw([2.04], { height: 96 }))).toEqual(['0', '2']);
+  });
+
+  it('a label wider than the margin is squeezed into it', () => {
+    // the margin is 38 px and a label is anchored 8 px from the axis: 30 px of room
+    const root = draw([9], { domain: { y: [0, 3e15] } });
+    const wide = [...axisOf(root)!.querySelectorAll('text.vzf-tick')].filter((t) => (t.textContent ?? '').length > 5);
+    expect(wide.length).toBeGreaterThan(0);
+    for (const t of wide) expect(t.getAttribute('textLength')).toBe('30');
+  });
+
+  it('a ceiling that is not a number draws the axis line and no label, where it used to write "NaN"', () => {
+    const root = draw([Number.NaN]);
+    expect(axisOf(root)!.querySelector(':scope > line.vzf-axis')).not.toBeNull();
+    expect(labels(root)).toEqual([]);
   });
 
   it('zero is on the floor, and every tick is placed by the bars’ own scale', () => {
