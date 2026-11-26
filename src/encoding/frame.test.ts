@@ -474,7 +474,7 @@ describe('what the quantity can be (law 14) — the fold echoes the declared ext
   });
 
   it('each declared key alone keeps the entry, on any kind of column, with the kind the column would have folded as', () => {
-    const one = (resolution: object, type: string): unknown => frameDomains([layer('a', 'point', { y: [type, []] })], { y: { mode: 'shared', ...resolution } } as unknown as Readonly<Record<string, ChannelResolution>>)['y'];
+    const one = (resolution: object, type: 'number' | 'date' | 'string'): unknown => frameDomains([layer('a', 'point', { y: [type, []] })], { y: { mode: 'shared', ...resolution } } as unknown as Readonly<Record<string, ChannelResolution>>)['y'];
     expect(one({ zeroGuide: true }, 'number')).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', zeroGuide: true, unfolded: true, kind: 'quantitative' });
     expect(one({ transform: 'linear' }, 'date')).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', transform: 'linear', unfolded: true, kind: 'temporal' });
     expect(one({ zeroGuide: false, basis: 'rows' }, 'string')).toEqual({ mode: 'shared', basis: 'rows', guide: 'merged', zeroGuide: false, unfolded: true, kind: 'categorical' });
