@@ -72,8 +72,8 @@ import {
 } from './types.js';
 import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
-import { bandOrder, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
-import { VizFrame, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
+import { bandOrder, countSpan, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
+import { VizFrame, COUNT_KINDS, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
 import { VizScatter } from '../charts/VizScatter.js';
 import { VizLine } from '../charts/VizLine.js';
 import { VizBar } from '../charts/VizBar.js';
@@ -1385,7 +1385,59 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
   if (zero !== null) return zero;
   const interval = intervalBrushRefusal(framed, frame);
   if (interval !== null) return interval;
+  const count = countBelowZeroRefusal(framed, frame);
+  if (count !== null) return count;
   return twoScalesRefusal(framed, frame);
+}
+
+/**
+ * DOES A COUNT READ THIS STACK'S SHARED, NUMERIC y, and which layer reads it as
+ * a position? A COUNT is a bar or a histogram bin, a length from zero; a
+ * POSITION is a line, a point, a box. Every mark's y channel is the one name
+ * `y` (`AXIS_CHANNELS`), so there is one shared y to ask about. Nothing where
+ * it is not shared, is not a number, or is drawn on a logarithmic curve (a
+ * count has no logarithmic axis, and the def door refuses one).
+ */
+function sharedYReaders(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): { readonly count?: FramedLayer; readonly position?: FramedLayer } {
+  const shared = sharedOn(frame, 'y');
+  if (shared?.scale !== 'quantitative' || shared.transform === 'log') return {};
+  const readers = framed.filter((f) => f.layer.encodings['y'] !== undefined);
+  const [count, position] = [readers.find((f) => COUNT_KINDS.has(f.kind)), readers.find((f) => !COUNT_KINDS.has(f.kind))];
+  return { ...(count === undefined ? {} : { count }), ...(position === undefined ? {} : { position }) };
+}
+
+/**
+ * THE SPAN EVERY LAYER ON A SHARED y DRAWS ON, and the guide ticks: ONE span.
+ *
+ * A count is read from zero, so a bar scales by `countSpan` whatever span it
+ * is handed (zero up to the ceiling, never a ceiling below one). A line handed
+ * the same folded pair used to scale by the pair itself. On a y folded as
+ * 40…100 the bar stood on 0…100 and the line on 40…100, in one plot, under one
+ * axis: one of the two was mislabelled. So where a count reads the shared y,
+ * EVERY reader takes the count's span. Widening is the only honest direction:
+ * a bar cut off at 40 would lie about its length, and a line drawn from zero
+ * only loses height.
+ */
+function sharedYSpan(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, span: readonly [number, number] | undefined): readonly [number, number] | undefined {
+  if (span === undefined) return undefined;
+  return sharedYReaders(framed, frame).count === undefined ? span : countSpan(span, span);
+}
+
+/**
+ * A COUNT AND A POSITION ON ONE y THAT REACHES BELOW ZERO: refused. The count's
+ * span starts at zero, so the part of the line under zero would be drawn
+ * outside the plot, with no word that it was. No single span is right for
+ * both in this version (a bar is drawn up from the plot's floor, not from a
+ * zero line inside it), so the stack is refused in words.
+ */
+function countBelowZeroRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
+  const { count, position } = sharedYReaders(framed, frame);
+  if (count === undefined || position === undefined) return null;
+  // both read the shared numeric y, so it has a span (`spanOf`: what the quantity can be, else what the rows reach)
+  const span = spanOf(sharedOn(frame, 'y'))!;
+  const low = Math.min(span[0], span[1]);
+  if (!(low < 0)) return null;
+  return `layer "${count.layer.layerId}" is a ${count.kind}, read from zero, and the y it shares with layer "${position.layer.layerId}" reaches below zero (${String(low)}): one scale cannot hold a length from zero and a ${position.kind} under it. Give the two layers a y each (resolve y as independent), or keep the shared y at or above zero.`;
 }
 
 /**
@@ -1713,7 +1765,8 @@ function fullBandOrder(framed: readonly FramedLayer[], frame: Readonly<Record<st
 function frameChartDomain(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, categories: readonly string[] | undefined): ChartDomain {
   const on = (axis: 'x' | 'y'): SharedChannel | undefined => sharedAxis(framed, frame, axis)?.resolved;
   const x = spanOf(on('x'));
-  const y = spanOf(on('y'));
+  // one span for the guide and for every layer that reads this y (`sharedYSpan`)
+  const y = sharedYSpan(framed, frame, spanOf(on('y')));
   const onAxis = (axis: 'x' | 'y'): readonly string[] => axisChannels(framed, axis);
   return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(categories === undefined ? {} : { categories }), ...transformAsk(frame, onAxis), ...zeroGuideAsk(frame, onAxis) };
 }
@@ -1773,7 +1826,7 @@ function transformAsk(frame: Readonly<Record<string, ResolvedChannel>> | undefin
  * never this layer's own narrower fold — so this layer's band count can never
  * outrun the guide's tick count.
  */
-function layerDomain(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> | undefined, categories: readonly string[] | undefined, frameDraws: Readonly<Record<'x' | 'y', boolean>>): ChartDomain {
+function layerDomain(f: FramedLayer, framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, categories: readonly string[] | undefined, frameDraws: Readonly<Record<'x' | 'y', boolean>>): ChartDomain {
   const channels = AXIS_CHANNELS[f.kind];
   const bound = (channel: string): SharedChannel | undefined => {
     if (f.layer.encodings[channel] === undefined) return undefined; // this layer never declared that axis
@@ -1781,7 +1834,8 @@ function layerDomain(f: FramedLayer, frame: Readonly<Record<string, ResolvedChan
     return resolved !== undefined && resolved.mode === 'shared' ? resolved : undefined;
   };
   const x = spanOf(bound(channels.x));
-  const y = spanOf(bound(channels.y));
+  // the span every reader of this y draws on: the count's, where a count reads it (`sharedYSpan`)
+  const y = sharedYSpan(framed, frame, spanOf(bound(channels.y)));
   const boundCategories = bound(channels.x) === undefined ? undefined : categories;
   // the curve reaches a layer for the channels it BINDS — the same law as the spans above, and on both
   // modes, because an independent channel's per-layer scale is an axis too and still has to be the one the
@@ -1928,6 +1982,8 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
             kind: f.kind,
             // its own y (an independent or per-layer y it binds) takes an edge on a two-axis frame — the frame picks which
             ownY: ownY(f, state.frame),
+            // only a layer that binds the shared y scales by the frame's span; a bar that binds none keeps its own ceiling
+            readsFrameY: f.layer.encodings[AXIS_CHANNELS[f.kind].y] !== undefined && sharedOn(state.frame, AXIS_CHANNELS[f.kind].y) !== undefined,
             render: (draw) =>
               layerMark(f, {
                 viewId: handshake.viewId,
@@ -1942,7 +1998,7 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
                 // ONLY what THIS layer binds — never the frame's whole fold (`draw.domain`), because
                 // an axis a layer never declared is not its axis: a bar that binds no y keeps its own
                 // count ceiling rather than taking somebody else's value span as its height
-                domain: layerDomain(f, state.frame, categories, frameDraws),
+                domain: layerDomain(f, framed, state.frame, categories, frameDraws),
                 axes: draw.axes,
                 ...(draw.axisSide === undefined ? {} : { axisSide: draw.axisSide }),
                 // the ink of this layer's scale, when the frame decided there are two of them (law 4)

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Correction: a bar and a line on one shared y are drawn on one span
+
+- In a stack, a bar or a histogram is read from zero and scales by zero up to
+  the ceiling. A line or a point handed the same shared `y` scaled by the
+  folded pair. On a `y` folded as 40…100 the bar stood on 0…100 and the line
+  on 40…100, under one axis, so one of the two was mislabelled.
+- Where a count binds the shared `y`, every layer that binds it and the
+  merged guide now take the count's span (zero up to the ceiling, never a
+  ceiling below one).
+- **A stack that drew before is now refused in words:** a count and a line
+  or a point on one shared `y` that reaches below zero. The part under zero
+  was drawn outside the plot with no word that it was. Resolve `y` as
+  `independent`, or keep the shared `y` at or above zero.
+- A bar that binds no `y` keeps its own ceiling, and the merged guide is then
+  ticked on the span the other layers draw on (it was ticked from zero, which
+  matched neither). New optional `VizFrameLayer.readsFrameY` says so to the
+  frame; absent means true, as before.
+
 ### Correction: a tap at the edge of a histogram picks the bucket that stands there
 
 - A tap beside a histogram's plot is held at the plot's edge. At the right

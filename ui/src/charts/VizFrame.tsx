@@ -177,6 +177,14 @@ export interface VizFrameLayer {
    * Absent = false: on such a frame the layer draws no axes of its own.
    */
   readonly ownY?: boolean;
+  /**
+   * DOES THIS LAYER SCALE ITS y BY THE FRAME'S SPAN (`domain.y`)? A bar that
+   * binds no y keeps its own count ceiling and reads nobody's span, so the
+   * frame's y guide is not its axis and must not be ticked by its rule (a
+   * count is read from zero; the line beside it is not).
+   * Absent = true, which is what every layer was taken to do before this flag.
+   */
+  readonly readsFrameY?: boolean;
   render(draw: FrameLayerDraw): JSX.Element;
 }
 
@@ -247,8 +255,8 @@ function curveOf(axis: FrameAxis | undefined, declared: ScaleKind | undefined): 
 /** A frame's folded span, turned into the span its layers draw on. */
 type DrawnSpan = (span: readonly [number, number], kind: ScaleKind | undefined) => [number, number];
 
-/** The mark kinds whose y is a COUNT read from zero (`countSpan`). */
-const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogram']);
+/** The mark kinds whose y is a COUNT read from zero (`countSpan`). One owner: the contract's stack door reads it too. */
+export const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogram']);
 
 /**
  * THE SPAN THE LAYERS OF THIS STACK DRAW ON, for one axis — which is the span
@@ -257,17 +265,20 @@ const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogram']);
  * Every chart scales by `domainOr` (in order; a flat span widened by one each
  * side), except the y of a COUNT mark: a bar and a histogram bin are read from
  * zero, so they scale by `countSpan` (zero up to the ceiling, never a ceiling
- * below one). A stack that holds a count mark is read from zero, so its y
- * guide takes the count's span. Both rules have one owner in
+ * below one). A stack in which a count mark reads the frame's y
+ * (`VizFrameLayer.readsFrameY`) is read from zero, so its y guide takes the
+ * count's span. Both rules have one owner in
  * `../primitives/scales.ts`, and the charts call the same functions.
  *
- * KNOWN LIMIT, older than this function: a stack that mixes a count mark with a
- * line or a point on one y whose folded span does not start at zero, or ends
- * below one, has layers that scale differently from each other, and no single
- * guide is right for both. The guide then follows the count.
+ * A STACK THAT MIXES a count mark with a line or a point on one y is handed
+ * ONE span by the contract's stack door (`sharedYSpan`, `../contract/renderers.tsx`):
+ * the count's, for every layer, so the marks and this guide agree; and it is
+ * refused in words where that y reaches below zero. A host that builds this
+ * component's layers by hand owes them the same: hand each layer that reads
+ * the frame's y the span `countSpan` gives.
  */
 function drawnSpan(layers: readonly VizFrameLayer[], channel: 'x' | 'y'): DrawnSpan {
-  const counts = channel === 'y' && layers.some((layer) => COUNT_KINDS.has(layer.kind));
+  const counts = channel === 'y' && layers.some((layer) => COUNT_KINDS.has(layer.kind) && layer.readsFrameY !== false);
   // the curve goes with the span: a flat span on a logarithmic axis is widened by a decade, by the scale
   return (span, kind) => (counts ? countSpan(span, span) : domainOr(span, span, kind));
 }
