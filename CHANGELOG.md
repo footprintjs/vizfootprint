@@ -2,14 +2,15 @@
 
 ## Unreleased
 
-### Correction: a line's drag across the whole plot holds its highest point
+### Correction: a line's drag across the whole plot holds its two end points
 
 - A line over numbers records the value under the pointer unrounded, and
-  always did. At the right edge of its plot the edge pixel's value could
-  differ from the axis's own end in its last digit, so a drag across the whole
-  plot left the highest point out (a reviewer measured 8 of 300 linear and
-  122 of 300 logarithmic drags). A pointer held at an edge of the plot is now
-  the axis's own end, exactly: the rule the scatter took in the change below.
+  always did. At an edge of its plot the edge pixel's value could differ from
+  the axis's own end in its last digit, so a drag across the whole plot left
+  an end point out: usually the highest (a reviewer measured 12 of 150 linear
+  and 66 of 150 logarithmic drags), and on a logarithmic axis sometimes the
+  lowest. A pointer held at an edge of the plot is now the axis's own end,
+  exactly: the rule the scatter took in the change below.
 - New export `pointerValue(scale, px)`, the one owner of that rule; the
   scatter and the line both call it.
 

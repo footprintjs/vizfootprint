@@ -8,6 +8,7 @@
  * | at, or past, the high end of the range    | the domain's high end, exactly              |
  * | a scale whose range runs the other way    | the same, with the ends the other way round |
  * | a logarithmic scale                       | the same rule                               |
+ * | a range with no length                    | the low end at its one pixel                |
  */
 import { describe, expect, it } from 'vitest';
 import { linearScale, logScale, pointerValue } from './scales.js';
@@ -43,6 +44,13 @@ describe('pointerValue', () => {
     expect(pointerValue(y, 20)).toBe(10);
     expect(pointerValue(y, 5)).toBe(10);
     expect(pointerValue(y, 160)).toBe(y.invert(160));
+  });
+
+  it('a range with no length answers the low end at its one pixel, where the bare inverse has no answer', () => {
+    const flat = linearScale(0, 10, 100, 100);
+    expect(pointerValue(flat, 100)).toBe(0);
+    expect(pointerValue(flat, 99)).toBe(0);
+    expect(pointerValue(flat, 150)).toBe(10);
   });
 
   it('5,000 generated scales: at both edges the answer is the domain’s end, whatever the inverse says', () => {

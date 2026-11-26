@@ -44,8 +44,9 @@
  * data's shape at all.
  *
  * Its three rules, each of them a test. THE BOUNDS ARE THE AXIS'S, NOT THE
- * MARKS': a numeric drag emits the span the pointer COVERED — `[x.invert(lo),
- * x.invert(hi)]`, never snapped to a mark and never rounded. The date arm
+ * MARKS': a numeric drag emits the span the pointer COVERED — the scale's
+ * inverse of each end (`pointerValue`: the axis's own end where the pointer was
+ * held at the plot's edge), never snapped to a mark and never rounded. The date arm
  * snaps because its rail is STRINGS (an invented ISO string can be a format
  * the column never uses, and lexicographic order then disagrees with
  * chronology); numbers have no such hazard — the interval predicate compares
