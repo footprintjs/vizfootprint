@@ -186,9 +186,9 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // THE MARGIN THIS INSTANCE DRAWS INSIDE: `PAD` with its y-axis room on the side the axis stands
   // on (`padOnSide`, the one owner of that swap). With no side asked it IS `PAD`, so nothing moves.
   const pad = padOnSide(PAD, props.axisSide);
-  const [xlo, xhi] = domainOr(props.domain?.x, roomyExtent(drawable, (d) => d.x, xKind));
+  const [xlo, xhi] = domainOr(props.domain?.x, roomyExtent(drawable, (d) => d.x, xKind), xKind);
   const x = scaleFor(xKind)(xlo, xhi, pad.l, width - pad.r);
-  const [ylo, yhi] = domainOr(props.domain?.y, roomyExtent(drawable, (d) => d.y, yKind));
+  const [ylo, yhi] = domainOr(props.domain?.y, roomyExtent(drawable, (d) => d.y, yKind), yKind);
   const y = scaleFor(yKind)(ylo, yhi, height - pad.b, pad.t);
   const axes = props.axes ?? true;
   // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its y

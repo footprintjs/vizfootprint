@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Correction: one value on a logarithmic axis is drawn inside the plot
+
+- A chart with a single distinct value on a logarithmic axis widened that
+  value by plus and minus one before the logarithmic clamp, so a value below
+  about 0.11 was drawn far outside the plot with nothing said (a line or a
+  scatter with x = 0.001 put its point at −848 px). It now gets a decade
+  either side and stands in the middle, on the scatter's two axes, the line's
+  two axes, the histogram, the heat map and a frame's guide.
+- `domainOr` takes an optional third argument, the axis's kind, and
+  `extentFor` no longer widens one distinct value on a logarithmic kind. A
+  chart of your own on a logarithmic channel should pass the kind.
+- A linear axis is unchanged.
+
 ### Correction: a line over numbers follows a logarithmic x
 
 - A line chart whose x is a run of numbers ignored `domain.transform.x`:

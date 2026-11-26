@@ -193,6 +193,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
   const [d0, d1] = domainOr(
     props.domain?.x,
     geoms.length > 0 ? [geoms[0]!.p0, geoms[geoms.length - 1]!.p1] : xKind === 'log' ? [0, 0] : [0, 1],
+    xKind,
   );
   const x = scaleFor(xKind)(d0, d1, PAD.l, width - PAD.r);
   const axes = props.axes ?? true;

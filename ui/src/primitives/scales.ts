@@ -204,11 +204,18 @@ export interface ChartDomain {
  * with data that holds one distinct value — and a domain that is not two finite
  * numbers is not a domain at all, so the chart keeps its own rather than
  * drawing marks at NaN.
+ *
+ * ON A LOGARITHMIC AXIS (`kind: 'log'`) a flat domain is handed on FLAT. A
+ * logarithm measures in factors, so its widening is a decade each side, and
+ * that rule has one owner, {@link logDomain}, which `scaleFor` applies. Widened
+ * by one here first, a single value of 0.001 became −0.999 … 1.001, the clamp
+ * lifted the low end to 0.1, and the value itself was drawn far outside the
+ * plot with nothing said. A chart on a logarithmic channel must pass its kind.
  */
-export function domainOr(given: readonly [number, number] | undefined, own: readonly [number, number]): [number, number] {
+export function domainOr(given: readonly [number, number] | undefined, own: readonly [number, number], kind?: ScaleKind): [number, number] {
   if (given === undefined || !Number.isFinite(given[0]) || !Number.isFinite(given[1])) return [own[0], own[1]];
   const [lo, hi] = [Math.min(given[0], given[1]), Math.max(given[0], given[1])];
-  return lo === hi ? [lo - 1, hi + 1] : [lo, hi];
+  return lo === hi && kind !== 'log' ? [lo - 1, hi + 1] : [lo, hi];
 }
 
 /**
@@ -518,11 +525,27 @@ export function logDomain(d0: number, d1: number): [number, number] {
  * either — `padFor('log', …)` is 0, so nothing pads a real minimum down to it.
  * `[0, 0]` therefore never collides with a genuine positive extent; it only
  * ever stands for "there was nothing to measure", which is exactly what
- * `logDomain`'s own placeholder decade is for.
+ * `logDomain`'s own placeholder decade is for. Rows that hold nothing finite
+ * get the same answer.
+ *
+ * AND ONE DISTINCT VALUE IS LEFT AS IT IS, `[v, v]`: on a logarithmic channel
+ * the widening of a flat extent is `logDomain`'s (a decade each side), never
+ * `extent`'s plus and minus one.
  */
 export function extentFor<T>(rows: readonly T[], get: (r: T) => number, pad: number, kind: ScaleKind | undefined): [number, number] {
-  if (kind === 'log' && rows.length === 0) return [0, 0];
-  return extent(rows, get, pad);
+  if (kind !== 'log') return extent(rows, get, pad);
+  // A LOGARITHMIC channel: the raw extent, with NO widening of a single value. `extent` widens one
+  // distinct value by one each side, which is a linear idea; here it is {@link logDomain}'s to widen,
+  // by a decade each side, so the value stands in the middle of its axis.
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const r of rows) {
+    const v = get(r);
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  // `pad` is kept for the caller that passes one (a logarithmic channel's is 0, `padFor`)
+  return Number.isFinite(lo) && Number.isFinite(hi) ? [lo - pad, hi + pad] : [0, 0];
 }
 
 /**

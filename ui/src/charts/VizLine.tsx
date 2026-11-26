@@ -129,7 +129,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { extent, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { extentFor, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { fitTick } from './tickFit.js';
 import { Axis, placeTicks, type AxisTick } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
@@ -643,7 +643,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // on (`padOnSide`, the one owner of that swap). With no side asked it IS `PAD`, so nothing moves.
   const pad = padOnSide(PAD, props.axisSide);
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
-  const [elo, ehi] = domainOr(props.domain?.x, extent(positions, (d) => d.at, 0));
+  const [elo, ehi] = domainOr(props.domain?.x, extentFor(positions, (d) => d.at, 0, xKind), xKind);
   // a run of numbers is placed on the curve the frame declared (`scaleFor`, the one owner of the
   // logarithmic clamp); dates and an undeclared x are linear, as they always were
   const x = scaleFor(xKind)(elo, ehi, pad.l, width - pad.r);
@@ -672,7 +672,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const excluded = everySeries.reduce((n, s) => n + s.points.length, 0) - allMeans.length;
   // the chart's own room at each end is a share of the data's span (`roomyExtent`), which a LOGARITHMIC
   // axis takes none of; that helper is also log-aware about a chart with nothing placeable
-  const [vlo, vhi] = domainOr(props.domain?.y, roomyExtent(allMeans, (p) => p.mean, yKind));
+  const [vlo, vhi] = domainOr(props.domain?.y, roomyExtent(allMeans, (p) => p.mean, yKind), yKind);
   const axes = props.axes ?? true;
   // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its y
   // alone (`'y'` — its own scale on a frame whose x is drawn once by the frame). Two flags, so the
