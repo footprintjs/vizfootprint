@@ -5,10 +5,12 @@
 ### Correction: a refused stack is told a way out that draws, with three layers too
 
 - A bar and a line on one shared `y` that cannot stand on one span are
-  refused in words (the change below). With three or more layers the
-  sentence said to resolve `y` as `independent`, which is refused in turn:
-  a frame has two sides and no third. The bar is now told to stand on a
-  frame of its own there. With two layers the sentence is unchanged.
+  refused in words (the change below). Where three or more layers bind
+  `y` the sentence said to resolve `y` as `independent`, which is refused
+  in turn: a frame has two sides and no third. There the sentence now says
+  to draw the count on a frame of its own, and it names every count that
+  binds the `y` (two bars and a line: both bars). Where two layers bind
+  `y` the sentence is unchanged.
 
 ### Correction: a bar and a line on one shared y are drawn on one span
 

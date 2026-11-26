@@ -1433,11 +1433,23 @@ function sharedYSpan(framed: readonly FramedLayer[], frame: Readonly<Record<stri
  * figure: exactly two layers that bind y (a frame has two sides and no third,
  * `twoScalesRefusal`), the count being a mark that may take the first scale
  * (`mayTakeFirstScale`, the def door's own answer: a bar, never a histogram).
- * Asked before a refusal names that way out, so the sentence never sends a
- * reader into a second refusal.
+ * Asked before a refusal names that way out ({@link wayOut}).
  */
 function twoScalesOpen(framed: readonly FramedLayer[], count: FramedLayer): boolean {
   return mayTakeFirstScale(count.kind, 'y') && framed.filter((f) => f.layer.encodings['y'] !== undefined).length === 2;
+}
+
+/**
+ * THE WAY OUT A REFUSED COUNT-AND-POSITION STACK IS TOLD, and it is one that
+ * draws when followed once. The two-axis figure where it is open
+ * ({@link twoScalesOpen}); otherwise the counts leave for a frame of their
+ * own. EVERY count that binds the y is named: with two bars and a line,
+ * moving one bar out leaves the other beside the line, refused again.
+ */
+function wayOut(framed: readonly FramedLayer[], count: FramedLayer): string {
+  if (twoScalesOpen(framed, count)) return `Declare the ${count.kind} first and resolve y as independent, so each layer has a y of its own`;
+  const counts = framed.filter((f) => COUNT_KINDS.has(f.kind) && f.layer.encodings['y'] !== undefined);
+  return counts.length === 1 ? `Draw the ${count.kind} on a frame of its own` : `Draw layers ${nameList(counts)} on a frame of their own`;
 }
 
 /**
@@ -1452,10 +1464,10 @@ function twoScalesOpen(framed: readonly FramedLayer[], count: FramedLayer): bool
  *     not from a zero line inside it, so the floor would be labelled below
  *     zero under a bar that starts at zero.
  *
- * THE WAY OUT IS IN THE SENTENCE, and it is one that draws ({@link twoScalesOpen}):
- * a bar beside ONE other layer may take the first of two scales, so it is told
- * to; a histogram takes neither, and a frame has no third side, so there the
- * count is told to stand on a frame of its own.
+ * THE WAY OUT IS IN THE SENTENCE, and it is one that draws ({@link wayOut}):
+ * a bar beside ONE other layer that binds y may take the first of two scales,
+ * so it is told to; a histogram takes neither, and a frame has no third side,
+ * so there every count is told to stand on a frame of its own.
  *
  * NOT JUDGED HERE, and unchanged: a count that binds NO y keeps its own
  * ceiling beside a line on the shared y, and the frame's one y guide is then
@@ -1465,7 +1477,7 @@ function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<
   const { count, position } = sharedYReaders(framed, frame);
   if (count === undefined || position === undefined) return null;
   const shared = sharedOn(frame, 'y')!; // both read it, so it is there
-  const [who, apart] = [`layer "${count.layer.layerId}" is a ${count.kind}, read from zero, and the y it shares with layer "${position.layer.layerId}"`, twoScalesOpen(framed, count) ? `Declare the ${count.kind} first and resolve y as independent, so each layer has a y of its own` : `Draw the ${count.kind} on a frame of its own`];
+  const [who, apart] = [`layer "${count.layer.layerId}" is a ${count.kind}, read from zero, and the y it shares with layer "${position.layer.layerId}"`, wayOut(framed, count)];
   if (shared.bounds !== undefined) {
     // in order: a pair given backwards is drawn in order by every chart, so it is the same declaration
     const [low, high] = [Math.min(...shared.bounds), Math.max(...shared.bounds)];
