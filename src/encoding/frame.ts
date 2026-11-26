@@ -85,7 +85,39 @@ export type ResolvedDomain =
       readonly excluded?: number;
     }
   | { readonly scale: 'temporal'; readonly domain: readonly [string, string] }
-  | { readonly scale: 'categorical'; readonly domain: readonly string[] };
+  | { readonly scale: 'categorical'; readonly domain: readonly string[] }
+  | UnfoldedDomain;
+
+/**
+ * A SHARED CHANNEL WITH NO SPAN TO FOLD, kept because its definition DECLARED
+ * something a picture must answer to: a curve, a zero line, bounds.
+ *
+ * The fold has no span when no cell could be read: the read was refused, every
+ * cell was a silence, `basis: 'rows'` read no rows, or a logarithm could place
+ * none of them. It used to answer NOTHING for such a channel, and then every
+ * key declared on it reached no picture, with no word: a view that declared a
+ * logarithmic axis drew a linear one on its own extent. An invented span would
+ * be a drawn lie, so none is invented. The entry carries the declared keys,
+ * `unfolded: true` where the span would be, and `kind`: what the column would
+ * have folded as (read off the column's type, not its cells). A renderer draws
+ * the mark's own extent on the declared curve, with the declared zero line, or
+ * on the declared bounds.
+ *
+ * `scale` IS ABSENT ON PURPOSE. Every reader that asks `scale === 'temporal'`
+ * (or another kind) before it reads `domain` keeps working unchanged: this arm
+ * never matches, so no reader is handed a span that is not there.
+ *
+ * ONLY WHERE SOMETHING WAS DECLARED. A channel that declared none of the three
+ * still gets no entry, so a frame that declares nothing is byte for byte the
+ * answer it always was.
+ */
+export interface UnfoldedDomain {
+  readonly unfolded: true;
+  /** What the column would have folded as, had a cell been readable. */
+  readonly kind: 'quantitative' | 'temporal' | 'categorical';
+  readonly scale?: undefined;
+  readonly domain?: undefined;
+}
 
 /**
  * One channel, resolved: the mode, who draws the guide, and — when the channel
@@ -765,8 +797,15 @@ export function frameDomains(layers: readonly FrameLayer[], frame?: Readonly<Rec
     // and a LOGARITHMIC axis has no zero at all — `zeroPolicyFor` is the one predicate asked, so nothing here decides it twice
     const zero = zeroPolicyFor(binding.filter((layer) => zeroAnchorsChannel(layer.chartKind, channel)).map((layer) => layer.chartKind), resolution.zero, resolution.transform);
     const domain = foldDomain(binding, channel, scale, zero, resolution.transform);
-    if (domain === undefined) continue; // every cell was absent or unreadable — an invented domain would be a drawn lie
-    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...(resolution.bounds !== undefined ? { bounds: resolution.bounds } : {}), ...domain };
+    const bounds = resolution.bounds !== undefined ? { bounds: resolution.bounds } : {};
+    if (domain === undefined) {
+      // every cell was absent or unreadable — an invented domain would be a drawn lie, so none is. But a
+      // DECLARATION must still reach the picture (`UnfoldedDomain`): the entry carries it, and no span.
+      // Nothing declared: no entry, as it always was.
+      if (Object.keys(nature).length > 0 || resolution.bounds !== undefined) out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...bounds, unfolded: true, kind: scale };
+      continue;
+    }
+    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...bounds, ...domain };
   }
   return out;
 }

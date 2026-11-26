@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Correction: a declared axis with no span to fold still reaches the picture
+
+- The fold answered nothing for a channel with no readable cell (the read
+  was refused, every cell was a silence, `basis: 'rows'` read no rows, a
+  logarithm could place none). A curve, a zero line or bounds declared on
+  that channel then reached no picture, with no word: a view that declared
+  a logarithmic axis over values a logarithm cannot place drew a linear
+  one.
+- The fold now answers an entry for such a channel where one of the three
+  was declared: the declaration, `unfolded: true`, `kind` (what the column
+  would have folded as), and no span. No span is invented.
+- The renderers draw it: a logarithmic axis with the count of values it
+  could not place; declared bounds as the axis over no rows; a declared
+  zero line on the chart's own extent.
+- **For a reader of `RenderState.frame`:** a shared channel may now be this
+  entry. It has no `scale` and no `domain`, so code that asks `scale ===
+  'quantitative'` (or another kind) before it reads `domain` is unaffected.
+  New exported type `UnfoldedDomain`.
+- A channel that declared none of the three still gets no entry.
+
 ### Correction: the definition door refuses what the renderer refuses about a count
 
 - The renderer refuses three declarations about a bar or a histogram,
@@ -79,10 +99,6 @@
 - `chartKind` is required, in the definition's word: the mark decides the
   zero default, so a bar's and a box plot's magnitude axis folds to reach
   zero.
-- Known gap, the fold's own and the same for layers: an axis with no span
-  to fold (a refused read, a column of silences, a logarithm that can
-  place no cell) gets no entry, and the keys declared on it are then not
-  drawn for that update, with no word.
 - A host that draws plain views calls it and pushes the answer when it is
   not empty. Nothing calls it for the host: a host that does not call it
   draws as before.

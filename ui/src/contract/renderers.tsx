@@ -364,7 +364,8 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
   const dateField = boundField(d.encodings, 'x', 'date');
   const valueField = boundField(d.encodings, 'y', 'value');
   const seriesField = d.encodings['color'];
-  const scale = sharedOn(d.frame, 'x')?.scale;
+  const folded = sharedOn(d.frame, 'x');
+  const scale = folded === undefined ? undefined : kindOf(folded);
   const onBand = d.domain.categories !== undefined || scale === 'categorical';
   // a NUMBER on x is a numeric run: the fold's own answer where the host folded one, the row's own
   // value type where it did not — read per ROW, so the chart's `xKindOf` stays the only thing that
@@ -1250,6 +1251,23 @@ export interface LayeredRendererOptions {
 /** A channel the host folded a domain for — the only arm of `ResolvedChannel` that carries numbers. */
 type SharedChannel = Extract<ResolvedChannel, { readonly mode: 'shared' }>;
 
+/** The three kinds a shared channel folds as. */
+type ScaleOfColumn = NonNullable<SharedChannel['scale']>;
+
+/**
+ * WHAT A SHARED CHANNEL'S COLUMN IS: a number, a date or a category. It is the
+ * fold's `scale` where a span was folded, and its `kind` where the channel
+ * was declared but had no span to fold (`UnfoldedDomain`, `vizfootprint/def`).
+ * Every question about the COLUMN asks here (is this x a band? which words
+ * name its type? which guide does the frame draw?), so a declared axis with
+ * no readable cell is still the axis its column makes it. A question about
+ * the SPAN asks {@link spanOf}, which has none to give for such a channel
+ * unless bounds were declared.
+ */
+function kindOf(channel: SharedChannel): ScaleOfColumn {
+  return channel.scale ?? channel.kind;
+}
+
 /** One layer with the mark its spec names. */
 interface FramedLayer {
   readonly layer: RenderLayer;
@@ -1299,7 +1317,7 @@ function xBinding(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel
   const column = f.layer.encodings[channel];
   if (column === undefined) return undefined;
   const resolved = frame?.[channel];
-  return { column, scale: resolved !== undefined && resolved.mode === 'shared' ? resolved.scale : undefined };
+  return { column, scale: resolved !== undefined && resolved.mode === 'shared' ? kindOf(resolved) : undefined };
 }
 
 /** Is this layer's x a band? Its mark's answer where the mark has one; the x column's otherwise. */
@@ -1310,7 +1328,7 @@ function bandX(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> 
 }
 
 /** The words for a folded scale's column type, as the fold's `frameScaleOf` reads them back. */
-const SCALE_TYPE_WORDS: Readonly<Record<SharedChannel['scale'], string>> = Object.freeze({
+const SCALE_TYPE_WORDS: Readonly<Record<ScaleOfColumn, string>> = Object.freeze({
   quantitative: 'a number',
   temporal: 'a date',
   categorical: 'a category',
@@ -1547,7 +1565,7 @@ function countBoundsRefusal(framed: readonly FramedLayer[], frame: Readonly<Reco
  */
 function sharedYReaders(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): { readonly count?: FramedLayer; readonly position?: FramedLayer } {
   const shared = sharedOn(frame, 'y');
-  if (shared?.scale !== 'quantitative') return {};
+  if (shared === undefined || kindOf(shared) !== 'quantitative') return {};
   const readers = framed.filter((f) => f.layer.encodings['y'] !== undefined);
   const [count, position] = [readers.find((f) => COUNT_KINDS.has(f.kind)), readers.find((f) => !COUNT_KINDS.has(f.kind))];
   return { ...(count === undefined ? {} : { count }), ...(position === undefined ? {} : { position }) };
@@ -1630,7 +1648,9 @@ function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<
     // the definition door's sentence (one owner), then the way out only this door can judge: two scales
     return `${countBoundsSentence(`layer "${count.layer.layerId}"`, count.kind, shared.bounds, `layer "${position.layer.layerId}"`)} ${apart}.`;
   }
-  const span = spanOf(shared)!; // a quantitative channel has a span
+  // a declared y with no span to fold reaches nowhere, so not below zero either
+  const span = spanOf(shared);
+  if (span === undefined) return null;
   const low = Math.min(span[0], span[1]);
   if (!(low < 0)) return null;
   return `${who} reaches below zero (${String(low)}): one scale cannot hold a length from zero and a ${position.kind} under it. ${apart}.`;
@@ -1912,6 +1932,9 @@ function spanOf(channel: SharedChannel | undefined): readonly [number, number] |
   // as the edge of torsion space. The fold carries BOTH (`ResolvedChannel.bounds` beside `domain`), so
   // nothing is lost by preferring one here — and only on a QUANTITATIVE axis, because bounds are numbers
   // and the def door refuses them on a channel bound to anything else.
+  // A DECLARED AXIS WITH NO SPAN TO FOLD (`UnfoldedDomain`) has only what was declared: its bounds, or
+  // nothing, and then the mark draws on its own extent. No span is invented for it.
+  if (channel.scale === undefined) return channel.bounds;
   if (channel.scale === 'quantitative') return channel.bounds ?? channel.domain;
   if (channel.scale === 'categorical') return undefined;
   const lo = epochOf(channel.domain[0]);
@@ -2080,7 +2103,7 @@ function frameAxisOf(framed: readonly FramedLayer[], frame: Readonly<Record<stri
   const shared = sharedAxis(framed, frame, axis);
   if (shared === undefined || shared.resolved.guide !== 'merged') return undefined;
   const named = label ?? channelLabel(framed, shared.channels);
-  return { scale: shared.resolved.scale, ...(named === undefined ? {} : { label: named }) };
+  return { scale: kindOf(shared.resolved), ...(named === undefined ? {} : { label: named }) };
 }
 
 /** The field name a merged axis carries: the one every layer binding any of the axis's channels agrees on — an axis of two fields has no single name. */

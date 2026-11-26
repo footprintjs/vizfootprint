@@ -705,6 +705,15 @@ the definition fails that test until it has a case. Two keys, `domain` and
 `guide`, have nothing to change on a view with no layers, so their cases
 prove the entry survives and no more.
 
+**A declared axis with no span still reaches the picture.** When the fold has
+no span for a channel (no readable cell), its entry carries what was declared
+and `unfolded: true`. The renderer asks one function what the channel's COLUMN
+is (`kindOf`: the fold's `scale`, or the entry's `kind`) and another for its
+SPAN (`spanOf`: none for such an entry, unless bounds were declared). So a
+logarithmic axis over values it cannot place is drawn logarithmic with the
+count of what it left out, declared bounds over no rows draw the axis on the
+bounds, and a declared zero line is drawn on the chart's own extent.
+
 **A category list is the fold's too.** Where the frame holds a categorical
 entry for the view's x (a bar's `category`, a line on a band), the slots are
 laid out in the fold's order, and a category with no row gets an empty slot,

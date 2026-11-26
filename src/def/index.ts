@@ -223,6 +223,7 @@ export type {
   FrameLayer,
   ResolvedChannel,
   ResolvedDomain,
+  UnfoldedDomain,
 } from '../encoding/index.js';
 
 // The data-source layer (owned by src/source; the file carrier is its own module, src/source/file.ts).

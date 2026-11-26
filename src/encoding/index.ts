@@ -81,4 +81,4 @@ export { intervalAddresses, unaddressableIntervalRefusal } from './frame.js';
 // predicate under both (`valueAddresses`). Asked by the SESSION's probe door and by the conformance
 // kit, so a clause that can keep no row is refused by name instead of landing a commit that kept nothing
 export { valueAddresses, unaddressableClause, unaddressableValueRefusal } from './frame.js';
-export type { AddressedClauseKind, ChannelValues, EffectiveResolution, FrameLayer, FrameNote, ResolvedChannel, ResolvedDomain } from './frame.js';
+export type { AddressedClauseKind, ChannelValues, EffectiveResolution, FrameLayer, FrameNote, ResolvedChannel, ResolvedDomain, UnfoldedDomain } from './frame.js';
