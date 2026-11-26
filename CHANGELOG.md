@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Charts: one axis part
+
+- New primitive `<Axis>` (`orient`, `scale`, `ticks`, `at`, `range`, `edges`,
+  `labelRoom`, `hue`): the line a scale stands on, its tick marks and their
+  labels. The scatter's two axes and the line's value axis are drawn by it.
+  What they draw is unchanged; each axis's elements are now inside one
+  `<g class="vzf-axis-part" data-axis-orient="…">`, so their order in the
+  markup changed.
+- New exports: `Axis`, `AxisProps`, `AxisOrient`, `AXIS_TICK_SIZE`,
+  `AXIS_LABEL_OFFSET`.
+- Not in this change: the bar, histogram, box plot and heat map, the line's
+  x axis and the frame still draw their own axes.
+
 ### Charts: axis labels are fitted the way the known chart libraries fit them
 
 - **Behaviour change.** When the labels of a linear axis would run together, a

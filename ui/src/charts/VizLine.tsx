@@ -129,11 +129,11 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, roundTicksThatFit, ticksThatFit, squeezedLength, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { linearScale, extent, roundTicksThatFit, ticksThatFit, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { TICK_ANGLE, fitTick } from './tickFit.js';
+import { Axis } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
-import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { matchEmission, clickEmission } from '../primitives/pointSelect.js';
 import { slotValues, slotPress, noSlotValuesNote, type SlotRow } from '../primitives/slotValues.js';
@@ -667,15 +667,11 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // x-side markup below reads one word and the y-side another.
   const drawX = axes === true;
   const drawY = axes !== false;
-  // WHERE THE Y AXIS STANDS: the plot edge on its side. The ticks read away from the plot (leftward on
-  // the left, rightward on the right) and the label rotates to face its edge — the mirror, nothing else.
+  // WHERE THE Y AXIS STANDS: the plot edge on its side. `Axis` reads away from the plot on either side
+  // and wears the hue its scale was handed (`scaleHue`), or nothing at all when no hue was handed.
   const yAxisX = props.axisSide === 'right' ? width - pad.r : pad.l;
   // the room a y label has between its anchor and the edge of the drawing, on the side the axis stands
   const yLabelRoom = (props.axisSide === 'right' ? pad.r : pad.l) - 8;
-  const yTickDir = props.axisSide === 'right' ? 1 : -1;
-  // THE INK OF THIS SCALE, on the parts of the y axis this chart draws: one inherited variable the
-  // stylesheet spends per element (`scaleHueStyle`), and nothing at all when no hue was handed
-  const hueStyle = scaleHueStyle(props.scaleHue);
   // what an UNSPLIT mark is drawn with: the hue its scale was handed, the brand where there is none
   // (a chart split into series keeps `colorOf`'s answer — identity is never colour-alone)
   const markInk = props.scaleHue ?? 'var(--vzf-brand)';
@@ -888,7 +884,6 @@ export function VizLine(props: VizLineProps): JSX.Element {
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
             while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
         {drawX && <line className="vzf-axis" x1={pad.l} y1={bottom} x2={width - pad.r} y2={bottom} />}
-        {drawY && <line className="vzf-axis" x1={yAxisX} y1={top} x2={yAxisX} y2={bottom} style={hueStyle} />}
         {/* the zero guide — furniture, edge to edge across the plot, under the series and over the axis;
             drawn by whoever draws this axis, so a layer under a merged guide draws none */}
         {zeroY !== undefined && 'at' in zeroY && <line className="vzf-zero" x1={pad.l} y1={zeroY.at} x2={width - pad.r} y2={zeroY.at} />}
@@ -922,15 +917,8 @@ export function VizLine(props: VizLineProps): JSX.Element {
             </g>
           );
         })}
-        {/* y ticks — on the axis's side, reading away from the plot */}
-        {drawY && yTicks.map((t, i) => (
-          <g key={`yt${i}`} style={hueStyle}>
-            <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(t.value)} x2={yAxisX} y2={y(t.value)} />
-            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(t.value) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'} textLength={squeezedLength(t.label, yLabelRoom)} lengthAdjust="spacingAndGlyphs">
-              {t.label}
-            </text>
-          </g>
-        ))}
+        {/* the value axis (`Axis`, the one part every chart's axis is drawn by), on the side it was given */}
+        {drawY && <Axis orient={props.axisSide === 'right' ? 'right' : 'left'} scale={y} ticks={yTicks} at={yAxisX} range={[top, bottom]} labelRoom={yLabelRoom} hue={props.scaleHue} />}
         {/* one path per RUN of adjacent points (a run of dates is one run; a band breaks at every empty slot —
             `segmentsOf`) + a dot per point — the placeable points; see `placed` above. A run of one point draws
             its dot and no path: a line needs two points. */}
