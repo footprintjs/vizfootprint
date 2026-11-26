@@ -154,12 +154,95 @@ const COLUMN_TYPES: readonly ColumnType[] = ['number', 'string', 'boolean', 'dat
  * only what a logarithm cannot place and never a silence).
  */
 export async function frameFor(session: FrameSessionLike, request: FrameRequest): Promise<Readonly<Record<string, ResolvedChannel>>> {
-  const layers = await Promise.all(request.layers.map((layer) => valuesOf(session, request, layer)));
+  const layers = await Promise.all(request.layers.map((layer) => valuesOf(session, request, layer, layerAddress(request.viewId, layer.layerId))));
   return frameDomains(layers, request.frame);
 }
 
 /**
- * One layer's channels, each folded from the rows ITS basis asked for.
+ * A view with NO layers, as the frame door needs it: the view is the one thing
+ * drawn, so it carries what a layer would (its table, its mark, its channel →
+ * field map) under its own id.
+ */
+export interface ViewFrameRequest extends Omit<FrameRequest, 'layers' | 'frame'> {
+  /** The view's table. */
+  readonly table: string;
+  /**
+   * The view's mark, REQUIRED: it decides the zero default (`zeroPolicyFor`).
+   * A bar and a box plot are read from zero, so their magnitude axis folds
+   * to reach zero unless the definition said otherwise (a histogram's count
+   * is drawn from zero by the chart and is not a channel this door folds); without
+   * the mark a box plot's axis would be folded from its lowest value, a cut
+   * baseline nobody declared. Pass the word the definition uses
+   * (`ViewEncodingDecl.chartKind`: `'scatter'`, `'line'`, `'bar'`,
+   * `'histogram'`, `'boxplot'`); the renderer's `'point'` reads the same as
+   * `'scatter'`. The store's `ViewView` does not carry it, so the host
+   * supplies it from the definition it built the view from.
+   */
+  readonly chartKind: string;
+  /** Channel → field, the map the renderer gets as `RenderState.encodings`. */
+  readonly encodings: Readonly<Record<string, string>>;
+  /**
+   * What the definition DECLARED about this view's axes (`ViewEncodingDecl.frame`
+   * on a view with no layers: the curve, a zero line, bounds, reaching zero,
+   * which rows). Only the channels named here are folded.
+   */
+  readonly frame?: Readonly<Record<string, ChannelResolution>>;
+}
+
+/**
+ * `RenderState.frame` for a view with NO layers: the axes its definition
+ * declared something about, folded at this cursor, and nothing else.
+ *
+ * WHY THIS DOOR EXISTS. A definition may declare axis settings on a plain view
+ * (a logarithmic curve, a zero line, bounds, that the axis reaches zero, which
+ * rows it is measured over), and the single-mark renderers honour whatever the
+ * frame holds for a channel they bind (`../contract/README.md`, "A view drawn
+ * alone is a stack of one"). But `frameFor` folds LAYERS, and with none it
+ * answers `{}`: the declaration never reached the renderer.
+ *
+ * ```ts
+ * const frame = await viewFrameFor(session, { viewId, table, chartKind, encodings, frame: view.frame, columns });
+ * bound.view.update({ ...state, ...(Object.keys(frame).length > 0 ? { frame } : {}) });
+ * ```
+ *
+ * ONLY WHAT WAS DECLARED IS FOLDED, and this is the point of a second door
+ * rather than `frameFor` with one layer. `frameFor` folds every channel a layer
+ * binds, declared or not, because layers on one frame need one scale. A view
+ * alone needs none: an axis nobody declared anything about is drawn on the
+ * chart's own extent, with its own margin, and an entry on the frame would
+ * take that away (the renderer draws a channel WITH an entry on the folded
+ * span). So a channel is folded only if the definition named it AND the view
+ * binds it. No declaration, or none on a bound channel: `{}`, and no read.
+ *
+ * WHICH ROWS. As for a layer: `basis: 'rows'` reads the rows this view draws,
+ * at the view's own address, so the axis narrows with its marks; `basis:
+ * 'table'` (the default) reads the table with nobody's clause. Silences are
+ * dropped per column before the fold, by the same code a layer's are.
+ *
+ * KNOWN GAP, the fold's own and the same for a layer: an axis with NO SPAN to
+ * fold gets no entry at all, and then every key declared on it is not drawn
+ * for that update, with no word. That happens when the read is refused, when
+ * every cell is a silence, when `basis: 'rows'` reads no rows, and when a
+ * logarithm can place none of the cells. The chart then draws its own extent
+ * as if nothing had been declared. Closing it means the fold answering an
+ * entry that carries the declaration and no span, and every renderer saying
+ * what it could not draw; that is a change to the fold, not to this door.
+ */
+export async function viewFrameFor(session: FrameSessionLike, request: ViewFrameRequest): Promise<Readonly<Record<string, ResolvedChannel>>> {
+  const declared = request.frame ?? {};
+  const encodings = Object.fromEntries(Object.entries(request.encodings).filter(([channel]) => declared[channel] !== undefined));
+  if (Object.keys(encodings).length === 0) return {};
+  const self: FrameLayerRef = { layerId: request.viewId, table: request.table, chartKind: request.chartKind, encodings };
+  // the view's own address is its id: there is no layer under it to name
+  return frameDomains([await valuesOf(session, request, self, request.viewId)], declared);
+}
+
+/** What a fold reads off a request, whichever door it came through: the declared resolutions, the columns, the silences, the window. */
+type FoldRequest = Pick<FrameRequest, 'frame' | 'columns' | 'absence' | 'limit'>;
+
+/**
+ * One layer's channels, each folded from the rows ITS basis asked for (`address`
+ * is where those rows are read: the layer's, or a plain view's own id).
  *
  * WHY the walk is per BASIS and not per channel: the rows are the same for
  * every channel folded on the same basis, so a read per channel would ask the
@@ -169,7 +252,7 @@ export async function frameFor(session: FrameSessionLike, request: FrameRequest)
  * values, because the fold answers `mode: 'independent'` for it and that is
  * what tells a renderer who draws the guide.
  */
-async function valuesOf(session: FrameSessionLike, request: FrameRequest, layer: FrameLayerRef): Promise<FrameLayer> {
+async function valuesOf(session: FrameSessionLike, request: FoldRequest, layer: FrameLayerRef, address: string): Promise<FrameLayer> {
   const columns = request.columns[layer.table] ?? [];
   const bound = Object.entries(layer.encodings);
   // ONE reading of this table's silences, spent by every channel of the layer (`cellsFor`).
@@ -179,7 +262,7 @@ async function valuesOf(session: FrameSessionLike, request: FrameRequest, layer:
     channels[channel] = { type: typeOf(columns, field), values: [] };
   }
   for (const basis of bases(bound.map(([channel]) => basisOf(request.frame, channel)))) {
-    const rows = await readFor(session, request, layer, basis);
+    const rows = await readFor(session, request, layer, address, basis);
     for (const [channel, field] of bound.filter(([channel]) => basisOf(request.frame, channel) === basis)) {
       channels[channel] = { type: typeOf(columns, field), values: cellsFor(rows, field, silence) };
     }
@@ -198,12 +281,12 @@ function bases(asked: readonly ('table' | 'rows' | undefined)[]): ReadonlySet<'t
  * here: this door has no field to judge a row by, and a row silent in one
  * column still reports the others.
  */
-async function readFor(session: FrameSessionLike, request: FrameRequest, layer: FrameLayerRef, basis: 'table' | 'rows'): Promise<readonly Row[]> {
+async function readFor(session: FrameSessionLike, request: FoldRequest, layer: FrameLayerRef, address: string, basis: 'table' | 'rows'): Promise<readonly Row[]> {
   const limit = request.limit ?? FRAME_ROW_LIMIT;
   // 'rows' = the rows this frame draws, through the ONE door for a layer's rows (it owns the address→table rule).
   // 'table' = nobody's clause, so the axis does not move with a filter elsewhere. The layer already names its
   // table, so there is no address to resolve and no second resolver to introduce.
-  const answer = basis === 'rows' ? await layerRowsFor(session, layerAddress(request.viewId, layer.layerId), { limit }) : await session.viewQuery({ viewId: null, table: layer.table, limit });
+  const answer = basis === 'rows' ? await layerRowsFor(session, address, { limit }) : await session.viewQuery({ viewId: null, table: layer.table, limit });
   return answer.ok ? answer.rows : [];
 }
 
@@ -229,7 +312,7 @@ function basisOf(frame: Readonly<Record<string, ChannelResolution>> | undefined,
  * state column speaks for every other column. That is why a def with `governs`
  * or `carries` passes its declaration here.
  */
-function silenceFor(request: FrameRequest, table: string): TableSilence {
+function silenceFor(request: FoldRequest, table: string): TableSilence {
   const declared = request.absence?.[table] ?? declsOf(request.columns[table]);
   return declared === undefined ? silenceOfNothing() : silenceOfDecl(declared);
 }

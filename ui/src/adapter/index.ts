@@ -37,8 +37,8 @@ export type { LayerRowsSessionLike, LayerRowsWindow } from './layerRows.js';
 
 // The frame (protocol 1.5): the ONE door for a frame's SCALES — the host folds
 // nothing itself, so an axis cannot disagree with the marks under it
-export { frameFor, FRAME_ROW_LIMIT } from './frame.js';
-export type { FrameSessionLike, FrameLayerRef, FrameColumn, FrameRequest } from './frame.js';
+export { frameFor, viewFrameFor, FRAME_ROW_LIMIT } from './frame.js';
+export type { FrameSessionLike, FrameLayerRef, FrameColumn, FrameRequest, ViewFrameRequest } from './frame.js';
 
 export {
   pathToRoot,

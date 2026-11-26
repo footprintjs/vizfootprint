@@ -159,9 +159,8 @@ interface MarkDraw {
    * every mark but `lineMark`, which asks it whether its x is a band (the
    * stack asks `xBinding`/`bandX`; a plain view's scales now come the stack's
    * way too, `plainView`, and this stays the line's own question). A host can fold ONE
-   * channel's scale for a plain view the same door folds it for a stack
-   * (`frameFor`, `ui/src/adapter/frame.ts` — "first customers: … the gallery
-   * page"), and when it does, this is where that answer rides to the mark
+   * channel's scale for a plain view through the adapter's door for a view
+   * with no layers (`viewFrameFor`, `ui/src/adapter/frame.ts`), and when it does, this is where that answer rides to the mark
    * that needs it, unread by the ones that don't.
    */
   readonly frame?: Readonly<Record<string, ResolvedChannel>>;

@@ -338,6 +338,42 @@ port cannot ask N questions as one, so a refresh landing between two reads
 folds one frame over two table versions until the next update. It is written at
 `frameFor`, next to the `version` every answer already carries.
 
+**A view with no layers has its own door, `viewFrameFor`.** Why: a definition
+may declare axis settings on a plain view (a logarithmic curve, a zero line,
+bounds, that the axis reaches zero, which rows it is measured over), and the
+single-mark renderers honour what the frame holds for a channel they bind. But
+`frameFor` folds layers, and with none it answers `{}`, so the declaration
+never reached the renderer.
+
+```ts
+import { viewFrameFor } from 'vizfootprint-ui';
+
+const frame = await viewFrameFor(session, { viewId: 'dots', table: 'planets', chartKind: 'point', encodings: state.encodings.dots, columns: state.columns, frame: view.frame });
+// the definition declared `y: { transform: 'log' }` and nothing about x:
+// { y: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [30, 4000], transform: 'log' } }
+bound.view.update({ ...state, ...(Object.keys(frame).length > 0 ? { frame } : {}) });
+```
+
+It folds ONLY the channels the definition named and the view binds, which is
+why it is a second door and not `frameFor` with one layer. Layers on one frame
+need one scale, so `frameFor` folds every channel a layer binds. A view alone
+needs none: an axis nobody declared anything about is drawn on the chart's own
+extent, with its own margin, and an entry on the frame would take that away.
+The rows are read the same way (`basis: 'rows'` at the view's own address,
+`'table'` with nobody's clause), and silences are dropped by the same code.
+
+`chartKind` is required, in the definition's word (`'scatter'`, `'line'`,
+`'bar'`, `'histogram'`, `'boxplot'`): the mark decides the zero default, so a
+bar's and a box plot's magnitude axis folds to reach zero. The store's view
+does not carry it; the host takes it from the definition.
+
+A known gap, the fold's own and the same for layers: an axis with no span to
+fold (a refused read, a column of silences, `basis: 'rows'` over no rows, a
+logarithm that can place no cell) gets no entry, and then every key declared
+on it is not drawn for that update, with no word. Also unchanged by this door:
+a histogram's span is folded over its bound column, not its bin edges, so any
+entry on its x can leave an edge bin outside the plot (said in words).
+
 **And the projection has to keep BOTH shapes a frame entry has — the scar.**
 `mapFrame` kept a channel only when it named one of the two MODES, which is a
 perfectly good reading of a LAYERED view and drops **every layerless one**: a

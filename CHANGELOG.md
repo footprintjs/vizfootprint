@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Added: `viewFrameFor`, the frame door for a view with no layers
+
+- A definition may declare axis settings on a plain view (a logarithmic
+  curve, a zero line, bounds, reaching zero, which rows), and since the
+  change below the single-mark renderers honour what `RenderState.frame`
+  holds. But the adapter's `frameFor` folds layers and answers `{}` for a
+  view with none, so those declarations never reached the renderer.
+- `viewFrameFor(session, { viewId, table, chartKind, encodings, columns,
+  frame })` folds the channels the definition named and the view binds, and
+  nothing else. An axis the definition said nothing about gets no entry, so
+  it is still drawn on the chart's own extent with its own margin.
+- Rows are read as for a layer: `basis: 'rows'` at the view's own address,
+  `'table'` with nobody's clause. Silences are dropped by the same code.
+- `chartKind` is required, in the definition's word: the mark decides the
+  zero default, so a bar's and a box plot's magnitude axis folds to reach
+  zero.
+- Known gap, the fold's own and the same for layers: an axis with no span
+  to fold (a refused read, a column of silences, a logarithm that can
+  place no cell) gets no entry, and the keys declared on it are then not
+  drawn for that update, with no word.
+- A host that draws plain views calls it and pushes the answer when it is
+  not empty. Nothing calls it for the host: a host that does not call it
+  draws as before.
+
 ### Correction: a view drawn alone honours what its frame holds for its axes
 
 - The five single-mark renderers (scatter, line, bar, histogram, box plot)

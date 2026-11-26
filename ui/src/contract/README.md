@@ -716,8 +716,9 @@ lie past it stand outside the plot, and are said in words.
 
 **Not judged here.** The stack's other refusals compare one layer with another
 or place a layer in a shared box; a view alone has neither. The host decides
-what it folds: until the adapter folds a frame for a view with no layers, this
-rule is reached by a host that folds one by hand.
+what it folds. For a view with no layers the adapter's door is `viewFrameFor`
+(`../adapter/README.md`): it folds only the channels the definition declared
+something about, so an undeclared axis keeps its own extent.
 
 ### The frame renderer (R6): the def's stack of 2D marks, drawn
 
