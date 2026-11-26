@@ -1385,7 +1385,7 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
   if (zero !== null) return zero;
   const interval = intervalBrushRefusal(framed, frame);
   if (interval !== null) return interval;
-  const count = countBelowZeroRefusal(framed, frame);
+  const count = countMixRefusal(framed, frame);
   if (count !== null) return count;
   return twoScalesRefusal(framed, frame);
 }
@@ -1407,16 +1407,21 @@ function sharedYReaders(framed: readonly FramedLayer[], frame: Readonly<Record<s
 }
 
 /**
- * THE SPAN EVERY LAYER ON A SHARED y DRAWS ON, and the guide ticks: ONE span.
+ * THE SPAN EVERY LAYER ON A SHARED y DRAWS ON: ONE span.
  *
  * A count is read from zero, so a bar scales by `countSpan` whatever span it
- * is handed (zero up to the ceiling, never a ceiling below one). A line handed
- * the same folded pair used to scale by the pair itself. On a y folded as
- * 40…100 the bar stood on 0…100 and the line on 40…100, in one plot, under one
- * axis: one of the two was mislabelled. So where a count reads the shared y,
- * EVERY reader takes the count's span. Widening is the only honest direction:
- * a bar cut off at 40 would lie about its length, and a line drawn from zero
- * only loses height.
+ * is handed (zero up to the ceiling, never a ceiling below one), and the
+ * merged guide ticks that span (`VizFrame.tsx · drawnSpan`). A line handed the
+ * same folded pair used to scale by the pair itself. On a y folded as 40…100
+ * the bar stood on 0…100 and the line on 40…100, in one plot, under one axis:
+ * the line was mislabelled. So where a count reads the shared y, EVERY reader
+ * takes the count's span. Widening is the only honest direction: a bar cut
+ * off at 40 would lie about its length, and a line drawn from zero only loses
+ * height.
+ *
+ * Only a span FOLDED FROM THE ROWS is ever widened. A stack whose declared
+ * bounds are not the count's span, or whose fold reaches below zero, never
+ * gets here ({@link countMixRefusal}).
  */
 function sharedYSpan(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, span: readonly [number, number] | undefined): readonly [number, number] | undefined {
   if (span === undefined) return undefined;
@@ -1424,20 +1429,35 @@ function sharedYSpan(framed: readonly FramedLayer[], frame: Readonly<Record<stri
 }
 
 /**
- * A COUNT AND A POSITION ON ONE y THAT REACHES BELOW ZERO: refused. The count's
- * span starts at zero, so the part of the line under zero would be drawn
- * outside the plot, with no word that it was. No single span is right for
- * both in this version (a bar is drawn up from the plot's floor, not from a
- * zero line inside it), so the stack is refused in words.
+ * A COUNT AND A POSITION THAT BIND ONE SHARED y, where no one span is right
+ * for both. Two stacks, each refused in words:
+ *
+ *   - THE y HAS DECLARED BOUNDS that are not the count's span (they do not
+ *     start at zero, or end below one). A declaration is drawn as declared or
+ *     refused; a bar cannot be drawn from 40, and the line's "outside its
+ *     declared bounds" sentence must quote the pair that was declared.
+ *   - THE FOLDED y REACHES BELOW ZERO. A bar is drawn up from the plot's floor,
+ *     not from a zero line inside it, so the floor would be labelled below
+ *     zero under a bar that starts at zero.
+ *
+ * NOT JUDGED HERE, and unchanged: a count that binds NO y keeps its own
+ * ceiling beside a line on the shared y, and the frame's one y guide is then
+ * not the count's axis. That stack is drawn as it always was.
  */
-function countBelowZeroRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
+function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
   const { count, position } = sharedYReaders(framed, frame);
   if (count === undefined || position === undefined) return null;
-  // both read the shared numeric y, so it has a span (`spanOf`: what the quantity can be, else what the rows reach)
-  const span = spanOf(sharedOn(frame, 'y'))!;
+  const shared = sharedOn(frame, 'y')!; // both read it, so it is there
+  const [who, apart] = [`layer "${count.layer.layerId}" is a ${count.kind}, read from zero, and the y it shares with layer "${position.layer.layerId}"`, `Declare the ${count.kind} first and resolve y as independent, so each layer has a y of its own`];
+  if (shared.bounds !== undefined) {
+    const [lo, hi] = countSpan(shared.bounds, shared.bounds);
+    if (lo === shared.bounds[0] && hi === shared.bounds[1]) return null;
+    return `${who} declares bounds [${String(shared.bounds[0])}, ${String(shared.bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none. ${apart}.`;
+  }
+  const span = spanOf(shared)!; // a quantitative channel has a span
   const low = Math.min(span[0], span[1]);
   if (!(low < 0)) return null;
-  return `layer "${count.layer.layerId}" is a ${count.kind}, read from zero, and the y it shares with layer "${position.layer.layerId}" reaches below zero (${String(low)}): one scale cannot hold a length from zero and a ${position.kind} under it. Give the two layers a y each (resolve y as independent), or keep the shared y at or above zero.`;
+  return `${who} reaches below zero (${String(low)}): one scale cannot hold a length from zero and a ${position.kind} under it. ${apart}.`;
 }
 
 /**
@@ -1765,8 +1785,9 @@ function fullBandOrder(framed: readonly FramedLayer[], frame: Readonly<Record<st
 function frameChartDomain(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, categories: readonly string[] | undefined): ChartDomain {
   const on = (axis: 'x' | 'y'): SharedChannel | undefined => sharedAxis(framed, frame, axis)?.resolved;
   const x = spanOf(on('x'));
-  // one span for the guide and for every layer that reads this y (`sharedYSpan`)
-  const y = sharedYSpan(framed, frame, spanOf(on('y')));
+  // the raw fold: the guide widens it by the count's rule itself (`VizFrame.tsx · drawnSpan`), to the
+  // span `sharedYSpan` hands the layers
+  const y = spanOf(on('y'));
   const onAxis = (axis: 'x' | 'y'): readonly string[] => axisChannels(framed, axis);
   return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(categories === undefined ? {} : { categories }), ...transformAsk(frame, onAxis), ...zeroGuideAsk(frame, onAxis) };
 }
@@ -1982,8 +2003,6 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
             kind: f.kind,
             // its own y (an independent or per-layer y it binds) takes an edge on a two-axis frame — the frame picks which
             ownY: ownY(f, state.frame),
-            // only a layer that binds the shared y scales by the frame's span; a bar that binds none keeps its own ceiling
-            readsFrameY: f.layer.encodings[AXIS_CHANNELS[f.kind].y] !== undefined && sharedOn(state.frame, AXIS_CHANNELS[f.kind].y) !== undefined,
             render: (draw) =>
               layerMark(f, {
                 viewId: handshake.viewId,

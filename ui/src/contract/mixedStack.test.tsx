@@ -12,8 +12,10 @@
  * | a bar and a line, both bind y     | 40…100                    | bar on 0…100, line on 40…100         | both on 0…100, as the guide  |
  * | a bar and a line, both bind y     | 0…0.5                     | bar on 0…1, line on 0…0.5            | both on 0…1                  |
  * | a bar and a line, both bind y     | 0…100                     | one span                             | unchanged                    |
- * | a bar and a line, both bind y     | −20…100                   | the line under zero outside the plot | refused in words             |
- * | a bar that binds no y, and a line | 40…100                    | line on 40…100, guide ticked 0…100   | the guide ticks 40…100       |
+ * | a bar and a line, both bind y     | −20…100                   | the floor is the line's −20; the guide calls it 0 | refused in words |
+ * | a bar and a line, both bind y     | declared bounds 40…100    | bar on 0…100, line on 40…100         | refused in words             |
+ * | a bar and a line, both bind y     | declared bounds 0…100     | one span                             | unchanged                    |
+ * | a bar that binds no y, and a line | 40…100                    | bar on its own ceiling, guide from 0 | unchanged (a task of its own) |
  * | a line and a point (no count)     | 40…100                    | both on 40…100                       | unchanged                    |
  * | two bars                          | 40…100                    | both on 0…100                        | unchanged                    |
  * | a bar and a line, y logarithmic   | any                       | not this rule's                      | unchanged                    |
@@ -72,21 +74,40 @@ describe('a count and a line on one shared y', () => {
 
   it('reaching below zero is refused in words, naming both layers and the low end', () => {
     expect(refusalOf(barLine([-20, 100]))).toBe(
-      'layer "a" is a bar, read from zero, and the y it shares with layer "b" reaches below zero (-20): one scale cannot hold a length from zero and a line under it. Give the two layers a y each (resolve y as independent), or keep the shared y at or above zero.',
+      'layer "a" is a bar, read from zero, and the y it shares with layer "b" reaches below zero (-20): one scale cannot hold a length from zero and a line under it. Declare the bar first and resolve y as independent, so each layer has a y of its own.',
     );
-    // what the quantity can be wins over what the rows reach, here as everywhere
-    expect(refusalOf(drawn(['bar', 'line'], [BARS, LINE], { ...BANDS, y: shared('quantitative', [40, 100], { bounds: [-5, 100] }) }))).toContain('reaches below zero (-5)');
     expect(refusalOf(barLine([0, 100]))).toBe('');
+  });
+
+  it('with declared bounds that are not the count’s span is refused: a declaration is drawn as declared or not at all', () => {
+    const bounded = (bounds: readonly [number, number]): HTMLElement => drawn(['bar', 'line'], [BARS, LINE], { ...BANDS, y: shared('quantitative', [40, 100], { bounds }) });
+    expect(refusalOf(bounded([40, 100]))).toBe(
+      'layer "a" is a bar, read from zero, and the y it shares with layer "b" declares bounds [40, 100]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none. Declare the bar first and resolve y as independent, so each layer has a y of its own.',
+    );
+    expect(refusalOf(bounded([-5, 100]))).toContain('declares bounds [-5, 100]');
+    expect(refusalOf(bounded([0, 0.5]))).toContain('declares bounds [0, 0.5]');
+    // bounds that ARE the count's span draw, on those bounds, whatever the rows reach
+    expect(refusalOf(bounded([0, 100]))).toBe('');
+    expect(bounded([0, 100]).innerHTML).toBe(barLine([0, 100]).innerHTML);
+    expect(yTicks(bounded([0, 200]))).toContain('200');
+  });
+
+  it('the way out the sentence names draws: the bar first, y independent', () => {
+    const own = { mode: 'independent', guide: 'per-layer', scale: 'quantitative' } as unknown as ResolvedChannel;
+    const below: RenderLayer = { ...LINE, rows: [{ k: 'A', v: -20 }, { k: 'B', v: 100 }] };
+    const el = drawn(['bar', 'line'], [BARS, below], { ...BANDS, y: own });
+    expect(refusalOf(el)).toBe('');
+    expect(lineOf(el)).not.toBe('');
   });
 });
 
 describe('what this rule leaves alone', () => {
-  it('a bar that binds no y keeps its own ceiling, and the guide is ticked on the line’s span', () => {
+  it('a bar that binds no y keeps its own ceiling and the line its folded span, as before (not this rule’s)', () => {
     const el = drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: shared('quantitative', [40, 100]) });
     expect(refusalOf(el)).toBe('');
-    expect(yTicks(el)).toEqual(['40', '60', '80', '100']);
-    // the line's 40 is on the floor of its own span, where the guide now says 40
+    expect(yTicks(el)).toEqual(['0', '20', '40', '60', '80', '100']);
     expect(lineOf(el)).not.toBe(lineOf(barLine([40, 100])));
+    expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: shared('quantitative', [-20, 100]) }))).toBe('');
   });
 
   it('a stack with no count keeps the folded span', () => {
@@ -99,16 +120,21 @@ describe('what this rule leaves alone', () => {
     expect(refusalOf(drawn(['point', 'line'], [POINTS, RUN], frame([-20, 100])))).toBe('');
   });
 
-  it('two bars are both read from zero already, below zero or not', () => {
+  it('two bars are both read from zero already', () => {
     const second: RenderLayer = { ...BARS, layerId: 'b' };
     const two = (y: unknown): HTMLElement => drawn(['bar', 'bar'], [BARS, second], { category: BANDS.category, y: shared('quantitative', y) });
-    expect(refusalOf(two([-20, 100]))).toBe('');
+    expect(refusalOf(two([40, 100]))).toBe('');
     expect(two([40, 100]).innerHTML).toBe(two([0, 100]).innerHTML);
   });
 
   it('a logarithmic y is not this rule’s: nothing is widened to zero and nothing is refused by it', () => {
     const log = (y: unknown): HTMLElement => drawn(['bar', 'line'], [BARS, LINE], { ...BANDS, y: shared('quantitative', y, { transform: 'log' }) });
     expect(refusalOf(log([-20, 100]))).not.toContain('reaches below zero');
-    expect(lineOf(log([40, 100]))).not.toBe(lineOf(barLine([40, 100])));
+    // the line's low end, 40, stands on its layer's floor: the bottom of the folded 40…100. Widened
+    // toward zero it would stand above the floor, as it does on the linear axis.
+    const startY = (el: Element): number => Number(/^M[\d.]+,([\d.]+)/.exec(lineOf(el))![1]);
+    // (the layer's plot floor is at 250 in this 400 by 300 frame; the widened linear line starts near 157)
+    expect(startY(log([40, 100]))).toBe(250);
+    expect(startY(barLine([40, 100]))).toBeLessThan(200);
   });
 });

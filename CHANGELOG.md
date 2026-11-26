@@ -5,20 +5,19 @@
 ### Correction: a bar and a line on one shared y are drawn on one span
 
 - In a stack, a bar or a histogram is read from zero and scales by zero up to
-  the ceiling. A line or a point handed the same shared `y` scaled by the
-  folded pair. On a `y` folded as 40…100 the bar stood on 0…100 and the line
-  on 40…100, under one axis, so one of the two was mislabelled.
-- Where a count binds the shared `y`, every layer that binds it and the
-  merged guide now take the count's span (zero up to the ceiling, never a
-  ceiling below one).
-- **A stack that drew before is now refused in words:** a count and a line
-  or a point on one shared `y` that reaches below zero. The part under zero
-  was drawn outside the plot with no word that it was. Resolve `y` as
-  `independent`, or keep the shared `y` at or above zero.
-- A bar that binds no `y` keeps its own ceiling, and the merged guide is then
-  ticked on the span the other layers draw on (it was ticked from zero, which
-  matched neither). New optional `VizFrameLayer.readsFrameY` says so to the
-  frame; absent means true, as before.
+  the ceiling. A line handed the same shared `y` scaled by the folded pair.
+  On a `y` folded as 40…100 the bar stood on 0…100 and the line on 40…100,
+  under one axis that read 0…100, so the line was mislabelled.
+- Where a count binds the shared `y`, every layer that binds it now takes
+  the count's span (zero up to the ceiling, never a ceiling below one), which
+  is the span the merged guide already ticked.
+- **Two stacks that drew before are now refused in words**, each a count
+  and a line that bind one shared `y`: one whose `y` declares `bounds` that
+  are not a count's span (they do not start at zero, or end below one), and
+  one whose folded `y` reaches below zero. In both the two layers stood on
+  different spans. The sentence names the way out: declare the bar first and
+  resolve `y` as `independent`.
+- Unchanged: a bar that binds no `y` beside a line on the shared `y`.
 
 ### Correction: a tap at the edge of a histogram picks the bucket that stands there
 
