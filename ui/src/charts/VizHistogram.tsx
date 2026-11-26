@@ -46,7 +46,8 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedInterval } from '../contract/selection.js';
-import { pointerValue, epochOf, dayOf, domainOr, countSpan, scaleFor, placeable, excludedNote, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
+import { pointerValue, epochOf, dayOf, dayOfEpoch, domainOr, countSpan, scaleFor, placeable, excludedNote, outsideNotes, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
+import { NoteLines } from '../primitives/NoteLines.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { keyActivates } from '../primitives/pointSelect.js';
@@ -202,6 +203,14 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
   // maximum otherwise. Through `countSpan` (zero up to the ceiling, never below one; `domainOr` inside it holds the guard): a ceiling that is
   // not a finite number is not a ceiling, and scaling by it would draw every bin at nothing.
   const max = countSpan(props.domain?.y, [0, Math.max(...geoms.map((g) => g.count))])[1];
+  // …and the words for a bin outside the span it was GIVEN (`outsideNotes`, the one owner): on x a bin
+  // that starts before the span or ends after it, on y a bin taller than the ceiling. Each is drawn at
+  // its true place, which is past the plot's edge, so the count is what says it is there.
+  const dated = geoms.length > 0 && typeof geoms[0]!.x0 === 'string';
+  const outside = outsideNotes([
+    { channel: 'x', given: props.domain?.x, values: geoms.map((g) => [g.p0, g.p1] as const), noun: ['bin', 'bins'], ...(xKind === undefined ? {} : { kind: xKind }), ...(dated ? { format: dayOfEpoch } : {}) },
+    { channel: 'y', given: props.domain?.y, values: geoms.map((g) => g.count), count: true, noun: ['bin', 'bins'] },
+  ]);
   const plot = height - PAD.t - PAD.b;
   const plotBottom = height - PAD.b;
 
@@ -286,7 +295,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
         className={`vzf-chart vzf-histogram${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="group"
-        aria-label={(props.ariaLabel ?? `histogram of ${label}`) + excludedNote(excluded)}
+        aria-label={(props.ariaLabel ?? `histogram of ${label}`) + excludedNote(excluded) + outside.map((note) => ` — ${note}`).join('')}
         {...handlers}
       >
         {/* baseline */}
@@ -356,6 +365,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
             {excludedNote(excluded).replace(/^ — /, '')}
           </text>
         )}
+        <NoteLines className="vzf-outside-note" notes={outside} x={PAD.l} y={PAD.t - 6} />
       </svg>
       <EncodingPicker
         open={pickerChannel !== null}

@@ -84,6 +84,14 @@ export function dayOf(iso: string): string {
   return iso.slice(0, 10);
 }
 
+/** The largest epoch a `Date` can hold, either side of 1970 (ECMAScript's time range). */
+const DATE_RANGE_MS = 8.64e15;
+
+/** The day an epoch stands in, as a date axis writes its bounds. An epoch no `Date` can hold is written as its number, never thrown on. */
+export function dayOfEpoch(epoch: number): string {
+  return Math.abs(epoch) <= DATE_RANGE_MS ? dayOf(new Date(epoch).toISOString()) : String(epoch);
+}
+
 // ── the shared sequential-ramp step (the map's magnitude scale, D30 reused) ──
 
 /** How many steps the quantized `--vzf-seq-*` sequential ramp has. */
@@ -1093,10 +1101,29 @@ export interface OutsideAsk {
   readonly channel: string;
   /** `ChartDomain.x` / `.y` — the pair the chart was GIVEN, or nothing where it drew its own extent. */
   readonly given: readonly [number, number] | undefined;
-  /** The values this axis places, as the chart holds them. A non-finite cell is an ABSENCE, not a value outside an extent, and is not counted. */
-  readonly values: readonly number[];
+  /**
+   * The values this axis places, as the chart holds them. A non-finite cell is an ABSENCE, not a value
+   * outside an extent, and is not counted. A mark with WIDTH along the axis (a histogram bin, a heat-map
+   * column, a box with its whiskers) is its two ends, and reaches outside when either end does.
+   *
+   * THE SENTENCE FOR A MARK WITH WIDTH DOES NOT SAY "DECLARED". A chart cannot tell declared bounds
+   * from a span a frame folded, and a fold is taken over one bound column: a bin's far edge, or a
+   * whisker, can reach past a fold of the values with nothing declared and nothing wrong. So that
+   * sentence says only what is true either way: how many reach outside the span the axis was given.
+   */
+  readonly values: readonly (number | readonly [number, number])[];
   /** The curve the axis is drawn on. On a logarithmic one a flat declared pair is a decade either side, as it is drawn (`logDomain`), not one either side. */
   readonly kind?: ScaleKind;
+  /**
+   * This axis is a COUNT, read from zero: it is drawn on {@link countSpan} of the pair it was given
+   * (zero up to the ceiling), so a mark is outside only above the ceiling, and where the declared pair
+   * is not that span the sentence names both.
+   */
+  readonly count?: true;
+  /** What one mark on this axis is called, singular then plural. Absent = `['value', 'values']`. */
+  readonly noun?: readonly [string, string];
+  /** How a bound is written in the sentence (a date axis holds epoch milliseconds, and says days). Absent = the number. */
+  readonly format?: (bound: number) => string;
 }
 
 /**
@@ -1129,18 +1156,24 @@ export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
   return asks.flatMap((ask) => {
     if (ask.given === undefined || !ask.given.every((bound) => Number.isFinite(bound))) return [];
     // counted against the bounds AS THE AXIS DRAWS THEM, so what is counted as outside is what stands
-    // outside the plot. On a logarithmic axis those can differ from the pair that was declared (a flat
-    // pair is a decade either side; a low bound a logarithm cannot take is lifted), and then the
-    // sentence names both: on a logarithmic axis the words "declared bounds" are followed by the pair
-    // that was declared, in order. (A LINEAR flat pair is still printed widened by one each side, as
-    // it always was.)
+    // outside the plot. Those can differ from the pair that was declared: on a logarithmic axis (a flat
+    // pair is a decade either side; a low bound a logarithm cannot take is lifted) and on a count axis
+    // (read from zero, whatever low end was declared). Then the sentence names both: the words
+    // "declared bounds" are followed by the pair that was declared, in order. (A LINEAR flat pair is
+    // still printed widened by one each side, as it always was.)
     const linear = domainOr(ask.given, ask.given);
-    const [lo, hi] = ask.kind === 'log' ? logDomain(...domainOr(ask.given, ask.given, 'log')) : linear;
-    const n = ask.values.filter((v) => Number.isFinite(v) && (v < lo || v > hi)).length;
+    const said = ask.kind === 'log' ? domainOr(ask.given, ask.given, 'log') : linear;
+    const [lo, hi] = ask.count === true ? countSpan(ask.given, ask.given) : ask.kind === 'log' ? logDomain(...said) : linear;
+    const beyond = (v: number): boolean => Number.isFinite(v) && (v < lo || v > hi);
+    const wide = ask.values.some((v) => typeof v !== 'number');
+    const n = ask.values.filter((v) => (typeof v === 'number' ? beyond(v) : beyond(v[0]) || beyond(v[1]))).length;
     if (n === 0) return [];
-    const [said0, said1] = ask.kind === 'log' ? domainOr(ask.given, ask.given, 'log') : linear;
-    const drawn = said0 === lo && said1 === hi ? '' : `, drawn as [${lo}, ${hi}] on a logarithmic axis`;
-    return [`${ask.channel} has ${n} ${n === 1 ? 'value' : 'values'} outside its declared bounds [${said0}, ${said1}]${drawn} — bounds say what the quantity CAN be, so either they are wrong or this data is`];
+    const write = ask.format ?? String;
+    const [one, many] = ask.noun ?? ['value', 'values'];
+    if (wide) return [`${ask.channel} has ${n} ${n === 1 ? `${one} that reaches` : `${many} that reach`} outside the span this axis was given [${write(lo)}, ${write(hi)}]`];
+    const why = ask.count === true ? 'because a count is read from zero' : 'on a logarithmic axis';
+    const drawn = said[0] === lo && said[1] === hi ? '' : `, drawn as [${write(lo)}, ${write(hi)}] ${why}`;
+    return [`${ask.channel} has ${n} ${n === 1 ? one : many} outside its declared bounds [${write(said[0])}, ${write(said[1])}]${drawn} — bounds say what the quantity CAN be, so either they are wrong or this data is`];
   });
 }
 

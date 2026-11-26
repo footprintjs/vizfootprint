@@ -41,7 +41,8 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedCell } from '../contract/selection.js';
-import { EMPTY_FILL, epochOf, dayOf, rampStep, SEQ_RAMP_STEPS, domainOr, scaleFor, placeable, excludedNote, type ChartDomain } from '../primitives/scales.js';
+import { EMPTY_FILL, epochOf, dayOf, dayOfEpoch, rampStep, SEQ_RAMP_STEPS, domainOr, scaleFor, placeable, excludedNote, outsideNotes, type ChartDomain } from '../primitives/scales.js';
+import { NoteLines } from '../primitives/NoteLines.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { keyActivates } from '../primitives/pointSelect.js';
 import { slotPress } from '../primitives/slotValues.js';
@@ -230,6 +231,11 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
   // see `VizHistogram`'s identical fallback and `extentFor`'s doc for why [0, 1] would otherwise be
   // misread by `logDomain` as a real positive span instead of "nothing was placeable at all".
   const [d0, d1] = domainOr(props.domain?.x, cols.length > 0 ? [cols[0]!.p0, cols[cols.length - 1]!.p1] : xKind === 'log' ? [0, 0] : [0, 1], xKind);
+  // …and the words for a column outside the span it was GIVEN (`outsideNotes`, the one owner): one that
+  // starts before the span or ends after it is drawn at its true place, past the plot's edge
+  const outside = outsideNotes([
+    { channel: 'x', given: props.domain?.x, values: cols.map((c) => [c.p0, c.p1] as const), noun: ['column', 'columns'], ...(xKind === undefined ? {} : { kind: xKind }), ...(cols.length > 0 && typeof cols[0]!.x0 === 'string' ? { format: dayOfEpoch } : {}) },
+  ]);
   const axes = props.axes ?? true;
   const { padL, maxChars } = labelGutter(width);
   const x = scaleFor(xKind)(d0, d1, padL, width - PAD.r);
@@ -301,7 +307,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
         className={`vzf-chart vzf-heatmap${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="group"
-        aria-label={(props.ariaLabel ?? `${countLabel} by ${xField} and ${yField}`) + excludedNote(excluded)}
+        aria-label={(props.ariaLabel ?? `${countLabel} by ${xField} and ${yField}`) + excludedNote(excluded) + outside.map((note) => ` — ${note}`).join('')}
       >
         {/* cells: color = count on the shared ramp; 0 = the honest neutral */}
         {rows.map((yLabel) =>
@@ -384,6 +390,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
             {excludedNote(excluded).replace(/^ — /, '')}
           </text>
         )}
+        <NoteLines className="vzf-outside-note" notes={outside} x={padL} y={PAD.t - 4} />
         <desc>{`view ${viewId}: click a cell to select ${xField} and ${yField} together; click it again to clear`}</desc>
       </svg>
       <EncodingPicker

@@ -46,8 +46,9 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, roundTicksThatFit, ticksThatFit, epochOf, dayOf, domainOr, bandWidth, bandCentre, type ChartDomain, type RoundTick } from '../primitives/scales.js';
+import { linearScale, extent, ticks, roundTicksThatFit, ticksThatFit, epochOf, dayOf, dayOfEpoch, domainOr, outsideNotes, bandWidth, bandCentre, type ChartDomain, type RoundTick } from '../primitives/scales.js';
 import { Axis, placeTicks } from '../primitives/Axis.js';
+import { NoteLines } from '../primitives/NoteLines.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { togglePointEmission, keyActivates } from '../primitives/pointSelect.js';
 import { slotPress } from '../primitives/slotValues.js';
@@ -309,6 +310,18 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   // date-domain ticks read back through the FULL ISO day (display only — the
   // emitted category never rides this label, so no edge-precision rule applies)
   const isDate = geoms.length > 0 && typeof geoms[0]!.q1 === 'string';
+  // …and the words for a box outside the span it was GIVEN (`outsideNotes`, the one owner): one whose
+  // whisker or outlier reaches past either end. It is drawn at its true place, which is past the plot's
+  // edge, so the count is what says it is there.
+  const outside = outsideNotes([
+    {
+      channel: 'y',
+      given: props.domain?.y,
+      values: geoms.map((g) => { const ends = [g.loP, g.hiP, ...g.outlierGeoms.map((o) => o.p)]; return [Math.min(...ends), Math.max(...ends)] as const; }),
+      noun: ['box', 'boxes'],
+      ...(isDate ? { format: dayOfEpoch } : {}),
+    },
+  ]);
   // THE VALUE AXIS'S TICKS, worked out only when this chart draws its axis (a frame layer draws none,
   // and a tick it never draws must not be able to fail the chart):
   //  - NUMBERS, chosen the way the scatter and the line choose theirs: round values inside the span
@@ -327,7 +340,7 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
         className={`vzf-chart vzf-boxplot${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="group"
-        aria-label={props.ariaLabel ?? `box plot of ${yLabel} by ${xLabel}`}
+        aria-label={(props.ariaLabel ?? `box plot of ${yLabel} by ${xLabel}`) + outside.map((note) => ` — ${note}`).join('')}
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack */}
         {axes && <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />}
@@ -406,6 +419,7 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
         {/* the two interactive axis labels — the re-encode affordance rides the guide, so the frame owns both or neither */}
         {axes && <AxisLabel x={(PAD.l + width - PAD.r) / 2} y={height - 8} text={xLabel} channel="x" onOpen={openPicker} />}
         {axes && <AxisLabel x={14} y={(PAD.t + height - PAD.b) / 2} text={yLabel} channel="y" anchor="middle" rotate={-90} onOpen={openPicker} />}
+        <NoteLines className="vzf-outside-note" notes={outside} x={PAD.l} y={PAD.t - 4} />
         <desc>{`view ${viewId}: click a box to select ${xLabel}; click it again to clear`}</desc>
       </svg>
       <EncodingPicker

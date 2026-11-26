@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Correction: every chart says what stands outside the span its axis was given
+
+- A chart handed a span draws on it, and a mark past the span is drawn at
+  its true place, which is past the plot's edge. The scatter and the line's
+  value axis counted those marks and said so, in the picture and in the
+  accessible name. The bar, the histogram, the box plot, the heat map and
+  the line's x axis drew them in silence. They now say it too.
+- A count axis (bar, histogram) is read from zero, so a mark is outside only
+  above the ceiling: `y has 1 bar outside its declared bounds [0, 5]`. Where
+  the declared pair does not start at zero the sentence names both pairs.
+- A mark with width (a histogram bin, a heat-map column, a box with its
+  whiskers and outliers) can reach past a span nobody declared, so its
+  sentence blames nobody: `x has 2 bins that reach outside the span this
+  axis was given [25, 75]`.
+- A date axis writes its span as days.
+- Nothing is moved, hidden or refused; a chart with nothing outside, or
+  with no span given, is drawn as before.
+- New part `NoteLines` (the lines of words a chart puts in its own picture)
+  and helper `dayOfEpoch`; `OutsideAsk` gains `count`, `noun`, `format`, and
+  takes a mark's two ends as a pair.
+
 ### Correction: a refused stack is told a way out that draws, with three layers too
 
 - A bar and a line on one shared `y` that cannot stand on one span are
