@@ -14,10 +14,12 @@
  * | in the left margin, the first bucket starts there| the first bucket                        | the first bucket             |
  * | inside a bucket                                  | that bucket                             | that bucket                  |
  * | at an edge, on a domain wider than the buckets   | cleared: no bucket stands there         | cleared                      |
+ * | right margin, ONE bucket with no width (at left) | cleared                                 | cleared (never a far bucket) |
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { VizHistogram, type HistogramBinDatum } from './VizHistogram.js';
+import { selectionForView } from '../contract/selection.js';
 
 afterEach(cleanup);
 
@@ -68,6 +70,52 @@ describe('a tap at the edge of a histogram', () => {
       expect(tap(bins, 420 + 10, props), `${what}: right margin`).toEqual([edges[2], edges[3]]);
       expect(tap(bins, -10, props), `${what}: left margin`).toEqual([edges[0], edges[1]]);
     }
+  });
+
+  it('one bucket with no width (every value the same) is drawn at the left edge: the right margin clears, the left picks it', () => {
+    // what the library's own binner makes of a column that holds one value: a single bucket [5, 5]
+    const one = [{ x0: 5, x1: 5, count: 3 }];
+    expect(tap(one, 420 + 10)).toBeNull();
+    expect(tap(one, -10)).toEqual([5, 5]);
+    expect(tap(one, 200)).toBeNull();
+    // …and the same for a date
+    const day = [{ x0: '2024-01-01', x1: '2024-01-01', count: 3 }] as unknown as HistogramBinDatum[];
+    expect(tap(day, 420 + 10)).toBeNull();
+  });
+
+  it('dates: the right margin picks the last bucket and the left the first, as numbers do', () => {
+    const days = [
+      { x0: '2024-01-01', x1: '2024-01-11', count: 2 },
+      { x0: '2024-01-11', x1: '2024-01-21', count: 5 },
+      { x0: '2024-01-21', x1: '2024-01-31', count: 1 },
+    ] as unknown as HistogramBinDatum[];
+    expect(tap(days, 420 + 10)).toEqual(['2024-01-21', '2024-01-31']);
+    expect(tap(days, -10)).toEqual(['2024-01-01', '2024-01-11']);
+  });
+
+  it('a last bucket with no width, standing on the right edge, is the one a right-margin tap picks', () => {
+    expect(tap(binsOf([0, 10, 20, 20]), 420 + 10)).toEqual([20, 20]);
+  });
+
+  it('a logarithmic histogram whose first bucket has no width: the left margin picks the bucket that starts there', () => {
+    // the merged code cleared here; both buckets start at the left edge and the first has no width to tap
+    expect(tap(binsOf([3, 3, 300]), -10, { domain: { transform: { x: 'log' } } })).toEqual([3, 300]);
+  });
+
+  it('a margin tap on the bucket already selected clears it, as a tap inside it does', () => {
+    const bins = binsOf([0, 10, 20, 30]);
+    const onEmit = vi.fn();
+    const { container, rerender } = render(<VizHistogram data={bins} field="mass" width={420} onEmit={onEmit} viewId="histogram" />);
+    const svg = container.querySelector('svg.vzf-histogram')!;
+    fireEvent.pointerDown(svg, { clientX: 430, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: 430, pointerId: 1 });
+    expect(onEmit.mock.calls.at(-1)![0].rawValue).toEqual([20, 30]);
+    // the session folds that selection back to the chart as its own
+    const selection = selectionForView([{ viewId: 'histogram', field: 'mass', kind: 'interval', value: [20, 30] }], 'histogram');
+    rerender(<VizHistogram data={bins} field="mass" width={420} onEmit={onEmit} viewId="histogram" selection={selection} />);
+    fireEvent.pointerDown(svg, { clientX: 430, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: 430, pointerId: 1 });
+    expect(onEmit.mock.calls.at(-1)![0].rawValue).toBeNull();
   });
 
   it('inside a bucket picks that bucket, as before', () => {

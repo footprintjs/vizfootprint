@@ -30,10 +30,14 @@ export function linearScale(d0: number, d1: number, r0: number, r1: number): Lin
  * last bit, which is enough to leave the smallest or the largest value outside
  * a drag across everything.
  *
- * ONE OWNER, for every chart whose drag records a span of numbers (the
- * scatter, the line over numbers).
+ * ONE OWNER, for every chart that reads a value off a pointer (the scatter's
+ * and the numeric line's drags, the histogram's tap).
  */
 export function pointerValue(scale: LinearScale, px: number): number {
+  // A DOMAIN WITH NO LENGTH HAS NO ENDS TO ANSWER. A scale built over one value (5 … 5) still draws,
+  // one unit wide, and reports the same number for both ends, so "the end of the domain" is not what
+  // stands at the far end of its range. There the scale's own inverse is the only honest answer.
+  if (scale.domain[0] === scale.domain[1]) return scale.invert(px);
   const [r0, r1] = scale.range;
   const [first, last] = r0 <= r1 ? [0, 1] : [1, 0];
   if (px <= Math.min(r0, r1)) return scale.domain[first]!;

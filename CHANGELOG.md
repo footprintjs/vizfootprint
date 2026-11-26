@@ -7,9 +7,12 @@
 - A tap beside a histogram's plot is held at the plot's edge. At the right
   edge the value worked back from that pixel could fall past the last
   bucket's end in its last digit, so the tap cleared the selection where it
-  should have picked the last bucket (a reviewer measured 91 of 200
-  logarithmic and 3 of 200 linear histograms). The tap now reads the value
-  through `pointerValue`, as the scatter's and the line's drags do.
+  should have picked the last bucket (94 of 200 logarithmic and 13 of 200
+  linear generated histograms). The tap now reads the value through
+  `pointerValue`, as the scatter's and the line's drags do.
+- `pointerValue` answers the scale's own inverse for a domain with no
+  length (one value): such a scale reports the same number for both ends,
+  which is not what stands at the far end of its range.
 
 ### Correction: a line's drag across the whole plot holds its two end points
 
