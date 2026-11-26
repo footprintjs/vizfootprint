@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Correction: a tap at the edge of a histogram picks the bucket that stands there
+
+- A tap beside a histogram's plot is held at the plot's edge. At the right
+  edge the value worked back from that pixel could fall past the last
+  bucket's end in its last digit, so the tap cleared the selection where it
+  should have picked the last bucket (a reviewer measured 91 of 200
+  logarithmic and 3 of 200 linear histograms). The tap now reads the value
+  through `pointerValue`, as the scatter's and the line's drags do.
+
 ### Correction: a line's drag across the whole plot holds its two end points
 
 - A line over numbers records the value under the pointer unrounded, and

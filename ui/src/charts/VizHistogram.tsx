@@ -46,7 +46,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedInterval } from '../contract/selection.js';
-import { epochOf, dayOf, domainOr, countSpan, scaleFor, placeable, excludedNote, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
+import { pointerValue, epochOf, dayOf, domainOr, countSpan, scaleFor, placeable, excludedNote, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { keyActivates } from '../primitives/pointSelect.js';
@@ -244,7 +244,10 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
       return [first.x0, last.x1] as unknown as [number, number];
     },
     onTap: (px) => {
-      const v = x.invert(px);
+      // the value under the pointer, and the axis's own end where the pointer was held at the plot's edge
+      // (`pointerValue`): the edge pixel's inverse can fall past the last bucket's end in its last digit,
+      // and a tap in the right margin then cleared the selection where it should pick the last bucket
+      const v = pointerValue(x, px);
       const hit = geoms.find((g, i) => v >= g.p0 && (v < g.p1 || (i === geoms.length - 1 && v <= g.p1)));
       if (!hit) {
         // a click beside every bucket — clear, the scatter/line tap discipline
