@@ -63,7 +63,7 @@ import { PAD as BAR_PAD } from './VizBar.js';
 import { PAD as POINT_PAD } from './VizScatter.js';
 import { PAD as HISTOGRAM_PAD } from './VizHistogram.js';
 import { PAD as BOXPLOT_PAD } from './VizBoxPlot.js';
-import { dayOf, ticks, scaleFor, logTicks, logTickLabel, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, bandWidth, bandCentre, padOnSide, type ChartDomain, type ScaleKind, type AxisSide, type LabelEdges, type RoundTick } from '../primitives/scales.js';
+import { dayOf, ticks, domainOr, scaleFor, logTicks, logTickLabel, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, bandWidth, bandCentre, padOnSide, type ChartDomain, type ScaleKind, type AxisSide, type LabelEdges, type RoundTick } from '../primitives/scales.js';
 import { Axis, placeTicks, type AxisTick } from '../primitives/Axis.js';
 import { zeroGuideFor, zeroGuideNotes, type ZeroGuide } from '../primitives/zeroGuide.js';
 
@@ -269,14 +269,18 @@ function curveOf(axis: FrameAxis | undefined, declared: ScaleKind | undefined): 
  */
 function spanTicks(scale: FrameAxis['scale'], span: readonly [number, number] | undefined, from: number, to: number, kind: ScaleKind | undefined, along: 'width' | 'height', bounds?: LabelEdges): readonly AxisTick[] {
   if (span === undefined || !Number.isFinite(span[0]) || !Number.isFinite(span[1])) return [];
-  const at = scaleFor(kind)(span[0], span[1], from, to);
+  // THE SPAN THE LAYERS DRAW ON (`domainOr`, the one rule every chart scales by): in order, and a flat
+  // one widened by one each side. The guide used to tick the raw pair, so on a constant column its
+  // tick stood at the plot's edge while the mark stood in the middle.
+  const [lo, hi] = domainOr(span, span);
+  const at = scaleFor(kind)(lo, hi, from, to);
   const said = (values: readonly number[], label: (value: number) => string): RoundTick[] => values.map((value) => ({ value, label: label(value) }));
   const fitted =
     scale === 'temporal'
-      ? ticksThatFit(said(ticks(span[0], span[1], FRAME_TICK_STEPS), (value) => dayOf(new Date(value).toISOString())), at, along, bounds)
+      ? ticksThatFit(said(ticks(lo, hi, FRAME_TICK_STEPS), (value) => dayOf(new Date(value).toISOString())), at, along, bounds)
       : kind === 'log'
         ? ticksThatFit(said(logTicks(at.domain[0], at.domain[1], FRAME_TICK_STEPS + 1), logTickLabel), at, along, bounds)
-        : roundTicksThatFit(span[0], span[1], FRAME_TICK_TARGET, at, along, bounds);
+        : roundTicksThatFit(lo, hi, FRAME_TICK_TARGET, at, along, bounds);
   return placeTicks(fitted, at);
 }
 
@@ -331,7 +335,9 @@ function frameZero(axis: FrameAxis | undefined, span: readonly [number, number] 
   if (axis === undefined || axis.scale !== 'quantitative' || span === undefined || !Number.isFinite(span[0]) || !Number.isFinite(span[1])) return undefined;
   // `scaleFor` is the one owner of the logarithmic clamp, so building the placer is safe even for a
   // span a logarithm cannot take — and `zeroGuideFor` refuses a log axis before it ever asks for 0
-  return zeroGuideFor({ channel, asked, domain: [span[0], span[1]], ...(kind === undefined ? {} : { transform: kind }), place: scaleFor(kind)(span[0], span[1], from, to) });
+  // on the span the layers draw on (`domainOr`): in order, a flat one widened, as `spanTicks` takes it
+  const [lo, hi] = domainOr(span, span);
+  return zeroGuideFor({ channel, asked, domain: [lo, hi], ...(kind === undefined ? {} : { transform: kind }), place: scaleFor(kind)(lo, hi, from, to) });
 }
 
 /** Both axes' zero guides, decided once: the frame draws them and its accessible label says what it could not draw. */

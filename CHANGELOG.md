@@ -8,8 +8,11 @@
   ticked at three even cuts of its span, rounded to a tenth: 0 … 20 read
   "0 6.7 13.3 20", and a signed span did not label zero. It now follows the
   rules of the charts' own axes: round values inside the span, written to the
-  step's precision or against one unit, as many as have room. A stack and a
-  chart drawn alone now read the same data the same way.
+  step's precision or against one unit, as many as have room. It asks for
+  four steps, as the line chart does (the scatter asks for five).
+- The guide is ticked over the span the layers draw on. A constant column
+  (a flat span) used to put its tick at the plot's edge while the mark stood
+  in the middle, and a span given backwards was mirrored against the marks.
 - A y label wider than the margin is squeezed into it, and an x label near
   the edge is moved inside the drawing. Both used to be cut off.
 - A logarithmic axis shows the decades that have room. A date axis keeps its

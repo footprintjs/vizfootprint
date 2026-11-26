@@ -15,7 +15,8 @@
  * | dates across a month                     | four days                            | the same four days, the last moved inside    |
  * | dates on a 220 px frame                  | four days, overlapping               | the first and the last                       |
  * | a logarithmic axis on a narrow frame     | decades, overlapping                 | the decades that have room                   |
- * | a flat span                              | one value four times                 | that value once                              |
+ * | a flat span (a constant column)          | one value four times, at the edge    | the span the layers draw on: value ± 1       |
+ * | a span given backwards                   | mirrored against the marks           | in order, as the layers draw it              |
  * | bands                                    | one tick per band                    | the same                                     |
  * | a tick                                   | placed by the frame's scale          | placed by the frame's scale                  |
  */
@@ -95,13 +96,44 @@ describe('the frame’s guide — numbers', () => {
     expect(labels(root, 'left')).toEqual(['0', '20', '40', '60', '80', '100']);
   });
 
-  it('a flat span is one tick; a span that is not numbers is the axis line and no tick', () => {
-    expect(labels(draw(both([5, 5])), 'bottom')).toEqual(['5']);
-    cleanup();
+  it('a flat span is ticked on the span the layers draw on: one each side of the value, the value in the middle of the plot', () => {
+    // a constant column folds to [5, 5]; every chart widens that to 4 … 6 (`domainOr`), and so does the guide
+    const root = draw(both([5, 5]));
+    expect(labels(root, 'bottom')).toEqual(['4.0', '4.5', '5.0', '5.5', '6.0']);
+    const plot = framePlotBox(framePad(['line']), 400, 300);
+    expect(marks(root, 'bottom')[2]).toBeCloseTo((plot.left + plot.right) / 2, 6);
+    expect(marks(root, 'left')[2]).toBeCloseTo((plot.top + plot.bottom) / 2, 6);
+  });
+
+  it('a span given backwards is ticked in order, as the layers draw it', () => {
+    const root = draw(both([20, 0]));
+    expect(labels(root, 'bottom')).toEqual(['0', '5', '10', '15', '20']);
+    const at = marks(root, 'bottom');
+    expect(at[0]).toBeLessThan(at[4]!);
+    const up = marks(root, 'left');
+    expect(up[0]).toBeGreaterThan(up[4]!);
+  });
+
+  it('a span that is not numbers is the axis line and no tick', () => {
     const root = draw({ x: q, y: q, domain: { x: [0, Number.NaN], y: [0, Infinity] } });
     expect(labels(root, 'bottom')).toEqual([]);
     expect(labels(root, 'left')).toEqual([]);
     expect(axis(root, 'bottom').querySelector(':scope > line.vzf-axis')).not.toBeNull();
+  });
+
+  it('the axis lines run along the plot box’s floor and left edge, end to end', () => {
+    const root = draw(both([0, 20]));
+    const plot = framePlotBox(framePad(['line']), 400, 300);
+    const num = (el: Element, name: string): number => Number(el.getAttribute(name));
+    const x = axis(root, 'bottom').querySelector(':scope > line.vzf-axis')!;
+    expect([num(x, 'x1'), num(x, 'y1'), num(x, 'x2'), num(x, 'y2')]).toEqual([plot.left, plot.bottom, plot.right, plot.bottom]);
+    const y = axis(root, 'left').querySelector(':scope > line.vzf-axis')!;
+    expect([num(y, 'x1'), num(y, 'y1'), num(y, 'x2'), num(y, 'y2')]).toEqual([plot.left, plot.top, plot.left, plot.bottom]);
+  });
+
+  it('y labels are thinned by a line of text, not by their width', () => {
+    // 0 … 9 on a 120 px high frame: single digits are narrow, so by width 0 2 4 6 8 would fit
+    expect(labels(draw({ ...both([0, 9]), height: 120 }), 'left')).toEqual(['0', '5']);
   });
 });
 
@@ -122,15 +154,34 @@ describe('the frame’s guide — dates, decades and bands', () => {
     expect(labels(root, 'bottom')).toEqual(['2026-04-01', '2026-05-01']);
   });
 
+  it('days are judged where they are DRAWN: a last day moved in from the edge stands closer to its neighbour', () => {
+    // at 262 px the four days fit when centred on their ticks, but the last is moved inside the drawing
+    // and would then overlap the third. Judged where drawn, the walk from the first keeps three
+    const root = draw({ x: t, y: q, domain: { x: month, y: [0, 10] }, width: 262 });
+    expect(labels(root, 'bottom')).toEqual(['2026-04-01', '2026-04-11', '2026-04-21']);
+    const xs = [...axis(root, 'bottom').querySelectorAll('text.vzf-tick')].map((el) => Number(el.getAttribute('x')));
+    for (let i = 1; i < xs.length; i++) expect(xs[i]! - xs[i - 1]!).toBeGreaterThanOrEqual(60 + 4);
+    cleanup();
+    expect(labels(draw({ x: t, y: q, domain: { x: month, y: [0, 10] }, width: 300 }), 'bottom')).toHaveLength(4);
+  });
+
+  it('a flat date span is the day before, the day and the day after, as the layers draw it', () => {
+    const day = Date.parse('2026-01-04');
+    const root = draw({ x: t, y: q, domain: { x: [day, day], y: [0, 10] } });
+    const got = labels(root, 'bottom');
+    expect(got[0]).toBe('2026-01-03');
+    expect(got.at(-1)).toBe('2026-01-04');
+    expect(new Set(marks(root, 'bottom')).size).toBe(got.length);
+  });
+
   it('a logarithmic axis shows the decades that have room', () => {
     const wide = draw({ x: q, y: q, domain: { x: [1, 1000], y: [1, 1000], transform: { x: 'log', y: 'log' } } });
     expect(labels(wide, 'bottom')).toEqual(['1', '10', '100', '1000']);
     expect(labels(wide, 'left')).toEqual(['1', '10', '100', '1000']);
     cleanup();
     const narrow = draw({ x: q, y: q, domain: { x: [1, 1e9], y: [1, 1000], transform: { x: 'log' } }, width: 110 });
-    const got = labels(narrow, 'bottom');
-    expect(got[0]).toBe('1');
-    expect(got.length).toBeLessThan(4);
+    // four decades do not fit 40 px of plot: the first and the last are kept
+    expect(labels(narrow, 'bottom')).toEqual(['1', '1e+9']);
   });
 
   it('bands are one tick per band at its centre, level when the name fits and slanted with its whole name kept when it does not', () => {
@@ -146,6 +197,12 @@ describe('the frame’s guide — dates, decades and bands', () => {
       expect(text.getAttribute('transform')).toMatch(/^rotate\(-40 /);
       expect(text.querySelector('title')!.textContent).toBe(names[i]);
     }
+    // the room a slanted label has is counted from 12 px below the axis: with an x title under it there is less
+    const shown = (root: HTMLElement): number => axis(root, 'bottom').querySelector('text.vzf-tick')!.textContent!.length - names[0]!.length;
+    const withoutTitle = shown(long);
+    cleanup();
+    const withTitle = shown(draw({ x: { scale: 'categorical', label: 'category' }, domain: { categories: names } }));
+    expect(withTitle).toBeLessThan(withoutTitle);
   });
 });
 
