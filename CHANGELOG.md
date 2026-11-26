@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Correction: a filter's bound keeps the row it was taken from, on the SQL engine too
+
+- The SQL engine (DuckDB) was handed a filter's numbers as plain decimal
+  text. DuckDB reads such text as a fixed-point DECIMAL, and its conversion
+  to the DOUBLE a column holds is not exact, so a filter whose bound is a
+  value in the data could leave that row out. Measured on 5,000 doubles,
+  `"v" BETWEEN v AND v` found its own row for 4,860. The memory engine
+  compares doubles exactly, so the two engines disagreed (a reviewer saw 21
+  of 400 intervals one row short on DuckDB).
+- The statement the SQL engine runs now writes a number with a fraction in
+  exponent form, which DuckDB reads as a DOUBLE: 5,000 of 5,000, for
+  `BETWEEN`, `>=`, `<=`, `IN` and `=`. Whole numbers are written as before.
+- **What a result reports and what the log records are unchanged.**
+  `evaluate().sql` and `CommitRecord.predicateSQL` keep the plain decimal
+  text, byte for byte. Only the statement handed to the engine differs, and
+  only where a bound has a fraction.
+- Every statement of a call runs the exact text: the window, its separate
+  count, and both statements of a find.
+- Two limits. A number with a fraction compared with an integer column makes
+  DuckDB cast the column to DOUBLE for that comparison, so on a host's own
+  BIGINT table two neighbouring values past 2^53 compare equal. And the
+  Mosaic adapter still hands a host's coordinator the plain decimal text.
+- New exports from `vizfootprint/data`: `executablePredicateSQL` and
+  `exactLiteralSQL`.
+
 ### Correction: a tap at the edge of a histogram picks the bucket that stands there
 
 - A tap beside a histogram's plot is held at the plot's edge. At the right

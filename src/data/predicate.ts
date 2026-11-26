@@ -141,6 +141,44 @@ export function literalToSQL(value: unknown): string {
   }
 }
 
+/** How one clause value is written into SQL text: {@link literalToSQL} for a descriptor, {@link exactLiteralSQL} for a statement an engine runs. */
+type LiteralWriter = (value: unknown) => string;
+
+/**
+ * A LITERAL A SQL ENGINE READS AS THE NUMBER IT WAS WRITTEN FROM. The same as
+ * {@link literalToSQL} for everything but a number with a fraction, which is
+ * written in exponent form (`1.0733333333333333e+2`).
+ *
+ * WHY. DuckDB reads plain decimal text as a fixed-point DECIMAL
+ * (`typeof(107.33333333333333)` is `DECIMAL(17,14)`), and its conversion of
+ * that DECIMAL to the DOUBLE the column holds is not exact. Measured on 5,000
+ * doubles: `"v" BETWEEN lit(v) AND lit(v)` found the row holding `v` itself for
+ * 4,860 of them. So a filter whose bound IS a value in the data could leave
+ * that row out, and the SQL engine disagreed with the memory engine, which
+ * compares doubles exactly. Text with an exponent is read as a DOUBLE and
+ * round-trips: 5,000 of 5,000, for `BETWEEN`, `>=`, `<=`, `IN` and `=`.
+ *
+ * A WHOLE NUMBER STAYS PLAIN. DuckDB reads it as an integer type and compares
+ * it exactly: a whole-number literal alone puts no cast on an integer column.
+ *
+ * THE LIMIT. A number with a fraction compared with an integer column makes
+ * DuckDB cast the COLUMN to DOUBLE for that comparison (a `BETWEEN 0.5 AND 3`,
+ * or an `IN` list that holds one fraction). Up to 2^53 that changes nothing.
+ * Past it, two neighbouring BIGINTs become the same double. This library's own
+ * landings never hold such a value as a number (a JS number is a double
+ * already); a host's own BIGINT table can.
+ *
+ * `CAST(x AS DOUBLE)` and `x::DOUBLE` do NOT help: the text is read as a
+ * DECIMAL first and converted the same inexact way (measured: 4,860 and 4,896).
+ *
+ * THIS IS NEVER THE RECORDED TEXT. The descriptor a result reports and the
+ * byte the log keeps are {@link literalToSQL}'s, which is Mosaic's own plain
+ * decimal rule; only the statement handed to an engine is written this way.
+ */
+export function exactLiteralSQL(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) && !Number.isInteger(value) ? value.toExponential() : literalToSQL(value);
+}
+
 /**
  * ONE PLAIN VALUE: what a selection may compare a column with. A string, a
  * number, a boolean, `null` or a real date ({@link isPlainDate}) — the values {@link literalToSQL}
@@ -213,10 +251,10 @@ export function quoteIdent(field: string): string {
   return `"${field.replaceAll('"', '""')}"`;
 }
 
-function resolvePointSQL(clause: PointClause): string {
+function resolvePointSQL(clause: PointClause, write: LiteralWriter): string {
   if (clause.value === undefined) return CLEARED_SQL; // clausePoint: value===undefined -> no predicate
   if (clause.value === null) return `(${quoteIdent(clause.field)} IS NULL)`; // isInDistinct null-safety fallback
-  return `(${quoteIdent(clause.field)} IN (${literalToSQL(clause.value)}))`;
+  return `(${quoteIdent(clause.field)} IN (${write(clause.value)}))`;
 }
 
 /**
@@ -239,13 +277,13 @@ function resolvePointSQL(clause: PointClause): string {
  *    comparison instead of `BETWEEN`, honest SQL for a shape Mosaic cannot
  *    express.
  */
-function resolveIntervalSQL(clause: IntervalClause): string {
+function resolveIntervalSQL(clause: IntervalClause, write: LiteralWriter): string {
   if (clause.value === null) return CLEARED_SQL; // clauseInterval: value==null -> no predicate
   const [lo, hi] = clause.value;
   const field = quoteIdent(clause.field);
-  if (lo === null) return `(${field} <= ${literalToSQL(hi)})`;
-  if (hi === null) return `(${field} >= ${literalToSQL(lo)})`;
-  return `(${field} BETWEEN ${literalToSQL(lo)} AND ${literalToSQL(hi)})`;
+  if (lo === null) return `(${field} <= ${write(hi)})`;
+  if (hi === null) return `(${field} >= ${write(lo)})`;
+  return `(${field} BETWEEN ${write(lo)} AND ${write(hi)})`;
 }
 
 /**
@@ -253,10 +291,10 @@ function resolveIntervalSQL(clause: IntervalClause): string {
  * empty `values` list is a real, always-false predicate (`FALSE`), not the
  * "cleared" state (that is `clause === null` at the `evaluate()` level).
  */
-function resolveMatchSQL(clause: MatchClause): string {
+function resolveMatchSQL(clause: MatchClause, write: LiteralWriter): string {
   if (clause.values.length === 0) return clause.exclude === true ? '(TRUE)' : '(FALSE)';
   const op = clause.exclude === true ? 'NOT IN' : 'IN';
-  return `(${quoteIdent(clause.field)} ${op} (${clause.values.map(literalToSQL).join(', ')}))`;
+  return `(${quoteIdent(clause.field)} ${op} (${clause.values.map(write).join(', ')}))`;
 }
 
 /*
@@ -271,9 +309,9 @@ function resolveMatchSQL(clause: MatchClause): string {
  */
 
 /** Render ONE cell side by delegating to the existing point/interval arms. */
-function resolveCellSideSQL(field: string, side: CellSide): string {
+function resolveCellSideSQL(field: string, side: CellSide, write: LiteralWriter): string {
   const clause = cellSideClause(field, side);
-  return clause.kind === 'interval' ? resolveIntervalSQL(clause) : resolvePointSQL(clause);
+  return clause.kind === 'interval' ? resolveIntervalSQL(clause, write) : resolvePointSQL(clause, write);
 }
 
 /**
@@ -285,10 +323,10 @@ function resolveCellSideSQL(field: string, side: CellSide): string {
  * the log's descriptor exactly as plain intervals already do (the TWO
  * documented divergences above) — this stays the one honest SQL.
  */
-function resolveCellSQL(clause: CellClause): string {
+function resolveCellSQL(clause: CellClause, write: LiteralWriter): string {
   if (clause.value === null) return CLEARED_SQL; // whole cell cleared -> no predicate
   const [vx, vy] = clause.value;
-  return `(${resolveCellSideSQL(clause.fields[0], vx)} AND ${resolveCellSideSQL(clause.fields[1], vy)})`;
+  return `(${resolveCellSideSQL(clause.fields[0], vx, write)} AND ${resolveCellSideSQL(clause.fields[1], vy, write)})`;
 }
 
 /**
@@ -302,9 +340,9 @@ function resolveCellSQL(clause: CellClause): string {
  * An empty set is a real always-false predicate (`(FALSE)`) — the exact rule
  * an empty keep-list follows above, and never "everything".
  */
-function resolveNeighbourhoodSQL(clause: NeighbourhoodClause): string {
+function resolveNeighbourhoodSQL(clause: NeighbourhoodClause, write: LiteralWriter): string {
   if (clause.ids.length === 0) return '(FALSE)';
-  const ids = clause.ids.map(literalToSQL).join(', ');
+  const ids = clause.ids.map(write).join(', ');
   const [source, target] = clause.fields;
   return `((${quoteIdent(source)} IN (${ids})) AND (${quoteIdent(target)} IN (${ids})))`;
 }
@@ -317,25 +355,44 @@ function resolveNeighbourhoodSQL(clause: NeighbourhoodClause): string {
  * spelling across both routes.
  */
 export function resolvePredicateSQL(clause: PredicateClause | readonly PredicateClause[] | null): string {
+  return renderPredicateSQL(clause, literalToSQL);
+}
+
+/**
+ * THE SAME PREDICATE AS A STATEMENT AN ENGINE RUNS: clause for clause the text
+ * {@link resolvePredicateSQL} renders, with every number written so the engine
+ * reads the number it was written from ({@link exactLiteralSQL}). The two differ
+ * only where a bound has a fraction.
+ *
+ * ONE RENDERER, TWO WRITERS. Both go through `renderPredicateSQL`, so the shape
+ * of the predicate (which clauses, which operators, how a list is joined, what
+ * is cleared) cannot differ between what is reported and what is run. Only the
+ * spelling of a number can.
+ */
+export function executablePredicateSQL(clause: PredicateClause | readonly PredicateClause[] | null): string {
+  return renderPredicateSQL(clause, exactLiteralSQL);
+}
+
+function renderPredicateSQL(clause: PredicateClause | readonly PredicateClause[] | null, write: LiteralWriter): string {
   if (clause === null) return CLEARED_SQL;
   if (Array.isArray(clause)) {
     // a list is its AND, each side parenthesised; an empty list is no filter — the same descriptor every engine renders
     // a cleared clause in a list is no conjunct (it keeps every row), never `AND (null)`
-    const parts = (clause as readonly PredicateClause[]).map((c) => resolvePredicateSQL(c)).filter((p) => p !== CLEARED_SQL);
+    const parts = (clause as readonly PredicateClause[]).map((c) => renderPredicateSQL(c, write)).filter((p) => p !== CLEARED_SQL);
     return parts.length === 0 ? CLEARED_SQL : parts.length === 1 ? parts[0]! : parts.map((p) => `(${p})`).join(' AND ');
   }
   const one = clause as PredicateClause;
   switch (one.kind) {
     case 'point':
-      return resolvePointSQL(one);
+      return resolvePointSQL(one, write);
     case 'interval':
-      return resolveIntervalSQL(one);
+      return resolveIntervalSQL(one, write);
     case 'match':
-      return resolveMatchSQL(one);
+      return resolveMatchSQL(one, write);
     case 'cell':
-      return resolveCellSQL(one);
+      return resolveCellSQL(one, write);
     case 'neighbourhood':
-      return resolveNeighbourhoodSQL(one);
+      return resolveNeighbourhoodSQL(one, write);
   }
 }
 
