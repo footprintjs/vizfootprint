@@ -129,7 +129,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { extent, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { fitTick } from './tickFit.js';
 import { Axis, placeTicks, type AxisTick } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
@@ -282,9 +282,11 @@ export interface VizLineProps {
    * drops no point — a domain says what the axis MEANS, and the points outside
    * it are simply drawn outside it.
    *
-   * `transform` (protocol 1.6) is honoured on **y only**: this chart's x is a
-   * date, and a date has no logarithm. A mean a logarithm cannot place has no
-   * position, so it is not drawn and is counted in the chart's accessible name.
+   * `transform` (protocol 1.6) is honoured on y, and on x when the x is a run
+   * of NUMBERS. A date has no logarithm and a band has no scale, so there
+   * `transform.x` is ignored. A value a logarithm cannot place (zero or below)
+   * has no position, so its point is not drawn and is counted in the chart's
+   * accessible name and in the picture.
    *
    * `categories` — the frame's BAND ORDER — makes this chart's x a band (the
    * same field `VizBar` reads through `bandOrder`): every point sits at its
@@ -625,7 +627,16 @@ export function VizLine(props: VizLineProps): JSX.Element {
       return at !== null && (lo === null || at >= lo) && (hi === null || at <= hi);
     });
   }, [data, xDomain, band, kind]);
-  const { series, positions } = useMemo(() => (band === undefined ? runGeometry(scoped) : bandGeometry(scoped, band)), [scoped, band]);
+  const { series: everySeries, positions: everyPosition } = useMemo(() => (band === undefined ? runGeometry(scoped) : bandGeometry(scoped, band)), [scoped, band]);
+  // WHICH CURVE THE X AXIS IS DRAWN ON. Only a run of NUMBERS can take a logarithm: a date has none and
+  // a band has no scale at all, so `transform.x` is read for numbers and ignored for the other two —
+  // the same law ChartDomain keeps for a channel a chart has no quantitative scale for.
+  const xKind = band === undefined && kind === 'numbers' ? props.domain?.transform?.x : undefined;
+  // a point whose x the transform cannot place has NO position: it is left out of the picture AND out of
+  // the extent, and counted with the means a logarithmic y cannot place (`excludedNote`, below).
+  // Guarded on a logarithm, so a linear x filters nothing and keeps the arrays it was given.
+  const series = xKind === 'log' ? everySeries.map((s) => ({ ...s, points: s.points.filter((p) => placeable(xKind, p.at)) })) : everySeries;
+  const positions = xKind === 'log' ? everyPosition.filter((p) => placeable(xKind, p.at)) : everyPosition;
   const compat = useMemo(() => lineCompat(dateFields ?? [dateField]), [dateFields, dateField]);
 
   // THE MARGIN THIS INSTANCE DRAWS INSIDE: `PAD` with its y-axis room on the side the axis stands
@@ -633,7 +644,9 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const pad = padOnSide(PAD, props.axisSide);
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
   const [elo, ehi] = domainOr(props.domain?.x, extent(positions, (d) => d.at, 0));
-  const x = linearScale(elo, ehi, pad.l, width - pad.r);
+  // a run of numbers is placed on the curve the frame declared (`scaleFor`, the one owner of the
+  // logarithmic clamp); dates and an undeclared x are linear, as they always were
+  const x = scaleFor(xKind)(elo, ehi, pad.l, width - pad.r);
   // ON A BAND, x is the slot geometry every mark on a band shares (`bandWidth`/`bandCentre`, ../primitives/scales.ts):
   // a bar's slot and this line's point for one category are ONE x by construction. `at` is the slot index there.
   const slot = band === undefined ? 0 : bandWidth(pad.l, width - pad.r, band.length);
@@ -646,9 +659,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // value is not drawn. A RUN takes none: its x is a continuum with no slots to crowd, and its own gesture
   // is the interval brush — so a dated line is byte-identical to the chart before this packet.
   const crowded = band === undefined ? '' : crowdedMarksNote(slot);
-  // WHICH CURVE THE VALUE AXIS IS DRAWN ON. Only y: this chart's x is a DATE (epoch milliseconds)
-  // and a date has no logarithm, so `transform.x` is ignored here — the same law ChartDomain already
-  // keeps for a channel a chart has no quantitative scale for.
+  // WHICH CURVE THE VALUE AXIS IS DRAWN ON (the x's is `xKind`, above).
   const yKind = props.domain?.transform?.y;
   // a mean the transform cannot place has NO position: it is left out of the picture AND out of the
   // extent, and COUNTED (`excludedNote`).
@@ -657,7 +668,8 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // sentence this count is said in names a logarithm, so nothing else may be counted into it.
   const placed = yKind === 'log' ? series.map((s) => ({ ...s, points: s.points.filter((p) => placeable(yKind, p.mean)) })) : series;
   const allMeans = placed.flatMap((s) => s.points);
-  const excluded = series.reduce((n, s) => n + s.points.length, 0) - allMeans.length;
+  // counted off EVERY point the chart was given, so one a logarithmic x left out is in the count too
+  const excluded = everySeries.reduce((n, s) => n + s.points.length, 0) - allMeans.length;
   // the chart's own room at each end is a share of the data's span (`roomyExtent`), which a LOGARITHMIC
   // axis takes none of; that helper is also log-aware about a chart with nothing placeable
   const [vlo, vhi] = domainOr(props.domain?.y, roomyExtent(allMeans, (p) => p.mean, yKind));

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Correction: a line over numbers follows a logarithmic x
+
+- A line chart whose x is a run of numbers ignored `domain.transform.x`:
+  under a logarithmic x it placed its points linearly, while a frame's guide
+  and a point layer on the same frame placed them logarithmically. One value
+  stood on two different pixels. The line now takes the declared curve.
+- A point whose x a logarithm cannot place (zero or below) is not drawn and is
+  counted in the chart's accessible name and in the picture, with the means a
+  logarithmic y cannot place. A drag reads back the logarithmic span.
+- A line over dates or a band is unchanged: a date has no logarithm and a
+  band has no scale, so the key is ignored there.
+
 ### Charts: a frame's guide is ticked the way a chart's own axis is
 
 - **Behaviour change.** The one axis a frame draws for a stack of layers was
