@@ -101,9 +101,9 @@ describe('one guide, or one per layer', () => {
     );
     expect(container.querySelectorAll('.vzf-frame-guide')).toHaveLength(1);
     expect(Array.from(container.querySelectorAll('[data-axes]')).map((el) => el.getAttribute('data-axes'))).toEqual(['false', 'false']);
-    // 3 steps = 4 labels per axis, plus the two axis labels
-    expect(ticksOf(container)).toEqual(['0', '33.3', '66.7', '100', '0', '3.3', '6.7', '10', 'price', 'rating']);
-    expect(container.querySelectorAll('.vzf-frame-guide line.vzf-axis')).toHaveLength(2 + 4 + 4); // two axis lines + one stroke per tick
+    // round ticks on each axis, plus the two axis labels
+    expect(ticksOf(container)).toEqual(['0', '20', '40', '60', '80', '100', '0', '2', '4', '6', '8', '10', 'price', 'rating']);
+    expect(container.querySelectorAll('.vzf-frame-guide line.vzf-axis')).toHaveLength(2 + 6 + 6); // two axis lines + one stroke per tick
   });
 
   it('per-layer on a SINGLE layer: the frame draws NO guide and the layer draws its own pair — unchanged from before sides existed', () => {
@@ -117,8 +117,8 @@ describe('one guide, or one per layer', () => {
     const { container } = render(<VizFrame layers={[fake('a', 'line', true), fake('b', 'point', true)]} guide="per-layer" domain={{ x: [0, 100] }} x={{ scale: 'quantitative', label: 'week' }} width={400} height={300} />);
     // the frame's guide: its x, once — and no y (none was given)
     expect(container.querySelectorAll('.vzf-frame-guide')).toHaveLength(1);
-    expect(ticksOf(container)).toEqual(['0', '33.3', '66.7', '100', 'week']);
-    expect(container.querySelectorAll('.vzf-frame-guide line.vzf-axis')).toHaveLength(1 + 4);
+    expect(ticksOf(container)).toEqual(['0', '20', '40', '60', '80', '100', 'week']);
+    expect(container.querySelectorAll('.vzf-frame-guide line.vzf-axis')).toHaveLength(1 + 6);
     // each layer: ONLY its y, on its edge
     expect(handoutOf(container)).toEqual(['y:left', 'y:right']);
   });
@@ -317,7 +317,7 @@ describe('the merged LOGARITHMIC axis (protocol 1.6)', () => {
     const { container } = render(
       <VizFrame layers={[fake('a', 'point')]} x={{ scale: 'quantitative' }} domain={{ x: [1, 100], transform: { x: 'log' } }} width={400} height={300} />,
     );
-    const at = Array.from(container.querySelectorAll('.vzf-frame-guide g line.vzf-axis')).map((l) => Number(l.getAttribute('x1')));
+    const at = Array.from(container.querySelectorAll('.vzf-frame-guide [data-axis-orient="bottom"] > g > line.vzf-axis')).map((l) => Number(l.getAttribute('x1')));
     expect(at).toHaveLength(3);
     expect(at[1]! - at[0]!).toBeCloseTo(at[2]! - at[1]!, 6);
   });

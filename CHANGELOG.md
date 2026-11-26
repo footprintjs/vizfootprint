@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Charts: a frame's guide is ticked the way a chart's own axis is
+
+- **Behaviour change.** The one axis a frame draws for a stack of layers was
+  ticked at three even cuts of its span, rounded to a tenth: 0 … 20 read
+  "0 6.7 13.3 20", and a signed span did not label zero. It now follows the
+  rules of the charts' own axes: round values inside the span, written to the
+  step's precision or against one unit, as many as have room. A stack and a
+  chart drawn alone now read the same data the same way.
+- A y label wider than the margin is squeezed into it, and an x label near
+  the edge is moved inside the drawing. Both used to be cut off.
+- A logarithmic axis shows the decades that have room. A date axis keeps its
+  three even steps, each read back as its day, and drops days that would
+  touch.
+- The guide is drawn by `<Axis>`; its elements are inside
+  `<g class="vzf-axis-part" data-axis-orient="…">`.
+
 ### Charts: the bar chart's count axis is ticked at round values
 
 - **Behaviour change.** The count axis a bar draws as the first scale of a
