@@ -218,9 +218,16 @@ describe('a count that binds no y, beside a layer with a y axis', () => {
     expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: shared('quantitative', [40, 100]) }))).toBe(said('a', 'bar', 'b'));
     expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: shared('quantitative', [40, 100], { guide: 'per-layer' }) }))).toBe(said('a', 'bar', 'b'));
     expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: INDEPENDENT }))).toBe(said('a', 'bar', 'b'));
-    // …and where no y was folded but the guide is per-layer, so the line draws a y axis of its own
-    const perLayer = { category: shared('categorical', ['A', 'B'], { guide: 'per-layer' }), x: shared('categorical', ['A', 'B'], { guide: 'per-layer' }) };
+    // …and where no y was folded but one channel's guide is per-layer: x is still the frame's, and the line draws a y axis of its own
+    const perLayer = { ...BANDS, size: shared('quantitative', [0, 1], { guide: 'per-layer' }) };
     expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], perLayer))).toBe(said('a', 'bar', 'b'));
+  });
+
+  it('comes after the laws about who draws which axis: a stack they refuse draws no y axis to speak of', () => {
+    const xLeftToLayers = { category: shared('categorical', ['A', 'B'], { guide: 'per-layer' }), x: shared('categorical', ['A', 'B'], { guide: 'per-layer' }) };
+    const first = refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], xLeftToLayers));
+    expect(first).not.toBe('');
+    expect(first).not.toContain('binds no y');
   });
 
   it('is not judged where no y axis is drawn: a merged guide folded with no y', () => {

@@ -1422,11 +1422,11 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
   }
   const line = colouredLineRefusal(framed);
   if (line !== null) return line;
-  const unread = countOffAxisRefusal(framed, frame);
-  if (unread !== null) return unread;
   const count = countMixRefusal(framed, frame);
   if (count !== null) return count;
-  return twoScalesRefusal(framed, frame);
+  // LAST, after the laws about who draws which axis: it speaks of a y axis that IS drawn, and a stack
+  // those laws refuse (an x left to the layers, a third y) draws none
+  return twoScalesRefusal(framed, frame) ?? countOffAxisRefusal(framed, frame);
 }
 
 /**
@@ -1448,6 +1448,17 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
  * axis. A stack in which no layer binds `y`, or whose merged guide was folded
  * with no `y`, draws no y axis at all, so no length is read against a wrong
  * one and it is not judged.
+ *
+ * FOLLOWED, the way out draws, or the stack is told its next step in words: a
+ * bar declared second on a y of its own is told to be declared first, and a
+ * shared y that reaches below zero or declares bounds a count cannot stand on
+ * gets {@link countMixRefusal}'s sentence.
+ *
+ * KNOWN GAP, as {@link countBoundsRefusal}'s: the definition door accepts a
+ * count layer with no `y` beside a layer that binds one, so a definition it
+ * passed can be refused here. A layer's bindings are fixed by its `initial`,
+ * so the door can judge it; one predicate and one sentence both doors ask
+ * will close it.
  */
 function countOffAxisRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
   const count = framed.find((f) => COUNT_KINDS.has(f.kind) && f.layer.encodings['y'] === undefined);
@@ -1962,8 +1973,8 @@ function frameChartDomain(framed: readonly FramedLayer[], frame: Readonly<Record
   const on = (axis: 'x' | 'y'): SharedChannel | undefined => sharedAxis(framed, frame, axis)?.resolved;
   const x = spanOf(on('x'));
   // the raw fold: the guide widens it by the count's rule itself (`VizFrame.tsx · drawnSpan`). For the
-  // layers that bind this y that is the span `sharedYSpan` hands them; a count that binds no y is the
-  // limit named at `countMixRefusal`
+  // layers that bind this y that is the span `sharedYSpan` hands them (a count that binds no y beside
+  // them is refused, `countOffAxisRefusal`)
   const y = spanOf(on('y'));
   const onAxis = (axis: 'x' | 'y'): readonly string[] => axisChannels(framed, axis);
   return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(categories === undefined ? {} : { categories }), ...transformAsk(frame, onAxis), ...zeroGuideAsk(frame, onAxis) };
@@ -2140,7 +2151,9 @@ function frameRefusal(sentence: string): JSX.Element {
  * band, a line split into series, or — on a per-layer guide over two or more
  * layers — an x left to the layers, a third own y, a histogram or box plot
  * with a y of its own, or a BAR that would take the second scale rather than
- * the first (`twoScalesRefusal`). Two own y scales are THE TWO-AXIS FIGURE:
+ * the first (`twoScalesRefusal`), a count and a line on one shared y that no
+ * one span fits (`countMixRefusal`), or a count that binds no y beside a layer
+ * with a y axis (`countOffAxisRefusal`). Two own y scales are THE TWO-AXIS FIGURE:
  * left and right, x drawn once by the frame, the frame's own sentence beneath
  * (`twoScalesSentence`), and each of the two layers drawing its axis — and its
  * unsplit marks — in the hue the frame hands it (`FrameLayerDraw.scaleHue`,
