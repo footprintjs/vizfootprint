@@ -729,27 +729,16 @@ const MAX_POINTER_DIGITS = 15;
  * (2.675): it is now rounded by the number's true value, where the older
  * arithmetic rounded the product. A pointer's value is practically never one.
  *
- * `toward` rounds to one side: `'down'` never answers more than the value and
- * `'up'` never less. A DRAGGED RANGE IS ROUNDED OUTWARD (its low end down, its
- * high end up). Rounded to the nearest, a drag that reached the edge of the
- * plot, where the smallest or largest value stands, left that value outside
- * its own range about half the time.
+ * FOR SHOWING A VALUE, NOT FOR RECORDING ONE. A chart records the value under
+ * the pointer as it is (`VizScatter`, `VizLine`): rounding a recorded bound
+ * moves it, and a moved bound either drops a mark the pointer covered or
+ * claims one it did not. This is for the place a person reads the number.
  *
  * A LOGARITHMIC axis (`kind: 'log'`) is rounded to significant digits and
  * `span` is not read: enough digits to tell one pixel from the next at this
  * value (`pixel`, what one pixel is worth there), and never fewer than four.
  */
-export function roundToAxis(value: number, span: number, kind?: ScaleKind, pixel?: number, toward?: 'down' | 'up'): number {
-  // WHICH WAY: to the nearest by default; `toward` asks for the rounded value on that side of the true
-  // one (or the true one itself when it needs no rounding). The low end of a dragged range is rounded
-  // down and the high end up, so the range never leaves out what the pointer covered.
-  // (Where one step of the last digit is less than this number can hold, stepping changes nothing:
-  // the value has no finer rounding than itself, and it is handed back as it is.)
-  const sided = (nearest: number, unit: number, again: (v: number) => number): number => {
-    if (toward === 'down' && nearest > value) return keepSide(again(nearest - unit), (v) => v <= value, value);
-    if (toward === 'up' && nearest < value) return keepSide(again(nearest + unit), (v) => v >= value, value);
-    return nearest;
-  };
+export function roundToAxis(value: number, span: number, kind?: ScaleKind, pixel?: number): number {
   // ON A LOGARITHMIC AXIS a value is rounded to SIGNIFICANT DIGITS, never to a number of decimals:
   // decimals are a linear idea (a drag around 0.001 rounded to a hundredth is [0, 0]), and such an
   // axis has no one span to choose them by, because a pixel is worth more the further along it is.
@@ -762,20 +751,11 @@ export function roundToAxis(value: number, span: number, kind?: ScaleKind, pixel
     // a pixel worth NOTHING a number can hold (an axis narrower than one part in about 1e13) needs
     // every digit there is; a pixel nobody measured gets the four
     const needed = pixel === undefined || !Number.isFinite(pixel) || pixel < 0 ? LOG_POINTER_DIGITS : pixel === 0 ? MAX_POINTER_DIGITS : Math.ceil(Math.log10(Math.abs(value) / pixel)) + 2;
-    const digits = Math.min(MAX_POINTER_DIGITS, Math.max(LOG_POINTER_DIGITS, needed));
-    const nearest = Number(value.toPrecision(digits));
-    // one step of the last digit kept, at this value's size
-    return sided(nearest, 10 ** (Math.floor(Math.log10(Math.abs(nearest))) - digits + 1), (v) => Number(v.toPrecision(digits)));
+    return Number(value.toPrecision(Math.min(MAX_POINTER_DIGITS, Math.max(LOG_POINTER_DIGITS, needed))));
   }
   const fine = span > 0 && Number.isFinite(span) ? 3 - Math.floor(Math.log10(span) + 1e-9) : 2;
   const decimals = Math.min(100, Math.max(2, fine));
-  if (!Number.isFinite(value)) return value;
-  return sided(Number(value.toFixed(decimals)), 10 ** -decimals, (v) => Number(v.toFixed(decimals)));
-}
-
-/** The stepped value when it landed on the side asked for, the value itself when it could not. */
-function keepSide(stepped: number, onSide: (v: number) => boolean, value: number): number {
-  return onSide(stepped) ? stepped : value;
+  return Number(value.toFixed(decimals));
 }
 
 /** The width one character of a tick label takes, in CSS pixels: the stylesheet draws ticks in the mono font at 10px. An estimate, used only to decide whether labels fit. */

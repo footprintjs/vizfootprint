@@ -17,8 +17,8 @@
  * | two or more distinct values                 | their own extent                     | the same                               |
  * | a flat span on a LINEAR axis                | one each side                        | the same                               |
  * | one value at or below zero on a log axis    | the placeholder decade, counted      | the same                               |
- * | a drag over that one value on a scatter     | (the point was off the chart)        | the span covered, to the pixel         |
- * | a drag on a narrow log axis (1000 … 1001)   | the span covered, to three decimals  | the span covered, to the pixel         |
+ * | a drag over that one value on a scatter     | (the point was off the chart)        | the span covered, as it is             |
+ * | a drag on a narrow log axis (1000 … 1001)   | the span covered, to three decimals  | the span covered, as it is             |
  * | a value near the smallest or largest number | drawn                                | drawn: the decade is kept representable|
  * | a value outside a declared flat log domain  | counted against value ± 1            | counted against the decade drawn       |
  */
@@ -205,18 +205,16 @@ describe('one value on a logarithmic axis, in the charts', () => {
     fireEvent.pointerUp(svg, { clientX: 307, pointerId: 1 });
     expect(onEmit).toHaveBeenCalledTimes(1);
     const [lo, hi] = onEmit.mock.calls[0]![0].rawValue as [number, number];
-    // rounded outward to four digits: the low end down, the high end up
-    expect(lo).toBe(0.0007356);
-    expect(hi).toBe(0.00136);
-    expect(lo).toBeLessThanOrEqual(0.001 * 10 ** (-30 / 225));
-    expect(hi).toBeGreaterThanOrEqual(0.001 * 10 ** (30 / 225));
+    // the value under each end of the drag, as it is (a scatter records it unrounded, as the line does)
+    expect(lo).toBeCloseTo(0.001 * 10 ** (-30 / 225), 12);
+    expect(hi).toBeCloseTo(0.001 * 10 ** (30 / 225), 12);
     expect(lo).toBeGreaterThan(0);
     expect(lo).toBeLessThan(0.001);
     expect(hi).toBeGreaterThan(0.001);
   });
 
-  it('a drag on a NARROW logarithmic axis keeps the digits it takes to tell one pixel from the next', () => {
-    // 1000, 1000.5 and 1001 across 450 px: four digits would read 1000 and 1001, the whole axis
+  it('a drag on a NARROW logarithmic axis records what the pointer covered, not the whole axis', () => {
+    // 1000, 1000.5 and 1001 across 450 px: rounded to four digits it read 1000 and 1001, the whole axis
     const onEmit = vi.fn();
     const { container } = render(<VizScatter data={[1000, 1000.5, 1001].map((x, i) => ({ id: `p${String(i)}`, x, y: i }))} domain={LOG('x')} width={520} xField="mass" onEmit={onEmit} />);
     const svg = container.querySelector('svg.vzf-scatter')!;
