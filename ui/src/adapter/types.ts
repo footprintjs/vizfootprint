@@ -139,8 +139,9 @@ export interface ViewView {
   /**
    * THE FRAME (protocol 1.5): per channel, how its scale is resolved across
    * those layers — the DECLARATION, in words, exactly as the def wrote it. A
-   * host folds it into `RenderState.frame` with the adapter's `frameFor` door,
-   * which reads the rows and applies the absence law. Absent on a view that
+   * host folds it into `RenderState.frame` with the adapter's `frameFor` door
+   * (for a view with no layers, `viewFrameFor`), which reads the rows and
+   * applies the absence law. Absent on a view that
    * declares none and on an older wire.
    */
   readonly frame?: Readonly<Record<string, ChannelResolution>>;

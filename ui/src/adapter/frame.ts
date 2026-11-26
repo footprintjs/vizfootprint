@@ -166,8 +166,18 @@ export async function frameFor(session: FrameSessionLike, request: FrameRequest)
 export interface ViewFrameRequest extends Omit<FrameRequest, 'layers' | 'frame'> {
   /** The view's table. */
   readonly table: string;
-  /** The view's mark (`'bar'`, `'line'`, …) — read for the zero default, as a layer's is. */
-  readonly chartKind?: string;
+  /**
+   * The view's mark, REQUIRED: it decides the zero default (`zeroPolicyFor`).
+   * A bar, a histogram and a box plot are read from zero, so their magnitude
+   * axis folds to reach zero unless the definition said otherwise; without
+   * the mark a box plot's axis would be folded from its lowest value, a cut
+   * baseline nobody declared. Pass the word the definition uses
+   * (`ViewEncodingDecl.chartKind`: `'scatter'`, `'line'`, `'bar'`,
+   * `'histogram'`, `'boxplot'`); the renderer's `'point'` reads the same as
+   * `'scatter'`. The store's `ViewView` does not carry it, so the host
+   * supplies it from the definition it built the view from.
+   */
+  readonly chartKind: string;
   /** Channel → field, the map the renderer gets as `RenderState.encodings`. */
   readonly encodings: Readonly<Record<string, string>>;
   /**
@@ -207,12 +217,21 @@ export interface ViewFrameRequest extends Omit<FrameRequest, 'layers' | 'frame'>
  * at the view's own address, so the axis narrows with its marks; `basis:
  * 'table'` (the default) reads the table with nobody's clause. Silences are
  * dropped per column before the fold, by the same code a layer's are.
+ *
+ * KNOWN GAP, the fold's own and the same for a layer: an axis with NO SPAN to
+ * fold gets no entry at all, and then every key declared on it is not drawn
+ * for that update, with no word. That happens when the read is refused, when
+ * every cell is a silence, when `basis: 'rows'` reads no rows, and when a
+ * logarithm can place none of the cells. The chart then draws its own extent
+ * as if nothing had been declared. Closing it means the fold answering an
+ * entry that carries the declaration and no span, and every renderer saying
+ * what it could not draw; that is a change to the fold, not to this door.
  */
 export async function viewFrameFor(session: FrameSessionLike, request: ViewFrameRequest): Promise<Readonly<Record<string, ResolvedChannel>>> {
   const declared = request.frame ?? {};
   const encodings = Object.fromEntries(Object.entries(request.encodings).filter(([channel]) => declared[channel] !== undefined));
   if (Object.keys(encodings).length === 0) return {};
-  const self: FrameLayerRef = { layerId: request.viewId, table: request.table, ...(request.chartKind !== undefined ? { chartKind: request.chartKind } : {}), encodings };
+  const self: FrameLayerRef = { layerId: request.viewId, table: request.table, chartKind: request.chartKind, encodings };
   // the view's own address is its id: there is no layer under it to name
   return frameDomains([await valuesOf(session, request, self, request.viewId)], declared);
 }

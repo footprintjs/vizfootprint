@@ -16,7 +16,8 @@
  * | `y: {}` (basis by default)                 | x, y       | read from the table with nobody's clause                |
  * | `color: { … }`                             | x, y       | `{}`: a channel the view does not bind is not folded    |
  * | a silence in the column                    |            | dropped before the fold, as for a layer                 |
- * | a refused read                             |            | no entry for that axis rather than a stale span         |
+ * | a refused read                             |            | no entry for that axis rather than a stale span (a KNOWN GAP: its declared keys are then not drawn) |
+ * | `y: {}` on a bar or a box plot             | y          | the span reaches zero: the mark is read from zero       |
  */
 import { describe, it, expect } from 'vitest';
 import { buildDashboard } from 'vizfootprint/agent';
@@ -101,19 +102,37 @@ describe('viewFrameFor — which rows', () => {
     expect(asked.every((query) => query.limit === 10)).toBe(true);
   });
 
-  it('a refused read folds nothing for that axis rather than a stale span, as the fold does for a layer', async () => {
+  it('a refused read folds nothing for that axis rather than a stale span, as the fold does for a layer (the same known gap)', async () => {
     const { session } = recording({ 'view:dots': 'refused', 'table:t': TABLE });
     const answer = await viewFrameFor(session, { ...VIEW, frame: { x: axis({}), y: axis({ basis: 'rows', zeroGuide: true }) } });
     expect(Object.keys(answer)).toEqual(['x']);
   });
 
-  it('a silence never enters the span, as for a layer, and a view with no mark still folds', async () => {
+  it('a silence never enters the span, as for a layer', async () => {
     const rows: readonly Row[] = [{ p: 1, v: 5, state: 'present' }, { p: 2, v: 999, state: 'unavailable' }];
     const { session } = recording({ 'table:t': rows });
     const columns = { t: [...COLUMNS.t, { field: 'state', type: 'string', absence: ['present', 'unavailable'] }] };
-    const { chartKind: _mark, ...unmarked } = VIEW;
-    const answer = await viewFrameFor(session, { ...unmarked, columns, frame: { y: axis({}) } });
+    const answer = await viewFrameFor(session, { ...VIEW, columns, frame: { y: axis({}) } });
     expect(answer['y']).toMatchObject({ domain: [5, 5] });
+  });
+
+  it('the mark decides the zero default: a bar and a box plot are read from zero, a scatter is not', async () => {
+    const { session } = recording({ 'table:t': TABLE });
+    const folded = async (chartKind: string, keys: object = {}): Promise<unknown> => (await viewFrameFor(session, { ...VIEW, chartKind, frame: { y: axis(keys) } }) as Readonly<Record<string, { domain?: unknown }>>)['y']?.domain;
+    expect(await folded('bar')).toEqual([0, 40]);
+    expect(await folded('boxplot')).toEqual([0, 40]);
+    expect(await folded('histogram')).toEqual([5, 40]); // a histogram's bound channel is its bin axis, a position
+    expect(await folded('scatter')).toEqual([5, 40]);
+    expect(await folded('point')).toEqual([5, 40]);
+    expect(await folded('line')).toEqual([5, 40]);
+    // …and a declaration still wins over the default
+    expect(await folded('scatter', { zero: true })).toEqual([0, 40]);
+  });
+
+  it('KNOWN GAP, pinned so it is changed on purpose: an axis with no span to fold gets no entry, so its declared keys are not drawn', async () => {
+    // a logarithm that can place no cell: the declared curve and bounds are in no answer
+    const { session } = recording({ 'table:t': [{ p: 1, v: -3 }, { p: 2, v: 0 }] });
+    expect(await viewFrameFor(session, { ...VIEW, frame: { y: axis({ transform: 'log', bounds: [0.1, 5000] }) } })).toEqual({});
   });
 });
 

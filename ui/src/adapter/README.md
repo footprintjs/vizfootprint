@@ -362,6 +362,18 @@ extent, with its own margin, and an entry on the frame would take that away.
 The rows are read the same way (`basis: 'rows'` at the view's own address,
 `'table'` with nobody's clause), and silences are dropped by the same code.
 
+`chartKind` is required, in the definition's word (`'scatter'`, `'line'`,
+`'bar'`, `'histogram'`, `'boxplot'`): the mark decides the zero default, so a
+bar's and a box plot's magnitude axis folds to reach zero. The store's view
+does not carry it; the host takes it from the definition.
+
+A known gap, the fold's own and the same for layers: an axis with no span to
+fold (a refused read, a column of silences, `basis: 'rows'` over no rows, a
+logarithm that can place no cell) gets no entry, and then every key declared
+on it is not drawn for that update, with no word. Also unchanged by this door:
+a histogram's span is folded over its bound column, not its bin edges, so any
+entry on its x can leave an edge bin outside the plot (said in words).
+
 **And the projection has to keep BOTH shapes a frame entry has — the scar.**
 `mapFrame` kept a channel only when it named one of the two MODES, which is a
 perfectly good reading of a LAYERED view and drops **every layerless one**: a

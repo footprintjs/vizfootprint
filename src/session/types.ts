@@ -994,7 +994,9 @@ export interface ViewInfo {
    * the DECLARATION (`ViewEncodingDecl.frame`), projected verbatim, in which no
    * number can be typed. A host folds it into actual domains with
    * `frameDomains` at every update, over rows it reads through one door.
-   * Absent on a view that declares none (and on every plain view).
+   * Absent on a view that declares none. A view with NO layers may declare
+   * one too: its entries are the axis keys with no `mode`, and they are
+   * projected the same way.
    */
   readonly frame?: Readonly<Record<string, ChannelResolution>>;
 }
