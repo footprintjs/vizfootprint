@@ -260,6 +260,15 @@ export function drawsZeroGuide(chartKind: string, channel: string): boolean {
 }
 
 /**
+ * THE WORDS FOR A LOGARITHM ON A MAGNITUDE (law 11c): one owner, said by the
+ * definition door and by the renderer's second fence, so a frame folded by
+ * hand is refused in the sentence a definition would have been.
+ */
+export function logOnExtentRefusal(subject: string, chartKind: string, channel: string): string {
+  return `${subject} is a ${chartKind} — its ${channel} extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic`;
+}
+
+/**
  * THE WORDS FOR A MARK ASKED FOR A ZERO GUIDE IT DOES NOT DRAW — one sentence,
  * one owner, said by the def door with its address in front of it and by the
  * frame exactly as it stands (the {@link firstScaleTakenRefusal} precedent).

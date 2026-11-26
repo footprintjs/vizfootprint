@@ -158,6 +158,7 @@ export {
   // logarithm's own words for a zero it has none of, and the closed-interval test the CHART asks
   drawsZeroGuide,
   zeroGuideKindRefusal,
+  logOnExtentRefusal,
   noZeroOnALogAxis,
   zeroOnAxis,
   // law 13's own two: does this mark draw an interval brush on an x of this scale kind, and the words for one that does not

@@ -18,7 +18,7 @@
  * | a bar that binds no y, and a line | 40…100                    | bar on its own ceiling, guide from 0 | unchanged (a task of its own) |
  * | a line and a point (no count)     | 40…100                    | both on 40…100                       | unchanged                    |
  * | two bars                          | 40…100                    | both on 0…100                        | unchanged                    |
- * | a bar and a line, y logarithmic   | any                       | not this rule's                      | unchanged                    |
+ * | a bar and a line, y logarithmic   | any                       | drawn linear, in silence             | refused by the logarithm's rule |
  */
 import { describe, expect, it, vi } from 'vitest';
 import { layeredRenderer, RENDERER_PROTOCOL_VERSION, type RenderLayer, type RendererCallbacks, type ResolvedChannel } from './index.js';
@@ -199,14 +199,10 @@ describe('what this rule leaves alone', () => {
     expect(two([40, 100]).innerHTML).toBe(two([0, 100]).innerHTML);
   });
 
-  it('a logarithmic y is not this rule’s: nothing is widened to zero and nothing is refused by it', () => {
+  it('a logarithmic y under a count is refused by the logarithm’s own rule, before this one is asked', () => {
     const log = (y: unknown): HTMLElement => drawn(['bar', 'line'], [BARS, LINE], { ...BANDS, y: shared('quantitative', y, { transform: 'log' }) });
-    expect(refusalOf(log([-20, 100]))).not.toContain('reaches below zero');
-    // the line's low end, 40, stands on its layer's floor: the bottom of the folded 40…100. Widened
-    // toward zero it would stand above the floor, as it does on the linear axis.
-    const startY = (el: Element): number => Number(/^M[\d.]+,([\d.]+)/.exec(lineOf(el))![1]);
-    // (the layer's plot floor is at 250 in this 400 by 300 frame; the widened linear line starts near 157)
-    expect(startY(log([40, 100]))).toBe(250);
-    expect(startY(barLine([40, 100]))).toBeLessThan(200);
+    for (const y of [[40, 100], [-20, 100]]) {
+      expect(refusalOf(log(y))).toBe('layer "a" is a bar — its y extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic');
+    }
   });
 });

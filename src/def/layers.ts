@@ -23,7 +23,7 @@
  */
 import type { ColumnFacet } from '../data/types.js';
 import type { ColumnDecl, EncodingSurface } from '../encoding/index.js';
-import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsIntervalBrush, drawsZeroGuide, firstScaleTakenRefusal, frameScaleOf, intervalGestureRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal } from '../encoding/index.js';
+import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsIntervalBrush, drawsZeroGuide, firstScaleTakenRefusal, frameScaleOf, intervalGestureRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal, logOnExtentRefusal } from '../encoding/index.js';
 import { ENCODING_KIND, type LinkView } from '../links/index.js';
 import type { MintedTable } from './builtinAnalyses.js';
 import { LAYER_MARKER, holdsLayerMarker, layerAddress } from './layerAddress.js';
@@ -592,7 +592,7 @@ function judgeLogarithm(at: string, channel: string, resolution: Record<string, 
   if (resolution.zeroGuide === true) problems.push(`${at}: ${noZeroOnALogAxis('zeroGuide')}`);
   for (const binder of binders.filter((b) => b.channels.includes(channel))) {
     if (zeroAnchorsChannel(binder.chartKind, channel)) {
-      problems.push(`${at}: ${binder.subject} is a ${binder.chartKind} — its ${channel} extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic`);
+      problems.push(`${at}: ${logOnExtentRefusal(binder.subject, binder.chartKind, channel)}`);
     }
     const field = binder.initial?.[channel];
     if (field === undefined) continue;
