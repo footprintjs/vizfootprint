@@ -1627,7 +1627,8 @@ function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<
   if (shared.bounds !== undefined) {
     // judged in order (`boundsFitACount`): a pair given backwards is drawn in order by every chart, so it is the same declaration
     if (boundsFitACount(shared.bounds)) return null;
-    return `${who} declares bounds [${String(shared.bounds[0])}, ${String(shared.bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none. ${apart}.`;
+    // the definition door's sentence (one owner), then the way out only this door can judge: two scales
+    return `${countBoundsSentence(`layer "${count.layer.layerId}"`, count.kind, shared.bounds, `layer "${position.layer.layerId}"`)} ${apart}.`;
   }
   const span = spanOf(shared)!; // a quantitative channel has a span
   const low = Math.min(span[0], span[1]);

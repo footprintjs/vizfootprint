@@ -7,19 +7,27 @@
  * definition it passed could be refused when drawn. Each law now has one
  * predicate and one sentence (`../encoding/frame.ts`) that both doors ask.
  *
- * | the definition declares                                        | before   | now, at the door                      |
- * |----------------------------------------------------------------|----------|---------------------------------------|
- * | bounds [2, 20] on the y a bar or a histogram binds             | accepted | refused: a count is drawn from zero   |
- * | bounds [0, 0.5] on it (a ceiling below one)                    | accepted | refused                               |
- * | bounds [0, 20] on it                                           | accepted | accepted                              |
- * | bounds [2, 20] on a bar's y the bar does not bind              | accepted | accepted: nothing of the bar's is on it |
- * | bounds [2, 20] on a point's or a line's y                      | accepted | accepted: a position                  |
- * | `transform: 'log'` on the y a histogram binds                  | accepted | refused: its y is its count           |
- * | `transform: 'log'` on a histogram's y it does not bind, or its x | accepted | accepted                            |
- * | a bar layer that binds no y, beside a layer that binds y       | accepted | refused: the bar is not on that axis  |
- * | the same, the bar's y bound                                    | accepted | accepted                              |
- * | two bar layers, neither binds y                                | accepted | accepted: no y axis is drawn          |
- * | a line layer that binds no y, beside one that does             | accepted | accepted: it draws no length          |
+ * | the definition declares                                          | before   | now, at the door                        |
+ * |------------------------------------------------------------------|----------|-----------------------------------------|
+ * | bounds [2, 20] on the y a bar or a histogram may bind            | accepted | refused: a count is drawn from zero     |
+ * | bounds [0, 0.5] on it (a ceiling below one)                      | accepted | refused                                 |
+ * | bounds [0, 20] on it                                             | accepted | accepted                                |
+ * | the same bounds, a line binding that y too                       | accepted | refused, saying whose y it is           |
+ * | bounds [2, 20] on a y a bar LAYER does not bind                  | accepted | accepted: a layer cannot be re-encoded  |
+ * | bounds [2, 20] on a plain bar's y it does not bind YET           | accepted | refused: a view can be re-encoded onto it |
+ * | bounds [2, 20] on a point's or a line's y, or a histogram's x    | accepted | accepted: a position                    |
+ * | `transform: 'log'` on the y a histogram may bind                 | accepted | refused: its y is its count             |
+ * | `transform: 'log'` on a histogram's x, or a layer's unbound y    | accepted | accepted                                |
+ * | a bar layer that binds no y, beside a layer that binds y         | accepted | refused: the bar is not on that axis    |
+ * | the same, the bar's y bound                                      | accepted | accepted                                |
+ * | two bar layers, neither binds y                                  | accepted | accepted: no y axis is drawn            |
+ * | a line layer that binds no y, beside one that does               | accepted | accepted: it draws no length            |
+ *
+ * WHAT "MAY BIND" MEANS. A layer cannot be re-encoded after the build, so it
+ * is judged by what its `initial` binds. A plain view can (the `reencode`
+ * verb binds any channel it declares), so it is judged by its `channels`: a
+ * definition that passes must not reach the refused picture by one ordinary
+ * act.
  */
 import { describe, it, expect } from 'vitest';
 import { validateDashboardDef } from './index.js';
@@ -42,18 +50,39 @@ describe('bounds a count cannot stand on', () => {
     expect(stack([layer('counts', 'bar', { x: 'group', y: 'size' })], { y: { mode: 'shared', bounds: [0, 0.5] } })).toEqual([`encodings[0].frame.y.bounds: ${countBoundsRefusal('layer "counts"', 'bar', [0, 0.5])}`]);
   });
 
-  it('are accepted where a count can be drawn on them, where the count does not bind that y, and on a position', () => {
+  it('are accepted where a count can be drawn on them, and on a position', () => {
     expect(plain('bar', { x: 'group', y: 'size' }, { y: { bounds: [0, 20] } })).toEqual([]);
-    expect(plain('bar', { x: 'group' }, { y: { bounds: [2, 20] } })).toEqual([]);
     expect(plain('point', { x: 'size', y: 'size' }, { y: { bounds: [2, 20] } })).toEqual([]);
     expect(stack([layer('trend', 'line', { x: 'group', y: 'size' })], { y: { mode: 'shared', bounds: [2, 20] } })).toEqual([]);
-    // a bar's OTHER axis is a band, where bounds are refused for their own reason and not this one
-    expect(plain('bar', { x: 'group', y: 'size' }, { y: { bounds: [0, 20] }, x: {} }).join(' ')).not.toContain('read from zero');
+    // a histogram's x is its bin axis, a position: bounds there are not a count's
+    expect(plain('histogram', { x: 'size', y: 'size' }, { x: { bounds: [2, 20] } })).toEqual([]);
+    expect(stack([layer('bins', 'histogram', { x: 'size', y: 'size' })], { x: { mode: 'shared', bounds: [2, 20] } })).toEqual([]);
+  });
+
+  it('a layer is judged by what it binds, a plain view by what it may come to bind', () => {
+    // a layer cannot be re-encoded: a bar layer that binds no y has nothing on that axis, now or later
+    expect(stack([layer('counts', 'bar', { x: 'group' })], { y: { mode: 'shared', bounds: [2, 20] } })).toEqual([]);
+    // a plain view can: one `reencode` onto y would draw the refused picture, so it is refused at the door
+    expect(plain('bar', { x: 'group' }, { y: { bounds: [2, 20] } })).toEqual([`encodings[0].frame.y.bounds: ${countBoundsRefusal('view "net"', 'bar', [2, 20])}`]);
+    expect(plain('histogram', { x: 'size' }, { y: { bounds: [2, 20] } })).toEqual([`encodings[0].frame.y.bounds: ${countBoundsRefusal('view "net"', 'histogram', [2, 20])}`]);
+  });
+
+  it('beside a line or a point that binds the same y, the sentence says whose y it is', () => {
+    const layers = [layer('counts', 'bar', { x: 'group', y: 'size' }), layer('trend', 'line', { x: 'group', y: 'size' })];
+    const said = countBoundsRefusal('layer "counts"', 'bar', [2, 20], 'layer "trend"');
+    expect(said).toBe('layer "counts" is a bar, read from zero, and the y it shares with layer "trend" declares bounds [2, 20]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.');
+    expect(stack(layers, { y: { mode: 'shared', bounds: [2, 20] } })).toEqual([`encodings[0].frame.y.bounds: ${said}`]);
+    // two counts, each named once
+    const two = stack([layer('a', 'bar', { x: 'group', y: 'size' }), layer('b', 'histogram', { x: 'size', y: 'size' })], { y: { mode: 'shared', bounds: [2, 20] } });
+    expect(two.filter((line) => line.includes('read from zero'))).toEqual([`encodings[0].frame.y.bounds: ${countBoundsRefusal('layer "a"', 'bar', [2, 20])}`, `encodings[0].frame.y.bounds: ${countBoundsRefusal('layer "b"', 'histogram', [2, 20])}`]);
   });
 
   it('the predicate: from zero, to one or more, in either order', () => {
     expect([[0, 1], [0, 20], [20, 0]].map((pair) => boundsFitACount(pair as [number, number]))).toEqual([true, true, true]);
     expect([[2, 20], [0, 0.5], [-1, 20], [0, 0], [-0.5, 0]].map((pair) => boundsFitACount(pair as [number, number]))).toEqual([false, false, false, false, false]);
+    // a bound that is not a finite number is no bound to draw on (a frame folded by hand can hold one)
+    expect([[Infinity, 0], [0, Infinity], [0, Number.NaN], [-Infinity, 5]].map((pair) => boundsFitACount(pair as [number, number]))).toEqual([false, false, false, false]);
+    expect(boundsFitACount([-0, 5])).toBe(true);
   });
 });
 
@@ -63,9 +92,13 @@ describe('a logarithm on a histogram’s count', () => {
     expect(stack([layer('bins', 'histogram', { x: 'size', y: 'size' })], { y: { mode: 'shared', transform: 'log' } })).toEqual([`encodings[0].frame.y: ${histogramCountLogRefusal('layer "bins"')}`]);
   });
 
-  it('is accepted on its bin axis, and on a y it does not bind', () => {
+  it('is accepted on its bin axis, and on a y a histogram LAYER does not bind', () => {
     expect(plain('histogram', { x: 'size', y: 'size' }, { x: { transform: 'log' } })).toEqual([]);
-    expect(plain('histogram', { x: 'size' }, { y: { transform: 'log' } })).toEqual([]);
+    expect(stack([layer('bins', 'histogram', { x: 'size' })], { y: { mode: 'shared', transform: 'log' } })).toEqual([]);
+  });
+
+  it('is refused on a plain histogram that declares y and does not bind it yet: one re-encode would bind it', () => {
+    expect(plain('histogram', { x: 'size' }, { y: { transform: 'log' } })).toEqual([`encodings[0].frame.y: ${histogramCountLogRefusal('view "net"')}`]);
   });
 });
 
@@ -96,9 +129,13 @@ describe('a count that binds no y, beside a layer that does', () => {
     const problems = stack(['nope', { layerId: 7, table: 'nodes', chartKind: 'bar', channels: ['x'] }, { layerId: 'kindless', table: 'nodes', channels: ['x'] }, layer('trend', 'line', { x: 'group', y: 'size' })]);
     expect(problems.some((line) => line.includes('binds no y'))).toBe(false);
     expect(problems.length).toBeGreaterThan(0);
-    // …and a layer that binds y but has no usable id names nobody, so no count is judged against it
+    // …a layer that binds y but is malformed (no usable id; an unknown table is still a well-formed shape) is not the layer with the axis
     const nameless = stack([layer('counts', 'bar', { x: 'group' }), { layerId: '', table: 'nodes', chartKind: 'line', channels: ['x', 'y'], initial: { x: 'group', y: 'size' } }]);
     expect(nameless.some((line) => line.includes('binds no y'))).toBe(false);
+    // …and a count whose `channels` is not a list is refused for that, once
+    const shapeless = stack([{ layerId: 'counts', table: 'nodes', chartKind: 'bar', channels: 'y' }, layer('trend', 'line', { x: 'group', y: 'size' })]);
+    expect(shapeless.some((line) => line.includes('binds no y'))).toBe(false);
+    expect(shapeless.length).toBeGreaterThan(0);
   });
 });
 

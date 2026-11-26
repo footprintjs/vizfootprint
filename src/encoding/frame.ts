@@ -269,9 +269,14 @@ export function drawsZeroGuide(chartKind: string, channel: string): boolean {
  */
 export const COUNT_MARKS: readonly string[] = Object.freeze(['bar', 'histogram']);
 
-/** Can a count be drawn on these bounds as declared? Only from zero, to one or more: the span a count is always drawn on. */
+/**
+ * Can a count be drawn on these bounds as declared? Only from zero, to one or
+ * more: the span a count is always drawn on. A bound that is not a finite
+ * number is no bound a chart can draw on, so it never fits (the definition
+ * door refuses such a pair by shape; a frame folded by hand can still hold one).
+ */
 export function boundsFitACount(bounds: readonly [number, number]): boolean {
-  return Math.min(...bounds) === 0 && Math.max(...bounds) >= 1;
+  return bounds.every((bound) => Number.isFinite(bound)) && Math.min(...bounds) === 0 && Math.max(...bounds) >= 1;
 }
 
 /**
@@ -279,9 +284,14 @@ export function boundsFitACount(bounds: readonly [number, number]): boolean {
  * zero whatever it is handed, so a declared low end that is not zero (or a
  * ceiling below one) would be dropped with no word. Declared, it is drawn as
  * declared or refused.
+ *
+ * `sharedWith` names a line or a point that binds the same y: the sentence
+ * then says whose y it is. (The renderer adds, after it, the way out it alone
+ * can judge: two scales, where the frame has room for them.)
  */
-export function countBoundsRefusal(subject: string, chartKind: string, bounds: readonly [number, number]): string {
-  return `${subject} is a ${chartKind}, read from zero, and its y declares bounds [${String(bounds[0])}, ${String(bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.`;
+export function countBoundsRefusal(subject: string, chartKind: string, bounds: readonly [number, number], sharedWith?: string): string {
+  const whose = sharedWith === undefined ? 'its y' : `the y it shares with ${sharedWith}`;
+  return `${subject} is a ${chartKind}, read from zero, and ${whose} declares bounds [${String(bounds[0])}, ${String(bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.`;
 }
 
 /**
@@ -289,6 +299,11 @@ export function countBoundsRefusal(subject: string, chartKind: string, bounds: r
  * (x) is a position and may be logarithmic; its y is its count, which every
  * chart here draws as a length on a linear axis. (A bar and a box are law
  * 11c's, {@link logOnExtentRefusal}.)
+ *
+ * NOT YET ONE READING: {@link zeroAnchorsChannel} still treats every channel a
+ * histogram binds as its bin axis, a position. That is right for x and not
+ * for y, so a histogram's `zero: false` on y is still accepted and has
+ * nothing to change. Settling it there is a task of its own.
  */
 export function histogramCountLogRefusal(subject: string): string {
   return `${subject} is a histogram, and its y is its count: this version draws a histogram's count as a length on a linear axis only. Its bin axis, x, may be logarithmic; drop "transform" on y.`;

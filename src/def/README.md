@@ -823,9 +823,28 @@ layers: [
 // accepted: initial: { x: 'week', y: 'cases' } on the bar
 ```
 
-A layer is judged by what it binds at the start (`initial`). What the door
-cannot know is the data: a shared `y` whose rows reach below zero under a bar
-and a line is refused only when it is drawn.
+**What "binds" means, for a layer and for a view.** A layer cannot be
+re-encoded after the build, so it is judged by what its `initial` binds. A
+plain view can: the `reencode` verb binds any channel the view declares. So
+on a plain view the bounds law and the histogram law are judged by its
+`channels`: `{ chartKind: 'bar', channels: ['category', 'y'], frame: { y: {
+bounds: [2, 20] } } }` is refused although it binds no `y` yet, because one
+ordinary act would draw the refused picture. Beside a line or a point that
+binds the same `y`, the bounds sentence says whose `y` it is (*… and the y it
+shares with layer "trend" declares bounds …*).
+
+**Where the door is stricter than the renderer.** The renderer refuses a count
+with no `y` only where a `y` axis is in fact drawn, and a host that folds a
+frame by hand can leave `y` out. The adapter's own door always folds a channel
+a layer binds, so for a definition drawn the library's way the two agree.
+
+**What the door cannot know** is the data: a shared `y` whose rows reach below
+zero under a bar and a line is refused only when it is drawn.
+
+**Not yet one reading.** The zero law (`zeroAnchorsChannel`) still treats
+every channel a histogram binds as its bin axis, a position. That is right
+for `x` and not for `y`, so `zero: false` on a histogram's `y` is accepted
+and changes nothing. Settling it is a task of its own.
 
 ## The card a demo cannot get wrong
 

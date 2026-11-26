@@ -14,9 +14,16 @@
     its bin axis, `x`, may still be logarithmic);
   - a bar or histogram layer that binds no `y` beside a layer that binds
     one (the count would be read against an axis that is not its own).
+- A layer is judged by what its `initial` binds (a layer cannot be
+  re-encoded). A plain view is judged by its `channels`, because one
+  `reencode` would bind them: a plain bar that declares `y` with bounds
+  [2, 20] is refused although it binds no `y` yet.
 - **A break:** a definition that declared one of these built before and is
   now refused by `validateDashboardDef` and `buildDashboard`, with the way
   out in the sentence.
+- In the renderer, bounds with a bound that is not a finite number (only a
+  frame folded by hand can hold one) are refused under a count, as before
+  this change.
 - Each law has one predicate and one sentence, exported from
   `vizfootprint/def`: `COUNT_MARKS`, `boundsFitACount`, `countBoundsRefusal`,
   `histogramCountLogRefusal`, `countOffAxisRefusal`. The renderer asks the

@@ -22,8 +22,9 @@
  *   - ONE RULE FOR A POINTER BESIDE THE PLOT: it is held at the plot's edge,
  *     for every gesture. A drag that runs past the edge ends on the axis's own
  *     end, and a press or a tap in the margin is a press or a tap ON the edge.
- *     What a tap then means is the chart's: a histogram picks the bucket that
- *     stands at that edge (`onTap`), a scatter and a line clear. The rule is
+ *     What a tap then means is the chart's (`onTap`): a histogram picks the
+ *     bucket that stands at that edge and a line on bands the slot there; a
+ *     scatter, and a line over a run of numbers or dates, clear. The rule is
  *     the same; a margin is not a second kind of place;
  *   - pointer capture, CSS-scale correction (viewBox units vs on-screen
  *     pixels), plot-bounds clamping, and the axis-label guard (a click on a

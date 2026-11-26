@@ -714,10 +714,13 @@ as in a stack. On its own extent a chart orders its slots by its rows.
 on, a logarithmic y on a histogram, and a count that binds no y beside a layer
 that does each have one predicate and one sentence in `vizfootprint/def`
 (`boundsFitACount` and `countBoundsRefusal`, `histogramCountLogRefusal`,
-`countOffAxisRefusal`). The door and this renderer both ask them, so a
-definition the door passes is not refused here for one of them. What the door
-cannot know is the data: a shared y whose rows reach below zero under a bar
-and a line is refused only when it is drawn.
+`countOffAxisRefusal`). The door and this renderer both ask them, and the door
+judges a plain view by every channel it may come to bind (a view can be
+re-encoded after the build), so a definition the door passes is not refused
+here for one of them. Beside a line, this renderer adds to the door's bounds
+sentence the way out only it can judge: two scales, where the frame has room.
+What the door cannot know is the data: a shared y whose rows reach below zero
+under a bar and a line is refused only when it is drawn.
 
 **Known limits.** A scatter and a line's value axis still say "declared
 bounds" for a span that was folded, not declared (a chart is not told which).
