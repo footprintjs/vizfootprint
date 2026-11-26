@@ -46,7 +46,8 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, epochOf, dayOf, domainOr, bandWidth, bandCentre, type ChartDomain } from '../primitives/scales.js';
+import { linearScale, extent, ticks, roundTicksThatFit, ticksThatFit, epochOf, dayOf, domainOr, bandWidth, bandCentre, type ChartDomain, type RoundTick } from '../primitives/scales.js';
+import { Axis, placeTicks } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { togglePointEmission, keyActivates } from '../primitives/pointSelect.js';
 import { slotPress } from '../primitives/slotValues.js';
@@ -265,9 +266,9 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   // fence, and `transform` is not read on `props.domain` below.
 
   // the y domain: every whisker end + every outlier across every box — the
-  // RAW extent drives the tick labels; a separate 8%-of-span outer pad keeps
-  // the drawn marks off the plot's own edge (the VizScatter padding idea,
-  // sized relative to THIS chart's own value range rather than a fixed constant)
+  // RAW extent, with a separate 8%-of-span outer pad that keeps the drawn marks
+  // off the plot's own edge (sized relative to THIS chart's own value range
+  // rather than a fixed constant). The axis is ticked across the span it DRAWS.
   const allYs = geoms.flatMap((g) => [g.loP, g.hiP, ...g.outlierGeoms.map((o) => o.p)]);
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
   const [rawLo, rawHi] = domainOr(props.domain?.y, extent(allYs, (v) => v, 0));
@@ -308,8 +309,17 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
   // date-domain ticks read back through the FULL ISO day (display only — the
   // emitted category never rides this label, so no edge-precision rule applies)
   const isDate = geoms.length > 0 && typeof geoms[0]!.q1 === 'string';
-  const yTickVals = ticks(rawLo, rawHi, 4);
-  const yTickLabel = (v: number): string => (isDate ? new Date(v).toISOString().slice(0, 10) : String(Math.round(v * 100) / 100));
+  // THE VALUE AXIS'S TICKS, worked out only when this chart draws its axis (a frame layer draws none,
+  // and a tick it never draws must not be able to fail the chart):
+  //  - NUMBERS, chosen the way the scatter and the line choose theirs: round values inside the span
+  //    the axis drew, as many (up to four steps) as have room (`roundTicksThatFit`), each written to
+  //    the step's precision. They used to be even cuts of the data's extent rounded to two decimals,
+  //    which could print one label five times.
+  //  - DATES: four even steps across the extent, each read back as its day, as before. Days that
+  //    would touch are thinned (`ticksThatFit`). A span shorter than a day still reads as one day
+  //    several times: ticks at round days and hours are a date axis's job, which this is not yet.
+  const dayTicks = (): RoundTick[] => ticks(rawLo, rawHi, 4).map((value) => ({ value, label: new Date(value).toISOString().slice(0, 10) }));
+  const yTicks = (): readonly RoundTick[] => (isDate ? ticksThatFit(dayTicks(), y, 'height') : roundTicksThatFit(rawLo - outerPad, rawHi + outerPad, 4, y, 'height'));
 
   return (
     <>
@@ -321,16 +331,9 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack */}
         {axes && <line className="vzf-axis" x1={PAD.l} y1={height - PAD.b} x2={width - PAD.r} y2={height - PAD.b} />}
-        {axes && <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={height - PAD.b} />}
-        {/* y ticks */}
-        {axes && yTickVals.map((v, i) => (
-          <g key={`yt${i}`}>
-            <line className="vzf-axis" x1={PAD.l - 4} y1={y(v)} x2={PAD.l} y2={y(v)} />
-            <text className="vzf-tick" x={PAD.l - 8} y={y(v) + 3} textAnchor="end">
-              {yTickLabel(v)}
-            </text>
-          </g>
-        ))}
+        {/* the value axis (`Axis`, the one part every chart's axis is drawn by): a label wider than the
+            margin is squeezed into it, never cut off by the edge of the drawing */}
+        {axes && <Axis orient="left" ticks={placeTicks(yTicks(), y)} at={PAD.l} range={[PAD.t, height - PAD.b]} labelBounds={[0, width]} />}
         {/* boxes */}
         {geoms.map((g, i) => {
           const sel = selected === g.category;
