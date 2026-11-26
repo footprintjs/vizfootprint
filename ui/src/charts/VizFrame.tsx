@@ -268,10 +268,10 @@ export const COUNT_KINDS: ReadonlySet<FrameChartKind> = new Set(['bar', 'histogr
  * host that builds this component's layers by hand owes them the same: hand
  * each layer that reads the frame's y the span `countSpan` gives.
  *
- * KNOWN LIMIT, older than this function and still here: a count that binds NO
- * y keeps its own ceiling while a line beside it scales by the folded span.
- * The guide follows the count's rule, so it is then right for neither when
- * the fold does not start at zero or the two ceilings differ.
+ * A count that binds NO y keeps its own ceiling, so beside a layer that reads
+ * the frame's y this guide would be right for neither. The contract's stack
+ * door refuses that stack (`countOffAxisRefusal`); a host that builds this
+ * component's layers by hand must not hand it one.
  */
 function drawnSpan(layers: readonly VizFrameLayer[], channel: 'x' | 'y'): DrawnSpan {
   const counts = channel === 'y' && layers.some((layer) => COUNT_KINDS.has(layer.kind));

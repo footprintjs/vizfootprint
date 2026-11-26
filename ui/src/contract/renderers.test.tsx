@@ -1128,7 +1128,7 @@ describe('layeredRenderer — the marks, the box and the guide', () => {
     const runs: RenderLayer[] = [
       { layerId: 'l', table: 't', rows: [{ x: '2026-01-01', y: 1 }], encodings: { x: 'x', y: 'y' } },
       { layerId: 'p', table: 't', rows: POINT_ROWS, encodings: { x: 'price', y: 'rating' } },
-      { layerId: 'h', table: 't', rows: [{ x0: 0, x1: 5, count: 2 }], encodings: { x: 'price' } },
+      { layerId: 'h', table: 't', rows: [{ x0: 0, x1: 5, count: 2 }], encodings: { x: 'price', y: 'count' } },
     ];
     const { el, m } = mountFrame({ layers: { l: { kind: 'line' }, p: { kind: 'point' }, h: { kind: 'histogram' } } }, ['l', 'p', 'h']);
     // a merged guide, not the (per-layer, now refused for 3 layers) default of an unfolded frame — see "per-layer guides on two or more layers" below
@@ -1638,7 +1638,8 @@ describe('layeredRenderer — TWO SCALES ON ONE FRAME are two claims, and the fr
 
 describe('layeredRenderer — a line on a BAND (band versus run is the x COLUMN’s)', () => {
   /** A bar layer of counts per shelf, and a line of a mean per shelf — the same categories, the same table. */
-  const BARS: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }, { shelf: 'Formal', count: 9 }, { shelf: 'Sporty', count: 2 }], encodings: { category: 'shelf' } };
+  // the bar binds its count to y: a count that bound none would stand beside the line's axis with its lengths read off it wrongly, and is refused
+  const BARS: RenderLayer = { layerId: 'a', table: 'ta', rows: [{ shelf: 'Casual', count: 4 }, { shelf: 'Formal', count: 9 }, { shelf: 'Sporty', count: 2 }], encodings: { category: 'shelf', y: 'count' } };
   const MEANS: RenderLayer = { layerId: 'b', table: 'tb', rows: [{ shelf: 'Formal', mean: 7 }, { shelf: 'Casual', mean: 3 }], encodings: { x: 'shelf', y: 'mean' } };
   /** A bar's slot centre and a line's dot, each in the FRAME's pixels (its layer's own svg x plus the layer box's left offset). */
   const slotCentresOf = (el: Element, layerId: string): Record<string, number> => {
@@ -1661,8 +1662,8 @@ describe('layeredRenderer — a line on a BAND (band versus run is the x COLUMN�
     m.update(framed([BARS, MEANS], { category: SHARED('categorical', ['Casual', 'Formal', 'Sporty']), x: SHARED('categorical', ['Formal', 'Casual']), y: SHARED('quantitative', [0, 10]) }));
     expect(refusalOf(el)).toBe('');
     expect(guidesOf(el)).toBe(1);
-    // the merged guide's band is the frame's order, and the axis is named by the field both layers bind
-    expect(Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['Casual', 'Formal', 'Sporty', '0', '2', '4', '6', '8', '10', 'shelf', 'mean']);
+    // the merged guide's band is the frame's order, and x is named by the field both layers bind (y is two fields, count and mean, so it has no one name)
+    expect(Array.from(el.querySelectorAll('.vzf-frame-guide text.vzf-tick')).map((t) => t.textContent)).toEqual(['Casual', 'Formal', 'Sporty', '0', '2', '4', '6', '8', '10', 'shelf']);
     // neither layer drew an axis of its own
     expect(el.querySelectorAll('.vzf-frame-layer .vzf-axis')).toHaveLength(0);
     // THE SHARED X, per category: the bar's slot centre and the line's dot are one pixel, in the frame's pixels

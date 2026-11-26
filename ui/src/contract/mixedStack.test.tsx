@@ -15,7 +15,7 @@
  * | a bar and a line, both bind y     | −20…100                   | the floor is the line's −20; the guide calls it 0 | refused in words |
  * | a bar and a line, both bind y     | declared bounds 40…100    | bar on 0…100, line on 40…100         | refused in words             |
  * | a bar and a line, both bind y     | declared bounds 0…100     | one span                             | unchanged                    |
- * | a bar that binds no y, and a line | 40…100                    | bar on its own ceiling, guide from 0 | unchanged (a task of its own) |
+ * | a bar that binds no y, and a line | any                       | bar on its own ceiling, guide from 0 | refused in words             |
  * | a line and a point (no count)     | 40…100                    | both on 40…100                       | unchanged                    |
  * | two bars                          | 40…100                    | both on 0…100                        | unchanged                    |
  * | a bar and a line, y logarithmic   | any                       | drawn linear, in silence             | refused by the logarithm's rule |
@@ -158,9 +158,10 @@ describe('a count and a line on one shared y', () => {
     });
 
     it('a third layer that binds NO y takes no side, so a bar and a line beside it are still told the two-scale way, and it draws', () => {
-      const layers = [BARS, LINE, id(BARS_NO_Y, 'c')];
-      expect(refused(['bar', 'line', 'bar'], layers, BELOW)).toMatch(/Declare the bar first and resolve y as independent, so each layer has a y of its own\.$/);
-      expect(refused(['bar', 'line', 'bar'], layers, INDEPENDENT)).toBe('');
+      // a line that binds no y draws no axis and takes no edge (a COUNT that binds none is refused before this rule is asked)
+      const layers = [BARS, LINE, id({ ...LINE, encodings: { x: 'k' } }, 'c')];
+      expect(refused(['bar', 'line', 'line'], layers, BELOW)).toMatch(/Declare the bar first and resolve y as independent, so each layer has a y of its own\.$/);
+      expect(refused(['bar', 'line', 'line'], layers, INDEPENDENT)).toBe('');
     });
   });
 
@@ -174,12 +175,14 @@ describe('a count and a line on one shared y', () => {
 });
 
 describe('what this rule leaves alone', () => {
-  it('a bar that binds no y keeps its own ceiling and the line its folded span, as before (not this rule’s)', () => {
-    const el = drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: shared('quantitative', [40, 100]) });
-    expect(refusalOf(el)).toBe('');
-    expect(yTicks(el)).toEqual(['0', '20', '40', '60', '80', '100']);
-    expect(lineOf(el)).not.toBe(lineOf(barLine([40, 100])));
-    expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: shared('quantitative', [-20, 100]) }))).toBe('');
+  it('a bar that binds no y beside a line that does is refused: the one y axis in the plot is not the bar’s', () => {
+    for (const y of [[40, 100], [0, 100], [-20, 100]]) {
+      expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: shared('quantitative', y) }))).toBe(
+        'layer "a" is a bar that binds no y, and layer "b" has a y axis in the same plot: the bar’s lengths would be read against an axis that is not theirs. Bind the bar’s y to its count field, or give it a frame of its own.'.replaceAll('’', "'"),
+      );
+    }
+    // the way out draws: the same bar with its y bound
+    expect(refusalOf(barLine([40, 100]))).toBe('');
   });
 
   it('a stack with no count keeps the folded span', () => {
@@ -206,3 +209,60 @@ describe('what this rule leaves alone', () => {
     }
   });
 });
+
+describe('a count that binds no y, beside a layer with a y axis', () => {
+  const said = (who: string, kind: string, other: string): string => `layer "${who}" is a ${kind} that binds no y, and layer "${other}" has a y axis in the same plot: the ${kind}'s lengths would be read against an axis that is not theirs. Bind the ${kind}'s y to its count field, or give it a frame of its own.`;
+  const INDEPENDENT = { mode: 'independent', guide: 'per-layer', scale: 'quantitative' } as unknown as ResolvedChannel;
+
+  it('is refused whoever draws that axis: the frame, or the layer on an edge', () => {
+    expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: shared('quantitative', [40, 100]) }))).toBe(said('a', 'bar', 'b'));
+    expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: shared('quantitative', [40, 100], { guide: 'per-layer' }) }))).toBe(said('a', 'bar', 'b'));
+    expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], { ...BANDS, y: INDEPENDENT }))).toBe(said('a', 'bar', 'b'));
+    // …and where no y was folded but one channel's guide is per-layer: x is still the frame's, and the line draws a y axis of its own
+    const perLayer = { ...BANDS, size: shared('quantitative', [0, 1], { guide: 'per-layer' }) };
+    expect(refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], perLayer))).toBe(said('a', 'bar', 'b'));
+  });
+
+  it('comes after the laws about who draws which axis: a stack they refuse draws no y axis to speak of', () => {
+    const xLeftToLayers = { category: shared('categorical', ['A', 'B'], { guide: 'per-layer' }), x: shared('categorical', ['A', 'B'], { guide: 'per-layer' }) };
+    const first = refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], xLeftToLayers));
+    expect(first).not.toBe('');
+    expect(first).not.toContain('binds no y');
+  });
+
+  it('is not judged where no y axis is drawn: a merged guide folded with no y', () => {
+    const el = drawn(['bar', 'line'], [BARS_NO_Y, LINE], BANDS);
+    expect(refusalOf(el)).toBe('');
+    expect(el.querySelectorAll('[data-axis-orient="left"], [data-axis-orient="right"]')).toHaveLength(0);
+  });
+
+  it('names the count wherever it is declared, and a histogram as one', () => {
+    const first: RenderLayer = { ...LINE, layerId: 'a' };
+    const second: RenderLayer = { ...BARS_NO_Y, layerId: 'b' };
+    expect(refusalOf(drawn(['line', 'bar'], [first, second], { ...BANDS, y: shared('quantitative', [0, 100]) }))).toBe(said('b', 'bar', 'a'));
+    const bins: RenderLayer = { layerId: 'a', table: 't', rows: [{ x0: 0, x1: 1, count: 5 }], encodings: { x: 'x0' } };
+    const run: RenderLayer = { layerId: 'b', table: 'u', rows: [{ p: 0.5, v: 40 }], encodings: { x: 'p', y: 'v' } };
+    const el = document.createElement('div');
+    const mounted = layeredRenderer({ layers: { a: { kind: 'histogram' }, b: { kind: 'line' } } }).mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks(), layers: { a: callbacks(), b: callbacks() } });
+    mounted.update({ rows: [], encodings: {}, selection: emptySelection('v'), hover: null, theme: {}, size: { width: 400, height: 300 }, layers: [bins, run], frame: { x: shared('quantitative', [0, 1]), y: shared('quantitative', [0, 100]) } });
+    expect(refusalOf(el)).toBe(said('a', 'histogram', 'b'));
+  });
+
+  it('is not judged where no layer binds y: no y axis is drawn, so nothing is read against a wrong one', () => {
+    const second: RenderLayer = { ...BARS_NO_Y, layerId: 'b' };
+    expect(refusalOf(drawn(['bar', 'bar'], [BARS_NO_Y, second], { category: BANDS.category }))).toBe('');
+  });
+
+  it('a layer that is not a count may bind no y beside one that does: it draws no length to misread', () => {
+    const noY: RenderLayer = { ...LINE, layerId: 'a', encodings: { x: 'k' } };
+    expect(refusalOf(drawn(['line', 'line'], [noY, LINE], { x: BANDS.x, y: shared('quantitative', [0, 100]) }))).not.toContain('binds no y');
+  });
+
+  it('the way out draws: the count’s y bound, on one shared scale or on two said in words', () => {
+    expect(refusalOf(drawn(['bar', 'line'], [BARS, LINE], { ...BANDS, y: shared('quantitative', [40, 100]) }))).toBe('');
+    const el = drawn(['bar', 'line'], [BARS, LINE], { ...BANDS, y: INDEPENDENT });
+    expect(refusalOf(el)).toBe('');
+    expect(el.textContent).toContain('two scales');
+  });
+});
+
