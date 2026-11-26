@@ -115,6 +115,21 @@ describe('a count and a line on one shared y', () => {
     expect(stack(shared('quantitative', [40, 100])).innerHTML).toBe(stack(shared('quantitative', [0, 100])).innerHTML);
   });
 
+  it('three layers have no third side, so a bar among them is told to stand on a frame of its own', () => {
+    const third: RenderLayer = { ...LINE, layerId: 'c' };
+    const three = (y: ResolvedChannel): string => {
+      const el = document.createElement('div');
+      const mounted = layeredRenderer({ layers: { a: { kind: 'bar' }, b: { kind: 'line' }, c: { kind: 'line' } } }).mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: callbacks(), layers: { a: callbacks(), b: callbacks(), c: callbacks() } });
+      mounted.update({ rows: [], encodings: {}, selection: emptySelection('v'), hover: null, theme: {}, size: { width: 400, height: 300 }, layers: [BARS, LINE, third], frame: { ...BANDS, y } });
+      return refusalOf(el);
+    };
+    expect(three(shared('quantitative', [-20, 100]))).toBe(
+      'layer "a" is a bar, read from zero, and the y it shares with layer "b" reaches below zero (-20): one scale cannot hold a length from zero and a line under it. Draw the bar on a frame of its own.',
+    );
+    // the way out it is NOT told is refused, which is why
+    expect(three({ mode: 'independent', guide: 'per-layer', scale: 'quantitative' } as unknown as ResolvedChannel)).toContain('no third');
+  });
+
   it('the way out the sentence names draws: the bar first, y independent', () => {
     const own = { mode: 'independent', guide: 'per-layer', scale: 'quantitative' } as unknown as ResolvedChannel;
     const below: RenderLayer = { ...LINE, rows: [{ k: 'A', v: -20 }, { k: 'B', v: 100 }] };

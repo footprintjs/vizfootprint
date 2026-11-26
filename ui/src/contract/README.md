@@ -713,8 +713,9 @@ What it owns:
   not at all; and one whose folded `y` reaches below zero, because a bar is
   drawn up from the plot's floor, not from a zero line inside it. The way out
   is in the sentence: a bar is told to be declared first with `y` resolved as
-  `independent`; a histogram, which takes neither side of two scales, is told
-  to stand on a frame of its own.
+  `independent`; a histogram, which takes neither side of two scales, and a bar in a stack
+  of three or more (a frame has no third side) are told to stand on a frame
+  of their own.
   Not covered: a bar that binds no `y` keeps its own ceiling, and the frame's
   one `y` guide is then not that bar's axis.
 - **the layer's own voice.** A gesture speaks through
