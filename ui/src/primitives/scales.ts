@@ -1127,8 +1127,9 @@ export interface OutsideAsk {
   readonly kind?: ScaleKind;
   /**
    * This axis is a COUNT, read from zero: it is drawn on {@link countSpan} of the pair it was given
-   * (zero up to the ceiling), so a mark is outside only above the ceiling, and where the declared pair
-   * is not that span the sentence names both.
+   * (zero up to the ceiling), so a mark is outside only above the ceiling, and where the given pair
+   * is not that span the sentence names both. A count axis always says the sentence that blames
+   * nobody ({@link OutsideAsk.undeclared}), asked for or not.
    */
   readonly count?: true;
   /** What one mark on this axis is called, singular then plural. Absent = `['value', 'values']`. */
@@ -1172,9 +1173,9 @@ export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
     // counted against the bounds AS THE AXIS DRAWS THEM, so what is counted as outside is what stands
     // outside the plot. Those can differ from the pair that was declared: on a logarithmic axis (a flat
     // pair is a decade either side; a low bound a logarithm cannot take is lifted) and on a count axis
-    // (read from zero, whatever low end was declared). Then the sentence names both: the words
-    // "declared bounds" are followed by the pair that was declared, in order. (A LINEAR flat pair is
-    // still printed widened by one each side, as it always was.)
+    // (read from zero, whatever low end was given). Then the sentence names both. In the FIRST
+    // sentence the words "declared bounds" are followed by the pair that was declared, in order (a
+    // LINEAR flat pair is still printed widened by one each side, as it always was).
     const linear = domainOr(ask.given, ask.given);
     const said = ask.kind === 'log' ? domainOr(ask.given, ask.given, 'log') : linear;
     const [lo, hi] = ask.count === true ? countSpan(ask.given, ask.given) : ask.kind === 'log' ? logDomain(...said) : linear;
@@ -1183,19 +1184,20 @@ export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
     if (n === 0) return [];
     const write = ask.format ?? String;
     const [one, many] = ask.noun ?? ['value', 'values'];
-    if (ask.undeclared === true) {
+    // a count axis always says the second sentence: it is newer than the first, and no chart asks otherwise
+    if (ask.undeclared === true || ask.count === true) {
       // the pair AS GIVEN, then the pair as drawn where they differ: a count from zero, a logarithmic
       // axis, or a flat or backwards pair the axis had to open or put in order. The REASON is said only
-      // where it is the reason: a pair that was merely put in order is the same span, whatever the axis
+      // where it is the whole reason. A pair merely put in order is the same span, whatever the axis.
+      // "Read from zero" explains a low end moved to zero and nothing else: a ceiling that moved (a
+      // flat pair opened, a ceiling lifted to one) is not zero's doing, so then no reason is given.
       const [low, high] = [Math.min(...ask.given), Math.max(...ask.given)];
-      const moved = low !== lo || high !== hi;
-      const reason = !moved ? '' : ask.count === true ? ' because a count is read from zero' : ask.kind === 'log' ? ' on a logarithmic axis' : '';
+      const reason = ask.count === true ? (low !== lo && high === hi ? ' because a count is read from zero' : '') : ask.kind === 'log' && (low !== lo || high !== hi) ? ' on a logarithmic axis' : '';
       const opened = ask.given[0] === lo && ask.given[1] === hi ? '' : `, drawn as [${write(lo)}, ${write(hi)}]${reason}`;
       const reach = ask.values.some((v) => typeof v !== 'number') ? (n === 1 ? `${one} that reaches` : `${many} that reach`) : n === 1 ? one : many;
       return [`${ask.channel} has ${n} ${reach} outside the span this axis was given [${write(ask.given[0])}, ${write(ask.given[1])}]${opened}`];
     }
-    const why = ask.count === true ? 'because a count is read from zero' : 'on a logarithmic axis';
-    const drawn = said[0] === lo && said[1] === hi ? '' : `, drawn as [${write(lo)}, ${write(hi)}] ${why}`;
+    const drawn = said[0] === lo && said[1] === hi ? '' : `, drawn as [${write(lo)}, ${write(hi)}] on a logarithmic axis`;
     return [`${ask.channel} has ${n} ${n === 1 ? one : many} outside its declared bounds [${write(said[0])}, ${write(said[1])}]${drawn} — bounds say what the quantity CAN be, so either they are wrong or this data is`];
   });
 }

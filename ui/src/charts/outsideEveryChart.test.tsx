@@ -224,10 +224,16 @@ describe('a line’s x axis', () => {
 
 describe('outsideNotes: the one owner of the sentence', () => {
   it('a count axis is counted against zero up to the ceiling, and a ceiling below one is one', () => {
-    expect(outsideNotes([{ channel: 'y', given: [0, 0.5], values: [1, 2], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [0, 0.5], drawn as [0, 1] because a count is read from zero']);
+    // the ceiling was lifted to one: that is not zero's doing, so no reason is given
+    expect(outsideNotes([{ channel: 'y', given: [0, 0.5], values: [1, 2], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [0, 0.5], drawn as [0, 1]']);
     expect(outsideNotes([{ channel: 'y', given: [0, 5], values: [-1, 5], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [0, 5]']);
     // a flat pair is quoted as it was given, never as a pair nobody wrote
-    expect(outsideNotes([{ channel: 'y', given: [0, 0], values: [3], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [0, 0], drawn as [0, 1] because a count is read from zero']);
+    expect(outsideNotes([{ channel: 'y', given: [0, 0], values: [3], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [0, 0], drawn as [0, 1]']);
+    // "read from zero" is said only where the low end moved to zero and the ceiling stayed
+    expect(outsideNotes([{ channel: 'y', given: [3, 5], values: [9], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [3, 5], drawn as [0, 5] because a count is read from zero']);
+    expect(outsideNotes([{ channel: 'y', given: [-4, 5], values: [9], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [-4, 5], drawn as [0, 5] because a count is read from zero']);
+    expect(outsideNotes([{ channel: 'y', given: [5, 5], values: [9], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [5, 5], drawn as [0, 6]']);
+    expect(outsideNotes([{ channel: 'y', given: [0.5, 0], values: [9], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [0.5, 0], drawn as [0, 1]']);
   });
   it('a mark with width is counted once, whichever end reaches out, and an absent end is not a reach', () => {
     expect(outsideNotes([{ channel: 'x', given: [0, 10], values: [[-1, 11], [2, 3], [Number.NaN, 5], [9, 12]], noun: ['bin', 'bins'], undeclared: true }])).toEqual(['x has 2 bins that reach outside the span this axis was given [0, 10]']);
@@ -242,9 +248,11 @@ describe('outsideNotes: the one owner of the sentence', () => {
   it('a mark with width on a logarithmic axis is counted against the span as it is drawn', () => {
     expect(outsideNotes([{ channel: 'x', given: [1, 100], values: [[0.5, 2], [10, 100]], kind: 'log', noun: ['bin', 'bins'], undeclared: true }])).toEqual(['x has 1 bin that reaches outside the span this axis was given [1, 100]']);
   });
-  it('without `undeclared` it is the sentence the scatter and the line’s value axis have always said, counts and widths included', () => {
+  it('without `undeclared` it is the sentence the scatter and the line’s value axis have always said', () => {
     expect(outsideNotes([{ channel: 'y', given: [0, 5], values: [9] }])).toEqual([`y has 1 value outside its declared bounds [0, 5]${TAIL}`]);
-    expect(outsideNotes([{ channel: 'y', given: [3, 5], values: [9], count: true, noun: ['bar', 'bars'] }])).toEqual([`y has 1 bar outside its declared bounds [3, 5], drawn as [0, 5] because a count is read from zero${TAIL}`]);
+    // a count axis never says the older sentence, asked for or not
+    expect(outsideNotes([{ channel: 'y', given: [3, 5], values: [9], count: true, noun: ['bar', 'bars'] }])).toEqual(['y has 1 bar outside the span this axis was given [3, 5], drawn as [0, 5] because a count is read from zero']);
+    expect(outsideNotes([{ channel: 'x', given: [0, 50], values: [60], kind: 'log' }])).toEqual([`x has 1 value outside its declared bounds [0, 50], drawn as [5, 50] on a logarithmic axis${TAIL}`]);
     expect(outsideNotes([{ channel: 'x', given: [0, 10], values: [[9, 12]] }])).toEqual([`x has 1 value outside its declared bounds [0, 10]${TAIL}`]);
   });
   it('dateOfEpoch writes a day at a day’s start, the instant otherwise, and an epoch no date can hold as its number', () => {
