@@ -286,12 +286,15 @@ describe("VizBar — its own COUNT axis, the FIRST scale of a two-scale frame (a
     // at the plot's left edge — this chart's own margin, which the frame aligns every layer's plot by
     expect(axis.getAttribute('x1')).toBe(String(PAD.l));
     expect(Number(axis.getAttribute('y1'))).toBeLessThan(Number(axis.getAttribute('y2')));
-    // 3 steps, 4 labels, from zero to the tallest bar's count (9) — the SAME ceiling the bars use
-    expect(ticksOf(container)).toEqual(['0', '3', '6', '9']);
+    // round values from zero up to the tallest bar's count (9), placed by the bars' own scale
+    expect(ticksOf(container)).toEqual(['0', '2', '4', '6', '8']);
     expect([...container.querySelectorAll('text.vzf-tick')].every((t) => t.getAttribute('text-anchor') === 'end')).toBe(true);
-    // the zero tick sits on the plot floor, the ceiling tick on its top — the bars' own geometry
+    // the zero tick sits on the plot floor and a tick of 8 stands 8/9 of the way to its top — the bars' own geometry
     const at = (label: string): number => Number([...container.querySelectorAll('text.vzf-tick')].find((t) => t.textContent === label)!.getAttribute('y'));
-    expect(at('0')).toBeGreaterThan(at('9'));
+    expect(at('0')).toBeGreaterThan(at('8'));
+    const [top, floor] = [Number(axis.getAttribute('y1')), Number(axis.getAttribute('y2'))];
+    expect(at('0') - 3).toBeCloseTo(floor, 6);
+    expect(at('8') - 3).toBeCloseTo(floor - ((floor - top) * 8) / 9, 6);
     expect(at('0')).toBeCloseTo(Number(axis.getAttribute('y2')) + 3, 5);
     // the category axis is the FRAME's: no baseline, no category ticks, no interactive axis label
     expect(baselinesOf(container)).toHaveLength(0);
@@ -342,8 +345,8 @@ describe('VizBar — the ink of its scale (the left edge of a two-scale frame)',
     const { container } = render(<VizBar data={data} field="category" width={360} height={340} axes="y" scaleHue={HUE} />);
     const axis = [...container.querySelectorAll('line.vzf-axis')].find((l) => l.getAttribute('x1') === l.getAttribute('x2'))!;
     expect(axis.getAttribute('style')).toBe(`--vzf-scale-hue: ${HUE};`);
-    // the axis line plus one hued group per tick (4) — the stylesheet spends the variable per element
-    expect(hued(container)).toHaveLength(1 + 4);
+    // the axis line plus one hued group per tick (5) — the stylesheet spends the variable per element
+    expect(hued(container)).toHaveLength(1 + 5);
     expect([...container.querySelectorAll('rect.vzf-barrect')].map((r) => r.getAttribute('fill'))).toEqual([HUE, HUE, HUE]);
   });
 

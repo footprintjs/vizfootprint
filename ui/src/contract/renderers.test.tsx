@@ -1581,7 +1581,7 @@ describe('layeredRenderer — TWO SCALES ON ONE FRAME are two claims, and the fr
     const vertical = [...barBox.querySelectorAll('line.vzf-axis')].filter((l) => l.getAttribute('x1') === l.getAttribute('x2') && Math.abs(Number(l.getAttribute('y2')) - Number(l.getAttribute('y1'))) > 4);
     expect(vertical).toHaveLength(1);
     expect(Number(vertical[0]!.getAttribute('x1'))).toBe(BAR_PAD.l);
-    expect([...barBox.querySelectorAll('text.vzf-tick')].map((t) => t.textContent)).toEqual(['0', '3', '6', '9']);
+    expect([...barBox.querySelectorAll('text.vzf-tick')].map((t) => t.textContent)).toEqual(['0', '2', '4', '6', '8']);
     // …and no baseline of its own across the plot: a bar's zero IS the frame's x axis, drawn once above
     const baseline = [...barBox.querySelectorAll('line.vzf-axis')].filter((l) => l.getAttribute('y1') === l.getAttribute('y2') && Math.abs(Number(l.getAttribute('x2')) - Number(l.getAttribute('x1'))) > 4);
     expect(baseline).toHaveLength(0);
@@ -1599,7 +1599,7 @@ describe('layeredRenderer — TWO SCALES ON ONE FRAME are two claims, and the fr
     m.update(framed([COUNTS, MEANS], { ...BAND_DUAL, y: { ...SHARED('quantitative', [0, 20]), guide: 'per-layer' } as ResolvedChannel }));
     expect(refusalOf(el)).toBe('');
     // the bar's ticks are the FOLD's span, not its own rows' maximum (`layerDomain` → `domain.y`), still from zero
-    expect([...el.querySelectorAll('[data-layer="counts"] text.vzf-tick')].map((t) => t.textContent)).toEqual(['0', '6.7', '13.3', '20']);
+    expect([...el.querySelectorAll('[data-layer="counts"] text.vzf-tick')].map((t) => t.textContent)).toEqual(['0', '5', '10', '15', '20']);
     // one scale drawn on both edges is comparable by height, so the frame says nothing and hands out no hue
     expect(captionOf(el)).toBe('');
     expect(el.querySelectorAll('[style*="--vzf-scale-hue"]')).toHaveLength(0);
