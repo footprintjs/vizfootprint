@@ -129,7 +129,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { extentFor, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { extentFor, pointerValue, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { fitTick } from './tickFit.js';
 import { Axis, placeTicks, type AxisTick } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
@@ -709,8 +709,11 @@ export function VizLine(props: VizLineProps): JSX.Element {
    * fires, and the reader is told out loud rather than meeting silence or a clause no row can answer.
    */
   const numericSpan = (loPx: number, hiPx: number): [number, number] | null => {
-    const lo = x.invert(loPx);
-    const hi = x.invert(hiPx);
+    // the value under each end, as it is; a pointer held at an edge of the plot is the axis's own end,
+    // exactly (`pointerValue`): the edge pixel's inverse can miss it in the last bit, and with it the
+    // highest point of a drag across everything
+    const lo = pointerValue(x, loPx);
+    const hi = pointerValue(x, hiPx);
     if (valuesCovered(positions.map((d) => d.at), lo, hi).length === 0) {
       announce(noValuesCoveredNote());
       return null;

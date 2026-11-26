@@ -19,6 +19,28 @@ export function linearScale(d0: number, d1: number, r0: number, r1: number): Lin
   return f;
 }
 
+/**
+ * THE VALUE UNDER A POINTER: the scale's own inverse of the pixel, as it is —
+ * never snapped to a mark and never rounded, because a bound that has moved
+ * either drops a mark the pointer covered or claims one it did not.
+ *
+ * A POINTER HELD AT AN END OF THE SCALE'S RANGE (a drag that reached the edge
+ * of the plot, where a brush holds it) is at the axis's own end, and that end
+ * is answered EXACTLY. The inverse of the edge pixel can differ from it in the
+ * last bit, which is enough to leave the smallest or the largest value outside
+ * a drag across everything.
+ *
+ * ONE OWNER, for every chart whose drag records a span of numbers (the
+ * scatter, the line over numbers).
+ */
+export function pointerValue(scale: LinearScale, px: number): number {
+  const [r0, r1] = scale.range;
+  const [first, last] = r0 <= r1 ? [0, 1] : [1, 0];
+  if (px <= Math.min(r0, r1)) return scale.domain[first]!;
+  if (px >= Math.max(r0, r1)) return scale.domain[last]!;
+  return scale.invert(px);
+}
+
 /** The [min, max] extent of a numeric accessor over rows, padded by `pad`. */
 export function extent<T>(rows: readonly T[], get: (r: T) => number, pad = 0): [number, number] {
   if (rows.length === 0) return [0 - pad, 1 + pad];
