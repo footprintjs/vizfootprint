@@ -15,6 +15,14 @@
  *   - a label beside a left or right axis is drawn whole, squeezed into the
  *     room it has when it is wider than that room (`squeezedLength`).
  *
+ * Both are the caller's to switch on: with no `edges` and no `labelRoom` given
+ * a label is drawn as written, wherever that puts it.
+ *
+ * NOT SETTLED YET, and free to change while three axes use it: the prop names
+ * (`ticks` here holds values with their labels; in D3 and Plot the word means
+ * a count), and how a band, a date or a slanted label is handed over. Those
+ * are decided when the bar and the date axes move here.
+ *
  * It renders and nothing else: no state, no measuring, no data.
  */
 import { labelCentre, squeezedLength, type LabelEdges, type RoundTick } from './scales.js';
@@ -24,8 +32,9 @@ import { scaleHueStyle } from './scaleHue.js';
 export type AxisOrient = 'bottom' | 'left' | 'right';
 
 /** The length of a tick mark, and how far a label stands from the axis line, in pixels. */
-export const AXIS_TICK_SIZE = 4;
-export const AXIS_LABEL_OFFSET = { bottom: 16, side: 8 } as const;
+const TICK_SIZE = 4;
+/** A bottom label's baseline this far below the line; a side label's near end this far from it. */
+const LABEL_OFFSET = { bottom: 16, side: 8 } as const;
 /** How far below its tick's centre a side label's baseline sits, so the text reads as centred on the tick. */
 const SIDE_LABEL_DROP = 3;
 
@@ -39,9 +48,9 @@ export interface AxisProps {
   readonly at: number;
   /** The two ends of the axis line, in pixels along the axis. */
   readonly range: readonly [number, number];
-  /** A bottom axis: the drawing's left and right edges, which a label stays between. Absent = labels are centred under their ticks. */
+  /** A bottom axis only: the drawing's left and right edges `[min, max]`, which a label stays between. Absent = labels are centred under their ticks and may leave the drawing. */
   readonly edges?: LabelEdges;
-  /** A left or right axis: the room a label has between its anchor and the edge of the drawing. Absent = labels are drawn as written. */
+  /** A left or right axis only: the room a label has between its anchor and the edge of the drawing. Absent, or not above zero = labels are drawn as written and may leave the drawing. */
   readonly labelRoom?: number;
   /** The hue of this axis's scale, when a two-scale frame handed its layer one. Absent = the ink token. */
   readonly hue?: string;
@@ -58,8 +67,8 @@ export function Axis(props: AxisProps): JSX.Element {
         <line className="vzf-axis" x1={range[0]} y1={at} x2={range[1]} y2={at} style={hue} />
         {ticks.map((tick, i) => (
           <g key={i} style={hue}>
-            <line className="vzf-axis" x1={scale(tick.value)} y1={at} x2={scale(tick.value)} y2={at + AXIS_TICK_SIZE} />
-            <text className="vzf-tick" x={labelCentre(scale(tick.value), tick.label, edges)} y={at + AXIS_LABEL_OFFSET.bottom} textAnchor="middle">
+            <line className="vzf-axis" x1={scale(tick.value)} y1={at} x2={scale(tick.value)} y2={at + TICK_SIZE} />
+            <text className="vzf-tick" x={labelCentre(scale(tick.value), tick.label, edges)} y={at + LABEL_OFFSET.bottom} textAnchor="middle">
               {tick.label}
             </text>
           </g>
@@ -74,10 +83,10 @@ export function Axis(props: AxisProps): JSX.Element {
       <line className="vzf-axis" x1={at} y1={range[0]} x2={at} y2={range[1]} style={hue} />
       {ticks.map((tick, i) => (
         <g key={i} style={hue}>
-          <line className="vzf-axis" x1={at + AXIS_TICK_SIZE * away} y1={scale(tick.value)} x2={at} y2={scale(tick.value)} />
+          <line className="vzf-axis" x1={at + TICK_SIZE * away} y1={scale(tick.value)} x2={at} y2={scale(tick.value)} />
           <text
             className="vzf-tick"
-            x={at + AXIS_LABEL_OFFSET.side * away}
+            x={at + LABEL_OFFSET.side * away}
             y={scale(tick.value) + SIDE_LABEL_DROP}
             textAnchor={away < 0 ? 'end' : 'start'}
             textLength={labelRoom === undefined ? undefined : squeezedLength(tick.label, labelRoom)}

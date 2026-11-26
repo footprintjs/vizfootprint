@@ -9,11 +9,13 @@
   labels. The scatter's two axes and the line's value axis are drawn by it.
   What they draw is unchanged; each axis's elements are now inside one
   `<g class="vzf-axis-part" data-axis-orient="…">`, so their order in the
-  markup changed.
-- New exports: `Axis`, `AxisProps`, `AxisOrient`, `AXIS_TICK_SIZE`,
-  `AXIS_LABEL_OFFSET`.
+  markup changed. Select an axis by `[data-axis-orient]`, not by position.
+- New exports: `Axis`, `AxisProps`, `AxisOrient`. The prop names may change
+  while the other charts move to the part.
 - Not in this change: the bar, histogram, box plot and heat map, the line's
   x axis and the frame still draw their own axes.
+- README correction: it still said the last label of a horizontal axis could
+  run past the right edge. That was fixed in the change below.
 
 ### Charts: axis labels are fitted the way the known chart libraries fit them
 

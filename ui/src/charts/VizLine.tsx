@@ -884,9 +884,6 @@ export function VizLine(props: VizLineProps): JSX.Element {
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
             while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
         {drawX && <line className="vzf-axis" x1={pad.l} y1={bottom} x2={width - pad.r} y2={bottom} />}
-        {/* the zero guide — furniture, edge to edge across the plot, under the series and over the axis;
-            drawn by whoever draws this axis, so a layer under a merged guide draws none */}
-        {zeroY !== undefined && 'at' in zeroY && <line className="vzf-zero" x1={pad.l} y1={zeroY.at} x2={width - pad.r} y2={zeroY.at} />}
         {/* x ticks on a RUN — actual data dates; the edge labels anchor inward so they
             never clip at the plot edges or collide with each other */}
         {drawX && tickSpecs.map((d) => (
@@ -917,8 +914,13 @@ export function VizLine(props: VizLineProps): JSX.Element {
             </g>
           );
         })}
-        {/* the value axis (`Axis`, the one part every chart's axis is drawn by), on the side it was given */}
+        {/* the value axis (`Axis`, the one part every chart's axis is drawn by), on the side it was given.
+            It is drawn just before the zero guide, so the guide is painted over the axis as it always was;
+            both come after the x ticks, which they never cross, and before the series. */}
         {drawY && <Axis orient={props.axisSide === 'right' ? 'right' : 'left'} scale={y} ticks={yTicks} at={yAxisX} range={[top, bottom]} labelRoom={yLabelRoom} hue={props.scaleHue} />}
+        {/* the zero guide — furniture, edge to edge across the plot, under the series and over the axis;
+            drawn by whoever draws this axis, so a layer under a merged guide draws none */}
+        {zeroY !== undefined && 'at' in zeroY && <line className="vzf-zero" x1={pad.l} y1={zeroY.at} x2={width - pad.r} y2={zeroY.at} />}
         {/* one path per RUN of adjacent points (a run of dates is one run; a band breaks at every empty slot —
             `segmentsOf`) + a dot per point — the placeable points; see `placed` above. A run of one point draws
             its dot and no path: a line needs two points. */}
