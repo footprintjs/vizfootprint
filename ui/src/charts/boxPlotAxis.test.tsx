@@ -6,7 +6,7 @@
  * |-----------------------------------------------|-----------------------------------------------|-------------------------------------------------|
  * | values 2 … 99                                 | even cuts of the extent: 2 26.25 50.5 74.75 99| round values: 0 20 40 60 80 100                 |
  * | values 0.001 … 0.004                          | rounded to two decimals: "0" five times       | 0.001 0.002 0.003 0.004, each distinct          |
- * | values in the tens of millions                | eight-digit numbers, cut off at the left      | 52M 54M 56M 58M, against one unit               |
+ * | values in the tens of millions                | eight-digit numbers, cut off at the left      | 52M 54M 56M 58M 60M, against one unit           |
  * | values 12345.001 … 12345.004                  | "12345" five times                            | each distinct, squeezed into the margin         |
  * | a chart too short for its ticks               | labels stacked                                | a coarser round step                            |
  * | a frame's domain 0 … 100                      | 0 25 50 75 100                                | round values inside it, 0 and 100 among them    |
@@ -57,10 +57,10 @@ describe('the box plot’s value axis — numbers', () => {
     expect(axisOf(draw([]))).not.toBeNull();
   });
 
-  it('labels are thinned by a line of text, not by their width: a wide, short chart keeps what a line of text allows', () => {
-    // 2 … 99 on a 900 × 120 chart: by width every label would fit; by height only a coarser step does
-    const got = labels(draw([box(2, 99, 50)], { width: 900, height: 120 }));
-    expect(got).toEqual(['0', '50', '100']);
+  it('labels are thinned by a line of text, not by their width', () => {
+    // 0 … 9 on a 120 px high chart: single digits are narrow, so judged by width 0 2 4 6 8 would
+    // all fit; judged by a line of text only a coarser step does
+    expect(labels(draw([box(0, 9, 5)], { width: 900, height: 120 }))).toEqual(['0', '5']);
   });
 
   it('a label wider than the margin is squeezed into it, every character kept', () => {
