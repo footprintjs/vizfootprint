@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Correction: a view with no layers honours what was declared for its axis
+
+- The renderers of a plain view (`scatterRenderer`, `lineRenderer`,
+  `barRenderer`, `histogramRenderer`, `boxPlotRenderer`) dropped three
+  declared axis options without a word: `transform` (a logarithmic axis),
+  `zeroGuide` (a line where the axis crosses zero) and `bounds` (what the
+  quantity can be). A view that declared any of them was drawn exactly as one
+  that declared none. A stack of layers always honoured them. A plain view's
+  chart is now handed all three, for the channels it binds.
+- A zero line asked of a mark that draws none on that channel (a line's x, a
+  box plot's y) is refused in words where the chart would have been, in the
+  definition door's own sentence. It used to be dropped.
+- The span the data reaches is still not taken from the frame for a plain
+  view: a chart drawn alone keeps its own axis, with room at each end.
+- **Behaviour change** for a host that pushes `RenderState.frame` to a plain
+  view with any of these keys set: the picture now shows them.
+
 ### Correction: a line over numbers follows a logarithmic x
 
 - A line chart whose x is a run of numbers ignored `domain.transform.x`:

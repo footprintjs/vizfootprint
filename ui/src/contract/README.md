@@ -643,6 +643,29 @@ layer is handed the frame's one `domain` object by the same reference), a
 logarithmic count axis for a bar or a histogram bin height, and a logarithmic
 colour ramp.
 
+### A view with no layers honours what was declared for its axis
+
+A definition may declare three things about the axis of a view that has no layers: the curve it is drawn on (`transform`), a line where it crosses zero (`zeroGuide`), and what the quantity can be (`bounds`). The fold echoes them on `RenderState.frame`, exactly as it does for a stack.
+
+**Why this section exists.** The renderers of a plain view (`scatterRenderer`, `lineRenderer`, `barRenderer`, `histogramRenderer`, `boxPlotRenderer`) used to hand their chart an empty domain. A view that declared a logarithmic axis, a zero line or bounds was drawn exactly as one that declared nothing, and nothing said so. A stack of layers honoured all three; a single chart dropped all three. An option that is declared is drawn, or refused in words; it is never dropped.
+
+What a plain view's chart is now handed, for the channels it binds to x and y:
+
+| on the frame | handed to the chart | why |
+|---|---|---|
+| `transform` | the curve | the axis's own nature, declared once |
+| `zeroGuide` | the ask for a zero line | the chart decides whether zero is on the axis it drew, and says so when it is not |
+| `bounds` | the span the axis is drawn on | what the quantity can be wins over what these rows reach |
+| `domain` (what this data reaches) | **not taken** | a chart drawn alone sizes its own axis with room at each end; the folded span has none, so taking it would move every mark to the plot's edge for a view that only declared a zero line |
+
+A zero line asked of a mark that draws none on that channel (a line's x, a box plot's y) is refused in the definition door's own words, in the space the chart would have filled: the same sentence and the same predicate a stack is refused by, because `RenderState.frame` is a public shape a host may fold by hand.
+
+```ts
+// a plain scatter whose definition declared a logarithmic x
+bound.view.update({ ...state, frame: { x: { mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [1, 1000], transform: 'log' } } });
+// its x axis reads 1 10 100 1000, and equal factors stand at equal steps
+```
+
 ### The frame renderer (R6): the def's stack of 2D marks, drawn
 
 `layeredRenderer` is the GENERIC one — `canLayer: true`, and it draws the five

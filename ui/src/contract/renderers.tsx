@@ -167,8 +167,21 @@ interface MarkDraw {
   readonly frame?: Readonly<Record<string, ResolvedChannel>>;
 }
 
-/** A whole view as one mark's material: its rows, its voice, its own extents, its own guide. */
-function viewDraw(state: RenderState, handshake: HostHandshake): MarkDraw {
+/**
+ * A whole view as one mark's material: its rows, its voice, its own guide, and
+ * its own extents EXCEPT where its definition declared something about an axis.
+ *
+ * WHAT A VIEW WITH NO LAYERS MAY DECLARE ABOUT AN AXIS (`src/def/layers.ts`,
+ * the layerless arm of a resolution): the CURVE it is drawn on (`transform`),
+ * a line where it crosses ZERO (`zeroGuide`), and WHAT THE QUANTITY CAN BE
+ * (`bounds`). The fold echoes all three on `RenderState.frame`, and this is the
+ * door that hands them to the chart ({@link declaredAxes}). It used to hand
+ * `{}`: a view that declared a logarithmic axis, a zero line or bounds was
+ * drawn exactly as one that declared nothing, and nothing said so. Three
+ * declared options, dropped. (A stack of layers always honoured them, through
+ * `layerDomain`.)
+ */
+function viewDraw(state: RenderState, handshake: HostHandshake, kind: FrameChartKind): MarkDraw {
   return {
     viewId: handshake.viewId,
     rows: state.rows,
@@ -177,10 +190,60 @@ function viewDraw(state: RenderState, handshake: HostHandshake): MarkDraw {
     width: state.size.width,
     height: state.size.height,
     callbacks: handshake.callbacks,
-    domain: {},
+    domain: declaredAxes(state.frame, state.encodings, kind),
     axes: true,
     frame: state.frame,
   };
+}
+
+/**
+ * WHAT A PLAIN VIEW'S DEFINITION DECLARED ABOUT ITS TWO AXES, as the chart
+ * reads it — and nothing else. For the channels this mark binds to x and y:
+ *
+ *   - the curve, by {@link transformAsk}, and the zero line, by
+ *     {@link zeroGuideAsk}: the two functions a layer's domain is built with;
+ *   - the span, ONLY where bounds were declared. The span this data reaches is
+ *     also on the frame, and is NOT taken: a chart drawn alone sizes its own
+ *     axis to its data with room at each end (`roomyExtent`), and the folded
+ *     span has none, so taking it would move every mark to the plot's edge for
+ *     a view that only declared a zero line. Declared bounds are another
+ *     matter: they say what the quantity can be, and the axis is drawn on them.
+ *
+ * A view that declared nothing gets `{}`, the object it always got.
+ */
+function declaredAxes(frame: Readonly<Record<string, ResolvedChannel>> | undefined, encodings: RenderEncodings, kind: FrameChartKind): ChartDomain {
+  const channels = AXIS_CHANNELS[kind];
+  const bound = (axis: 'x' | 'y'): readonly string[] => (encodings[channels[axis]] === undefined ? [] : [channels[axis]]);
+  const boundsOf = (axis: 'x' | 'y'): readonly [number, number] | undefined => {
+    const resolved = bound(axis).map((channel) => frame?.[channel]).find((channel) => channel !== undefined);
+    return resolved !== undefined && resolved.mode === 'shared' && resolved.scale === 'quantitative' ? resolved.bounds : undefined;
+  };
+  const [x, y] = [boundsOf('x'), boundsOf('y')];
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...transformAsk(frame, bound), ...zeroGuideAsk(frame, bound) };
+}
+
+/**
+ * A PLAIN VIEW ASKED FOR A ZERO LINE ITS MARK DOES NOT DRAW (law 12): said in
+ * words in the space the chart would have filled, in the definition door's own
+ * sentence (`zeroGuideKindRefusal`) and by its own predicate (`drawsZeroGuide`)
+ * — the arrangement a stack of layers already has ({@link zeroGuideRefusal}),
+ * for the same reason: `RenderState.frame` is a public shape a host may fold by
+ * hand, and a declaration silently dropped is worse than one refused. Only a
+ * channel the view BINDS is judged.
+ */
+function plainRefusal(state: RenderState, handshake: HostHandshake, kind: FrameChartKind): string | null {
+  for (const axis of AXES) {
+    const channel = AXIS_CHANNELS[kind][axis];
+    if (state.encodings[channel] === undefined || state.frame?.[channel]?.zeroGuide !== true || drawsZeroGuide(kind, channel)) continue;
+    return zeroGuideKindRefusal(`view "${handshake.viewId}"`, kind, channel);
+  }
+  return null;
+}
+
+/** One plain view drawn by its mark, or the words for a declaration that mark cannot honour. */
+function plainView(state: RenderState, handshake: HostHandshake, kind: FrameChartKind, mark: (draw: MarkDraw) => JSX.Element): JSX.Element {
+  const refused = plainRefusal(state, handshake, kind);
+  return refused === null ? mark(viewDraw(state, handshake, kind)) : frameRefusal(refused);
 }
 
 // ── scatter ────────────────────────────────────────────────────────────────────
@@ -203,7 +266,7 @@ export function scatterRenderer(options: ScatterRendererOptions = {}): Renderer 
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      return pointMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'point', (draw) => pointMark(draw, options));
     },
   });
 }
@@ -277,7 +340,7 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
       emissionKinds: ['interval', 'match', 'point'],
     },
     render(state, handshake) {
-      return lineMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'line', (draw) => lineMark(draw, options));
     },
   });
 }
@@ -409,7 +472,7 @@ export function barRenderer(options: BarRendererOptions = {}): Renderer {
       emissionKinds: ['point', 'match'], // SET-1: shift-click adds to the view's own set
     },
     render(state, handshake) {
-      return barMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'bar', (draw) => barMark(draw, options));
     },
   });
 }
@@ -549,7 +612,7 @@ export function histogramRenderer(options: HistogramRendererOptions = {}): Rende
       emissionKinds: ['interval'],
     },
     render(state, handshake) {
-      return histogramMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'histogram', (draw) => histogramMark(draw, options));
     },
   });
 }
@@ -685,7 +748,7 @@ export function boxPlotRenderer(options: BoxPlotRendererOptions = {}): Renderer 
       emissionKinds: ['point'],
     },
     render(state, handshake) {
-      return boxPlotMark(viewDraw(state, handshake), options);
+      return plainView(state, handshake, 'boxplot', (draw) => boxPlotMark(draw, options));
     },
   });
 }
