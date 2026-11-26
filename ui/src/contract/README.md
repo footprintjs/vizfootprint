@@ -705,6 +705,22 @@ the definition fails that test until it has a case. Two keys, `domain` and
 `guide`, have nothing to change on a view with no layers, so their cases
 prove the entry survives and no more.
 
+**A declared axis with no span still reaches the picture of a view drawn
+alone.** When the fold has no span for a channel (no readable cell), its entry
+carries what was declared and `unfolded: true`. The renderer asks one function
+what the channel's COLUMN is (`scaleKindOf`, `vizfootprint/def`: the fold's
+`scale`, or the entry's `scaleKind`) and another for its SPAN (`spanOf`: none
+for such an entry, unless bounds were declared on a number axis). So a
+logarithmic axis over values it cannot place is drawn logarithmic with the
+count of what it left out, declared bounds over no rows draw the axis on the
+bounds, and a declared zero line is drawn on the chart's own extent.
+
+A STACK reads folded spans only (`foldedOnly`). With no span each layer
+would stand on its own extent, and one axis, one zero line or one "shared
+scale" over them would be untrue, so the stack reads the frame without such
+entries and is drawn as it always was. Known limit, older than the entry: a
+stack then drops that declaration with no word.
+
 **A category list is the fold's too.** Where the frame holds a categorical
 entry for the view's x (a bar's `category`, a line on a band), the slots are
 laid out in the fold's order, and a category with no row gets an empty slot,
@@ -1499,8 +1515,13 @@ structural no-commit check over `bind.ts`).
    with `via.from` (the source's clause, so a travelled walk is still the
    walk); 1.10 added `HostHandshake.resources` (Law 9); 1.11 added the second
    INBOUND call, `MountedRenderer.bringIntoView`, with `canBringIntoView` and
-   its two typed gaps (Law 10) — all optional, so every one of them stayed a
-   minor. **An inbound call is a minor where an outbound verb is a major, and
+   its two typed gaps (Law 10); 1.12 added one shape a shared channel of
+   `RenderState.frame` may be: declared, with no span to fold
+   (`UnfoldedDomain`: the declaration, `unfolded: true`, `scaleKind`, and no
+   `scale` or `domain`) — all optional or unseen by a reader that matches
+   `scale` before it reads `domain`, so every one of them stayed a minor. A
+   renderer that falls through to "the remaining kind" and then reads `domain`
+   must add that check for 1.12. **An inbound call is a minor where an outbound verb is a major, and
    that is not a double standard**: "exactly four verbs" is a stated law about
    the renderer's *voice*, so a fifth changes what a renderer **is**, while an
    optional inbound call changes only what a renderer may be **asked** — one

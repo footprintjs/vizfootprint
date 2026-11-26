@@ -70,7 +70,7 @@ import {
   type RenderSelection,
   type RenderState,
 } from './types.js';
-import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, logOnExtentRefusal, boundsFitACount, countBoundsRefusal as countBoundsSentence, histogramCountLogRefusal, countOffAxisRefusal as countOffAxisSentence, type ResolvedChannel } from 'vizfootprint/def';
+import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, logOnExtentRefusal, boundsFitACount, countBoundsRefusal as countBoundsSentence, histogramCountLogRefusal, countOffAxisRefusal as countOffAxisSentence, scaleKindOf, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
 import { bandOrder, countSpan, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
 import { VizFrame, COUNT_KINDS, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
@@ -364,7 +364,8 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
   const dateField = boundField(d.encodings, 'x', 'date');
   const valueField = boundField(d.encodings, 'y', 'value');
   const seriesField = d.encodings['color'];
-  const scale = sharedOn(d.frame, 'x')?.scale;
+  const folded = sharedOn(d.frame, 'x');
+  const scale = folded === undefined ? undefined : kindOf(folded);
   const onBand = d.domain.categories !== undefined || scale === 'categorical';
   // a NUMBER on x is a numeric run: the fold's own answer where the host folded one, the row's own
   // value type where it did not — read per ROW, so the chart's `xKindOf` stays the only thing that
@@ -1250,6 +1251,39 @@ export interface LayeredRendererOptions {
 /** A channel the host folded a domain for — the only arm of `ResolvedChannel` that carries numbers. */
 type SharedChannel = Extract<ResolvedChannel, { readonly mode: 'shared' }>;
 
+/** The three kinds a shared channel folds as. */
+type ScaleOfColumn = ReturnType<typeof scaleKindOf>;
+
+/**
+ * WHAT A SHARED CHANNEL'S COLUMN IS: a number, a date or a category
+ * (`scaleKindOf`, `vizfootprint/def`, its one owner): the fold's `scale` where
+ * a span was folded, and the entry's `scaleKind` where the channel was
+ * declared but had no span to fold (`UnfoldedDomain`). Every question about
+ * the COLUMN asks it (is this x a band? which words name its type?), so a
+ * declared axis with no readable cell is still the axis its column makes it.
+ * A question about the SPAN asks {@link spanOf}.
+ */
+const kindOf = scaleKindOf;
+
+/**
+ * A STACK DRAWS ON FOLDED SPANS ONLY. A shared channel with no span to fold
+ * (`UnfoldedDomain`) cannot be one scale across layers: each layer would draw
+ * on its own extent, and an axis, a zero line or a "one scale" claim drawn
+ * over them would be untrue. So the stack reads the frame WITHOUT such
+ * entries, which is the frame it was handed before the fold answered them:
+ * its picture is unchanged. (A view drawn alone has one extent, its own, and
+ * does honour the entry: {@link plainView}.)
+ *
+ * KNOWN LIMIT, older than the entry: in a stack, a curve, a zero line or bounds
+ * declared on a channel the fold could read no cell for are not drawn, and
+ * the layers stand on their own extents with no word. Refusing that stack, or
+ * saying it, is a task of its own.
+ */
+function foldedOnly(frame: Readonly<Record<string, ResolvedChannel>> | undefined): Readonly<Record<string, ResolvedChannel>> | undefined {
+  if (frame === undefined) return undefined;
+  return Object.fromEntries(Object.entries(frame).filter(([, channel]) => channel.mode !== 'shared' || channel.scale !== undefined));
+}
+
 /** One layer with the mark its spec names. */
 interface FramedLayer {
   readonly layer: RenderLayer;
@@ -1299,7 +1333,7 @@ function xBinding(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel
   const column = f.layer.encodings[channel];
   if (column === undefined) return undefined;
   const resolved = frame?.[channel];
-  return { column, scale: resolved !== undefined && resolved.mode === 'shared' ? resolved.scale : undefined };
+  return { column, scale: resolved !== undefined && resolved.mode === 'shared' ? kindOf(resolved) : undefined };
 }
 
 /** Is this layer's x a band? Its mark's answer where the mark has one; the x column's otherwise. */
@@ -1310,7 +1344,7 @@ function bandX(f: FramedLayer, frame: Readonly<Record<string, ResolvedChannel>> 
 }
 
 /** The words for a folded scale's column type, as the fold's `frameScaleOf` reads them back. */
-const SCALE_TYPE_WORDS: Readonly<Record<SharedChannel['scale'], string>> = Object.freeze({
+const SCALE_TYPE_WORDS: Readonly<Record<ScaleOfColumn, string>> = Object.freeze({
   quantitative: 'a number',
   temporal: 'a date',
   categorical: 'a category',
@@ -1547,7 +1581,7 @@ function countBoundsRefusal(framed: readonly FramedLayer[], frame: Readonly<Reco
  */
 function sharedYReaders(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): { readonly count?: FramedLayer; readonly position?: FramedLayer } {
   const shared = sharedOn(frame, 'y');
-  if (shared?.scale !== 'quantitative') return {};
+  if (shared === undefined || kindOf(shared) !== 'quantitative') return {};
   const readers = framed.filter((f) => f.layer.encodings['y'] !== undefined);
   const [count, position] = [readers.find((f) => COUNT_KINDS.has(f.kind)), readers.find((f) => !COUNT_KINDS.has(f.kind))];
   return { ...(count === undefined ? {} : { count }), ...(position === undefined ? {} : { position }) };
@@ -1630,7 +1664,7 @@ function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<
     // the definition door's sentence (one owner), then the way out only this door can judge: two scales
     return `${countBoundsSentence(`layer "${count.layer.layerId}"`, count.kind, shared.bounds, `layer "${position.layer.layerId}"`)} ${apart}.`;
   }
-  const span = spanOf(shared)!; // a quantitative channel has a span
+  const span = spanOf(shared)!; // a folded quantitative channel has a span (a stack reads folded spans only, `foldedOnly`)
   const low = Math.min(span[0], span[1]);
   if (!(low < 0)) return null;
   return `${who} reaches below zero (${String(low)}): one scale cannot hold a length from zero and a ${position.kind} under it. ${apart}.`;
@@ -1912,6 +1946,10 @@ function spanOf(channel: SharedChannel | undefined): readonly [number, number] |
   // as the edge of torsion space. The fold carries BOTH (`ResolvedChannel.bounds` beside `domain`), so
   // nothing is lost by preferring one here — and only on a QUANTITATIVE axis, because bounds are numbers
   // and the def door refuses them on a channel bound to anything else.
+  // A DECLARED AXIS WITH NO SPAN TO FOLD (`UnfoldedDomain`) has only what was declared: its bounds, where
+  // its column is a number (bounds are numbers; a folded date or category axis reads none either), or
+  // nothing, and then the mark draws on its own extent. No span is invented for it.
+  if (channel.scale === undefined) return channel.scaleKind === 'quantitative' ? channel.bounds : undefined;
   if (channel.scale === 'quantitative') return channel.bounds ?? channel.domain;
   if (channel.scale === 'categorical') return undefined;
   const lo = epochOf(channel.domain[0]);
@@ -2080,7 +2118,7 @@ function frameAxisOf(framed: readonly FramedLayer[], frame: Readonly<Record<stri
   const shared = sharedAxis(framed, frame, axis);
   if (shared === undefined || shared.resolved.guide !== 'merged') return undefined;
   const named = label ?? channelLabel(framed, shared.channels);
-  return { scale: shared.resolved.scale, ...(named === undefined ? {} : { label: named }) };
+  return { scale: kindOf(shared.resolved), ...(named === undefined ? {} : { label: named }) };
 }
 
 /** The field name a merged axis carries: the one every layer binding any of the axis's channels agrees on — an axis of two fields has no single name. */
@@ -2164,11 +2202,13 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
       if (layers.length === 0) return frameRefusal('this frame carried no layers — a frame is its layers, so there is nothing to draw. Push at least one layer, or bind a single-mark renderer for a plain view.');
       const framed = framedLayers(layers, options);
       if (typeof framed === 'string') return frameRefusal(framed);
-      const refusal = stackRefusal(framed, state.frame);
+      // the frame as a stack may read it: folded spans only (`foldedOnly`)
+      const frame = foldedOnly(state.frame);
+      const refusal = stackRefusal(framed, frame);
       if (refusal !== null) return frameRefusal(refusal);
-      const x = frameAxisOf(framed, state.frame, 'x', options.xLabel);
-      const y = frameAxisOf(framed, state.frame, 'y', options.yLabel);
-      const guide = frameGuide(state.frame);
+      const x = frameAxisOf(framed, frame, 'x', options.xLabel);
+      const y = frameAxisOf(framed, frame, 'y', options.yLabel);
+      const guide = frameGuide(frame);
       // WHICH AXES THE FRAME DRAWS, spelled with the SAME two conditions `VizFrame` gates its own guide on
       // — it has a guide to draw at all (merged, or a stack whose x it draws once) AND it was given that
       // axis. The layers are then asked for exactly the furniture the frame is not drawing for them
@@ -2176,16 +2216,16 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
       const hasOwnGuide = guide === 'merged' || framed.length > 1;
       const frameDraws = { x: hasOwnGuide && x !== undefined, y: hasOwnGuide && y !== undefined };
       // the ONE band union every layer AND the merged guide draw off — see `fullBandOrder`
-      const categories = fullBandOrder(framed, state.frame);
+      const categories = fullBandOrder(framed, frame);
       // the words for two scales (law 3), or nothing — one owner, `twoScalesSentence`
-      const words = frameWords(framed, state.frame);
+      const words = frameWords(framed, frame);
       return (
         <VizFrame
           layers={framed.map((f) => ({
             layerId: f.layer.layerId,
             kind: f.kind,
             // its own y (an independent or per-layer y it binds) takes an edge on a two-axis frame — the frame picks which
-            ownY: ownY(f, state.frame),
+            ownY: ownY(f, frame),
             render: (draw) =>
               layerMark(f, {
                 viewId: handshake.viewId,
@@ -2200,14 +2240,14 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
                 // ONLY what THIS layer binds — never the frame's whole fold (`draw.domain`), because
                 // an axis a layer never declared is not its axis: a bar that binds no y keeps its own
                 // count ceiling rather than taking somebody else's value span as its height
-                domain: layerDomain(f, framed, state.frame, categories, frameDraws),
+                domain: layerDomain(f, framed, frame, categories, frameDraws),
                 axes: draw.axes,
                 ...(draw.axisSide === undefined ? {} : { axisSide: draw.axisSide }),
                 // the ink of this layer's scale, when the frame decided there are two of them (law 4)
                 ...(draw.scaleHue === undefined ? {} : { scaleHue: draw.scaleHue }),
               }),
           }))}
-          domain={frameChartDomain(framed, state.frame, categories)}
+          domain={frameChartDomain(framed, frame, categories)}
           guide={guide}
           {...(x === undefined ? {} : { x })}
           {...(y === undefined ? {} : { y })}

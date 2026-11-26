@@ -127,7 +127,9 @@ const COLUMN_TYPES: readonly ColumnType[] = ['number', 'string', 'boolean', 'dat
  * fold moves (`../contract/README.md`, Law 7).
  *
  * A read the session REFUSES (an unknown table, a moved version) contributes no
- * values, so the channel it fed carries no domain rather than a stale one.
+ * values, so the channel it fed carries no domain rather than a stale one (and,
+ * where its declaration holds a curve, a zero line or bounds, the fold's entry
+ * with no span: `UnfoldedDomain`).
  *
  * KNOWN GAP, named rather than hidden: this is one read per layer per basis,
  * and the port has no way to ask N questions as one. A refresh that lands
@@ -219,14 +221,13 @@ export interface ViewFrameRequest extends Omit<FrameRequest, 'layers' | 'frame'>
  * 'table'` (the default) reads the table with nobody's clause. Silences are
  * dropped per column before the fold, by the same code a layer's are.
  *
- * KNOWN GAP, the fold's own and the same for a layer: an axis with NO SPAN to
- * fold gets no entry at all, and then every key declared on it is not drawn
- * for that update, with no word. That happens when the read is refused, when
- * every cell is a silence, when `basis: 'rows'` reads no rows, and when a
- * logarithm can place none of the cells. The chart then draws its own extent
- * as if nothing had been declared. Closing it means the fold answering an
- * entry that carries the declaration and no span, and every renderer saying
- * what it could not draw; that is a change to the fold, not to this door.
+ * AN AXIS WITH NO SPAN TO FOLD (the read was refused, every cell is a silence,
+ * `basis: 'rows'` read no rows, a logarithm can place no cell) is still
+ * answered where a curve, a zero line or bounds were declared on it: the fold
+ * hands back an entry with the declaration and no span (`UnfoldedDomain`,
+ * `vizfootprint/def`), and the chart draws its own extent on the declared
+ * curve, with the declared line, or on the declared bounds. Never a stale or
+ * an invented span. An axis that declared none of the three gets no entry.
  */
 export async function viewFrameFor(session: FrameSessionLike, request: ViewFrameRequest): Promise<Readonly<Record<string, ResolvedChannel>>> {
   const declared = request.frame ?? {};

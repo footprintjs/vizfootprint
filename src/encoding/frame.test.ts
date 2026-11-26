@@ -302,8 +302,12 @@ describe('the LOGARITHMIC axis — the fold honours the transform, excludes what
     });
   });
 
-  it('a column with NOTHING positive folds NO domain — an invented one would be a drawn lie', () => {
-    expect(frameDomains([layer('a', 'point', { y: ['number', [0, -3, -9]] })], log)['y']).toBeUndefined();
+  it('a column with NOTHING positive folds NO domain — an invented one would be a drawn lie — and the declared curve still reaches the picture', () => {
+    // no span, and none invented; the entry carries the declaration (`UnfoldedDomain`), where it used to be no entry at all
+    const y = frameDomains([layer('a', 'point', { y: ['number', [0, -3, -9]] })], log)['y'];
+    expect(y).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', transform: 'log', unfolded: true, scaleKind: 'quantitative' });
+    expect(y).not.toHaveProperty('domain');
+    expect(y).not.toHaveProperty('scale');
     // the same column drawn LINEARLY still folds: the exclusion is the transform's, not the data's
     expect(frameDomains([layer('a', 'point', { y: ['number', [0, -3, -9]] })])['y']).toMatchObject({ domain: [-9, 0] });
   });
@@ -455,9 +459,33 @@ describe('what the quantity can be (law 14) — the fold echoes the declared ext
     expect(resolutionFor('y', axis)).toEqual({ mode: 'shared', domain: 'union', basis: 'table', guide: 'merged' });
   });
 
-  it('a channel with nothing foldable still gets NO ENTRY — an axis over no data is a different question', () => {
+  it('a channel with nothing foldable keeps its DECLARED bounds, and no span: the axis can be drawn as declared over no data', () => {
     const declared = { y: { mode: 'shared', bounds: [0, 100] } } as unknown as Readonly<Record<string, ChannelResolution>>;
-    expect(frameDomains([layer('a', 'point', { y: ['number', []] })], declared)).toEqual({});
+    expect(frameDomains([layer('a', 'point', { y: ['number', []] })], declared)).toEqual({ y: { mode: 'shared', basis: 'table', guide: 'merged', bounds: [0, 100], unfolded: true, scaleKind: 'quantitative' } });
+  });
+
+  it('…and one that declared NOTHING a picture answers to still gets no entry, as it always did', () => {
+    expect(frameDomains([layer('a', 'point', { y: ['number', []] })])).toEqual({});
+    const words = { y: { mode: 'shared', basis: 'rows', guide: 'per-layer', zero: true, domain: 'union' } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { y: ['number', []] })], words)).toEqual({});
+    // a column whose type is unknown, with only a zero line declared: nothing says what the column is, so no entry
+    const line = { y: { mode: 'shared', zeroGuide: true } } as unknown as Readonly<Record<string, ChannelResolution>>;
+    expect(frameDomains([layer('a', 'point', { y: ['unknown', [1, 2]] })], line)).toEqual({});
+  });
+
+  it('a column of unknown type still carries declared bounds or a declared logarithm: either says it is a number', () => {
+    const fold = (resolution: object): unknown => frameDomains([layer('a', 'point', { y: ['unknown', []] })], { y: { mode: 'shared', ...resolution } } as unknown as Readonly<Record<string, ChannelResolution>>)['y'];
+    expect(fold({ bounds: [0, 100], zeroGuide: true })).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', zeroGuide: true, bounds: [0, 100], unfolded: true, scaleKind: 'quantitative' });
+    expect(fold({ transform: 'log' })).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', transform: 'log', unfolded: true, scaleKind: 'quantitative' });
+    // a declared LINEAR curve says nothing about the column
+    expect(fold({ transform: 'linear' })).toBeUndefined();
+  });
+
+  it('each declared key alone keeps the entry, on any kind of column, with the kind the column would have folded as', () => {
+    const one = (resolution: object, type: 'number' | 'date' | 'string'): unknown => frameDomains([layer('a', 'point', { y: [type, []] })], { y: { mode: 'shared', ...resolution } } as unknown as Readonly<Record<string, ChannelResolution>>)['y'];
+    expect(one({ zeroGuide: true }, 'number')).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', zeroGuide: true, unfolded: true, scaleKind: 'quantitative' });
+    expect(one({ transform: 'linear' }, 'date')).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', transform: 'linear', unfolded: true, scaleKind: 'temporal' });
+    expect(one({ zeroGuide: false, basis: 'rows' }, 'string')).toEqual({ mode: 'shared', basis: 'rows', guide: 'merged', zeroGuide: false, unfolded: true, scaleKind: 'categorical' });
   });
 });
 

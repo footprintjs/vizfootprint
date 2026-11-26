@@ -68,6 +68,7 @@ export { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChanne
 // law 12 — zero is a place on the axis: which marks draw a guide there, the words for one that does not,
 // the logarithm's own vocabulary for a key that asked for a zero it has none of, and the closed-interval test
 export { drawsZeroGuide, zeroGuideKindRefusal, logOnExtentRefusal, noZeroOnALogAxis, zeroOnAxis } from './frame.js';
+export { scaleKindOf } from './frame.js';
 export { COUNT_MARKS, boundsFitACount, countBoundsRefusal, histogramCountLogRefusal, countOffAxisRefusal } from './frame.js';
 // a band is a range too (law 13): the ONE predicate both twins ask about a declared interval gesture, and the ONE sentence they both say
 export { drawsIntervalBrush, intervalGestureRefusal } from './frame.js';
@@ -81,4 +82,4 @@ export { intervalAddresses, unaddressableIntervalRefusal } from './frame.js';
 // predicate under both (`valueAddresses`). Asked by the SESSION's probe door and by the conformance
 // kit, so a clause that can keep no row is refused by name instead of landing a commit that kept nothing
 export { valueAddresses, unaddressableClause, unaddressableValueRefusal } from './frame.js';
-export type { AddressedClauseKind, ChannelValues, EffectiveResolution, FrameLayer, FrameNote, ResolvedChannel, ResolvedDomain } from './frame.js';
+export type { AddressedClauseKind, ChannelValues, EffectiveResolution, FrameLayer, FrameNote, ResolvedChannel, ResolvedDomain, UnfoldedDomain } from './frame.js';

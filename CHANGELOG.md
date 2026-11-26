@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Correction: a declared axis with no span to fold reaches the picture of a view drawn alone
+
+- The fold answered nothing for a channel with no readable cell (the read
+  was refused, every cell was a silence, `basis: 'rows'` read no rows, a
+  logarithm could place none). A curve, a zero line or bounds declared on
+  that channel then reached no picture, with no word: a view that declared
+  a logarithmic axis over values a logarithm cannot place drew a linear
+  one.
+- The fold now answers an entry for such a channel where one of the three
+  was declared: the declaration, `unfolded: true`, `scaleKind` (what the
+  column would have folded as), and no span. No span is invented. Where the
+  column's type is unknown too, declared bounds or a declared logarithm say
+  it is a number.
+- A view drawn alone draws it: a logarithmic axis with the count of values
+  it could not place; declared bounds as the axis over no rows; a declared
+  zero line on the chart's own extent.
+- **A stack does not, and is drawn exactly as before.** With no span each
+  layer stands on its own extent, and one axis or one zero line over them
+  would be untrue, so `layeredRenderer` reads the frame without such
+  entries. That a stack drops such a declaration with no word is older than
+  this change and is a task of its own.
+- Still dropped, for a view too: `zero: true` on a channel with no span (it
+  asks a span to reach zero, and there is none), and a zero line alone on a
+  column whose type is unknown.
+- **Protocol 1.12, for a reader of `RenderState.frame`:** a shared channel
+  may now be this entry. It has no `scale` and no `domain`. Code that reads
+  `domain` only after matching `scale` to a kind is unaffected. Code that
+  treats "not quantitative and not categorical" as a date axis and then
+  reads `domain` must add a check. New exports from `vizfootprint/def`:
+  the type `UnfoldedDomain` and `scaleKindOf(channel)`, which answers what
+  a shared channel's column is whether or not a span was folded.
+- A channel that declared none of the three still gets no entry.
+
 ### Correction: the definition door refuses what the renderer refuses about a count
 
 - The renderer refuses three declarations about a bar or a histogram,
@@ -79,10 +112,6 @@
 - `chartKind` is required, in the definition's word: the mark decides the
   zero default, so a bar's and a box plot's magnitude axis folds to reach
   zero.
-- Known gap, the fold's own and the same for layers: an axis with no span
-  to fold (a refused read, a column of silences, a logarithm that can
-  place no cell) gets no entry, and the keys declared on it are then not
-  drawn for that update, with no word.
 - A host that draws plain views calls it and pushes the answer when it is
   not empty. Nothing calls it for the host: a host that does not call it
   draws as before.

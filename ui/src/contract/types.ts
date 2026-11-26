@@ -138,9 +138,19 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * could see it, so on a 185-residue structure the marked residue was routinely
  * behind the molecule. Both the method and the flag are optional and a renderer
  * that declares neither is never asked, so a 1.10 renderer binds, draws and is
- * asked byte-identically; the minor stays compatible.
+ * asked byte-identically; the minor stays compatible. 1.12 ADDED ONE SHAPE A
+ * SHARED CHANNEL OF {@link RenderState.frame} MAY BE: a channel whose
+ * definition declared a curve, a zero line or bounds and for which the fold
+ * could read no cell (`UnfoldedDomain`, `vizfootprint/def`). It carries the
+ * declaration, `unfolded: true` and `scaleKind`, and NO `scale` and NO
+ * `domain`. Until it, such a channel was simply absent, and what was declared
+ * on it reached no picture. A renderer that reads `domain` only after matching
+ * `scale` to a kind never sees it as a span and draws byte-identically. A
+ * renderer that treats "not quantitative and not categorical" as temporal and
+ * then reads `domain` (a fall-through) must add the check: such a frame was
+ * never handed to it before. The minor stays compatible for the first kind.
  */
-export const RENDERER_PROTOCOL_VERSION = '1.11';
+export const RENDERER_PROTOCOL_VERSION = '1.12';
 
 export type { ChartEmission };
 export type { ResolvedChannel };

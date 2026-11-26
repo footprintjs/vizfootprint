@@ -165,6 +165,8 @@ export {
   countBoundsRefusal,
   histogramCountLogRefusal,
   countOffAxisRefusal,
+  // what a shared channel's column is, folded or not (`UnfoldedDomain`)
+  scaleKindOf,
   noZeroOnALogAxis,
   zeroOnAxis,
   // law 13's own two: does this mark draw an interval brush on an x of this scale kind, and the words for one that does not
@@ -223,6 +225,7 @@ export type {
   FrameLayer,
   ResolvedChannel,
   ResolvedDomain,
+  UnfoldedDomain,
 } from '../encoding/index.js';
 
 // The data-source layer (owned by src/source; the file carrier is its own module, src/source/file.ts).

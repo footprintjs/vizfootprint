@@ -16,7 +16,7 @@
  * | `y: {}` (basis by default)                 | x, y       | read from the table with nobody's clause                |
  * | `color: { … }`                             | x, y       | `{}`: a channel the view does not bind is not folded    |
  * | a silence in the column                    |            | dropped before the fold, as for a layer                 |
- * | a refused read                             |            | no entry for that axis rather than a stale span (a KNOWN GAP: its declared keys are then not drawn) |
+ * | a refused read, or no cell a logarithm can place |      | no span, never a stale or invented one; the declared curve, zero line and bounds still ride on the entry |
  * | `y: {}` on a bar or a box plot             | y          | the span reaches zero: the mark is read from zero       |
  */
 import { describe, it, expect } from 'vitest';
@@ -102,10 +102,13 @@ describe('viewFrameFor — which rows', () => {
     expect(asked.every((query) => query.limit === 10)).toBe(true);
   });
 
-  it('a refused read folds nothing for that axis rather than a stale span, as the fold does for a layer (the same known gap)', async () => {
+  it('a refused read folds no span, never a stale one: the axis keeps what was declared on it, and an axis that declared no key gets no entry', async () => {
     const { session } = recording({ 'view:dots': 'refused', 'table:t': TABLE });
     const answer = await viewFrameFor(session, { ...VIEW, frame: { x: axis({}), y: axis({ basis: 'rows', zeroGuide: true }) } });
-    expect(Object.keys(answer)).toEqual(['x']);
+    expect(answer['x']).toMatchObject({ domain: [1, 9] });
+    expect(answer['y']).toEqual({ mode: 'shared', basis: 'rows', guide: 'merged', zeroGuide: true, unfolded: true, scaleKind: 'quantitative' });
+    // `basis` alone is a word about which rows; with no rows read there is nothing for a picture to answer to
+    expect(await viewFrameFor(session, { ...VIEW, frame: { y: axis({ basis: 'rows' }) } })).toEqual({});
   });
 
   it('a silence never enters the span, as for a layer', async () => {
@@ -129,10 +132,11 @@ describe('viewFrameFor — which rows', () => {
     expect(await folded('scatter', { zero: true })).toEqual([0, 40]);
   });
 
-  it('KNOWN GAP, pinned so it is changed on purpose: an axis with no span to fold gets no entry, so its declared keys are not drawn', async () => {
-    // a logarithm that can place no cell: the declared curve and bounds are in no answer
+  it('a logarithm that can place no cell folds no span, and the declared curve and bounds still reach the picture', async () => {
     const { session } = recording({ 'table:t': [{ p: 1, v: -3 }, { p: 2, v: 0 }] });
-    expect(await viewFrameFor(session, { ...VIEW, frame: { y: axis({ transform: 'log', bounds: [0.1, 5000] }) } })).toEqual({});
+    expect(await viewFrameFor(session, { ...VIEW, frame: { y: axis({ transform: 'log', bounds: [0.1, 5000] }) } })).toEqual({
+      y: { mode: 'shared', basis: 'table', guide: 'merged', transform: 'log', bounds: [0.1, 5000], unfolded: true, scaleKind: 'quantitative' },
+    });
   });
 });
 
