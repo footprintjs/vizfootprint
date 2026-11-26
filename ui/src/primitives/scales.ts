@@ -204,11 +204,18 @@ export interface ChartDomain {
  * with data that holds one distinct value — and a domain that is not two finite
  * numbers is not a domain at all, so the chart keeps its own rather than
  * drawing marks at NaN.
+ *
+ * ON A LOGARITHMIC AXIS (`kind: 'log'`) a flat domain is handed on FLAT. A
+ * logarithm measures in factors, so its widening is a decade each side, and
+ * that rule has one owner, {@link logDomain}, which `scaleFor` applies. Widened
+ * by one here first, a single value of 0.001 became −0.999 … 1.001, the clamp
+ * lifted the low end to 0.1, and the value itself was drawn far outside the
+ * plot with nothing said. A chart on a logarithmic channel must pass its kind.
  */
-export function domainOr(given: readonly [number, number] | undefined, own: readonly [number, number]): [number, number] {
+export function domainOr(given: readonly [number, number] | undefined, own: readonly [number, number], kind?: ScaleKind): [number, number] {
   if (given === undefined || !Number.isFinite(given[0]) || !Number.isFinite(given[1])) return [own[0], own[1]];
   const [lo, hi] = [Math.min(given[0], given[1]), Math.max(given[0], given[1])];
-  return lo === hi ? [lo - 1, hi + 1] : [lo, hi];
+  return lo === hi && kind !== 'log' ? [lo - 1, hi + 1] : [lo, hi];
 }
 
 /**
@@ -493,11 +500,15 @@ export function logScale(d0: number, d1: number, r0: number, r1: number): Linear
  *      Invented, and only ever under a picture with no marks in it.
  */
 export function logDomain(d0: number, d1: number): [number, number] {
-  const lo = Math.min(d0, d1);
-  const hi = Math.max(d0, d1);
+  // both ends kept INSIDE what a number can hold, on the way in and on the way out: an infinite end is
+  // the largest number, a decade below the smallest numbers rounds to zero (which a logarithm cannot
+  // take), and a decade above the largest to infinity
+  const lo = Math.min(Number.MAX_VALUE, Math.min(d0, d1));
+  const hi = Math.min(Number.MAX_VALUE, Math.max(d0, d1));
   if (!(hi > 0)) return [1, 10];
-  if (lo === hi) return [hi / 10, hi * 10];
-  return [lo > 0 ? lo : hi / 10, hi];
+  const below = Math.max(Number.MIN_VALUE, hi / 10);
+  if (lo === hi) return [below, Math.min(Number.MAX_VALUE, hi * 10)];
+  return [lo > 0 ? lo : below, hi];
 }
 
 /**
@@ -518,11 +529,27 @@ export function logDomain(d0: number, d1: number): [number, number] {
  * either — `padFor('log', …)` is 0, so nothing pads a real minimum down to it.
  * `[0, 0]` therefore never collides with a genuine positive extent; it only
  * ever stands for "there was nothing to measure", which is exactly what
- * `logDomain`'s own placeholder decade is for.
+ * `logDomain`'s own placeholder decade is for. Rows that hold nothing finite
+ * get the same answer.
+ *
+ * AND ONE DISTINCT VALUE IS LEFT AS IT IS, `[v, v]`: on a logarithmic channel
+ * the widening of a flat extent is `logDomain`'s (a decade each side), never
+ * `extent`'s plus and minus one.
  */
 export function extentFor<T>(rows: readonly T[], get: (r: T) => number, pad: number, kind: ScaleKind | undefined): [number, number] {
-  if (kind === 'log' && rows.length === 0) return [0, 0];
-  return extent(rows, get, pad);
+  if (kind !== 'log') return extent(rows, get, pad);
+  // A LOGARITHMIC channel: the raw extent, with NO widening of a single value. `extent` widens one
+  // distinct value by one each side, which is a linear idea; here it is {@link logDomain}'s to widen,
+  // by a decade each side, so the value stands in the middle of its axis.
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const r of rows) {
+    const v = get(r);
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  // `pad` is kept for the caller that passes one (a logarithmic channel's is 0, `padFor`)
+  return Number.isFinite(lo) && Number.isFinite(hi) ? [lo - pad, hi + pad] : [0, 0];
 }
 
 /**
@@ -696,8 +723,29 @@ function roundRun(lo: number, hi: number, target: number): RoundTick[] | undefin
  * hundredth. The one difference there is a value that sits exactly on a half
  * (2.675): it is now rounded by the number's true value, where the older
  * arithmetic rounded the product. A pointer's value is practically never one.
+ *
+ * A LOGARITHMIC axis (`kind: 'log'`) is rounded to significant digits and
+ * `span` is not read: enough digits to tell one pixel from the next at this
+ * value (`pixel`, what one pixel is worth there), and never fewer than four.
  */
-export function roundToAxis(value: number, span: number): number {
+const LOG_POINTER_DIGITS = 4;
+/** A number holds fifteen digits it can be trusted with. */
+const MAX_POINTER_DIGITS = 15;
+export function roundToAxis(value: number, span: number, kind?: ScaleKind, pixel?: number): number {
+  // ON A LOGARITHMIC AXIS a value is rounded to SIGNIFICANT DIGITS, never to a number of decimals:
+  // decimals are a linear idea (a drag around 0.001 rounded to a hundredth is [0, 0]), and such an
+  // axis has no one span to choose them by, because a pixel is worth more the further along it is.
+  // HOW MANY DIGITS is what it takes to tell this pixel from the next one, and two more: `pixel` is
+  // what one pixel is worth at this value. Never fewer than four. A fixed four was tried and on a
+  // narrow axis (1000 … 1001) one step of the fourth digit is the whole axis, so a drag over one
+  // point recorded a range that held every point.
+  if (kind === 'log') {
+    if (!Number.isFinite(value) || value === 0) return value;
+    // a pixel worth NOTHING a number can hold (an axis narrower than one part in about 1e13) needs
+    // every digit there is; a pixel nobody measured gets the four
+    const needed = pixel === undefined || !Number.isFinite(pixel) || pixel < 0 ? LOG_POINTER_DIGITS : pixel === 0 ? MAX_POINTER_DIGITS : Math.ceil(Math.log10(Math.abs(value) / pixel)) + 2;
+    return Number(value.toPrecision(Math.min(MAX_POINTER_DIGITS, Math.max(LOG_POINTER_DIGITS, needed))));
+  }
   const fine = span > 0 && Number.isFinite(span) ? 3 - Math.floor(Math.log10(span) + 1e-9) : 2;
   const decimals = Math.min(100, Math.max(2, fine));
   return Number(value.toFixed(decimals));
@@ -961,7 +1009,8 @@ export function padFor(kind: ScaleKind | undefined, pad: number): number {
  * or a reversed pair): no ticks at all, never an invented one.
  */
 export function logTicks(lo: number, hi: number, max = 6): number[] {
-  if (!(lo > 0) || !(hi > lo)) return [];
+  // a span that is not finite has no decades to walk: none, never a loop with no end
+  if (!(lo > 0) || !(hi > lo) || !Number.isFinite(hi)) return [];
   const decades: number[] = [];
   for (let e = Math.ceil(Math.log10(lo)); e <= Math.floor(Math.log10(hi)); e++) decades.push(10 ** e);
   if (decades.length >= 2) {
@@ -1013,6 +1062,8 @@ export interface OutsideAsk {
   readonly given: readonly [number, number] | undefined;
   /** The values this axis places, as the chart holds them. A non-finite cell is an ABSENCE, not a value outside an extent, and is not counted. */
   readonly values: readonly number[];
+  /** The curve the axis is drawn on. On a logarithmic one a flat declared pair is a decade either side, as it is drawn (`logDomain`), not one either side. */
+  readonly kind?: ScaleKind;
 }
 
 /**
@@ -1044,10 +1095,19 @@ export interface OutsideAsk {
 export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
   return asks.flatMap((ask) => {
     if (ask.given === undefined || !ask.given.every((bound) => Number.isFinite(bound))) return [];
-    const [lo, hi] = domainOr(ask.given, ask.given);
+    // counted against the bounds AS THE AXIS DRAWS THEM, so what is counted as outside is what stands
+    // outside the plot. On a logarithmic axis those can differ from the pair that was declared (a flat
+    // pair is a decade either side; a low bound a logarithm cannot take is lifted), and then the
+    // sentence names both: on a logarithmic axis the words "declared bounds" are followed by the pair
+    // that was declared, in order. (A LINEAR flat pair is still printed widened by one each side, as
+    // it always was.)
+    const linear = domainOr(ask.given, ask.given);
+    const [lo, hi] = ask.kind === 'log' ? logDomain(...domainOr(ask.given, ask.given, 'log')) : linear;
     const n = ask.values.filter((v) => Number.isFinite(v) && (v < lo || v > hi)).length;
     if (n === 0) return [];
-    return [`${ask.channel} has ${n} ${n === 1 ? 'value' : 'values'} outside its declared bounds [${lo}, ${hi}] — bounds say what the quantity CAN be, so either they are wrong or this data is`];
+    const [said0, said1] = ask.kind === 'log' ? domainOr(ask.given, ask.given, 'log') : linear;
+    const drawn = said0 === lo && said1 === hi ? '' : `, drawn as [${lo}, ${hi}] on a logarithmic axis`;
+    return [`${ask.channel} has ${n} ${n === 1 ? 'value' : 'values'} outside its declared bounds [${said0}, ${said1}]${drawn} — bounds say what the quantity CAN be, so either they are wrong or this data is`];
   });
 }
 

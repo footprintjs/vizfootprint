@@ -229,7 +229,7 @@ export function VizHeatmap(props: VizHeatmapProps): JSX.Element {
   // No buckets at all under a LOGARITHMIC axis falls back to [0, 0] rather than the ordinary [0, 1] —
   // see `VizHistogram`'s identical fallback and `extentFor`'s doc for why [0, 1] would otherwise be
   // misread by `logDomain` as a real positive span instead of "nothing was placeable at all".
-  const [d0, d1] = domainOr(props.domain?.x, cols.length > 0 ? [cols[0]!.p0, cols[cols.length - 1]!.p1] : xKind === 'log' ? [0, 0] : [0, 1]);
+  const [d0, d1] = domainOr(props.domain?.x, cols.length > 0 ? [cols[0]!.p0, cols[cols.length - 1]!.p1] : xKind === 'log' ? [0, 0] : [0, 1], xKind);
   const axes = props.axes ?? true;
   const { padL, maxChars } = labelGutter(width);
   const x = scaleFor(xKind)(d0, d1, padL, width - PAD.r);

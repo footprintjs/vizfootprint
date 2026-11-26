@@ -186,9 +186,9 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // THE MARGIN THIS INSTANCE DRAWS INSIDE: `PAD` with its y-axis room on the side the axis stands
   // on (`padOnSide`, the one owner of that swap). With no side asked it IS `PAD`, so nothing moves.
   const pad = padOnSide(PAD, props.axisSide);
-  const [xlo, xhi] = domainOr(props.domain?.x, roomyExtent(drawable, (d) => d.x, xKind));
+  const [xlo, xhi] = domainOr(props.domain?.x, roomyExtent(drawable, (d) => d.x, xKind), xKind);
   const x = scaleFor(xKind)(xlo, xhi, pad.l, width - pad.r);
-  const [ylo, yhi] = domainOr(props.domain?.y, roomyExtent(drawable, (d) => d.y, yKind));
+  const [ylo, yhi] = domainOr(props.domain?.y, roomyExtent(drawable, (d) => d.y, yKind), yKind);
   const y = scaleFor(yKind)(ylo, yhi, height - pad.b, pad.t);
   const axes = props.axes ?? true;
   // WHICH AXES THIS CHART DRAWS: both (`true`), neither (`false` — the frame's merged guide), or its y
@@ -205,13 +205,17 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
 
   // drag→interval on x — the brush primitive's completion discipline (a sub-4px
   // release emits the CLEARED interval); snap = this chart's own scale invert
+  // a pointer's value, rounded to what this axis can show AT THAT PIXEL: on a logarithmic axis a pixel
+  // is worth more the further along it is, so `roundToAxis` is told what this one is worth
+  const pointerValue = (px: number): number => roundToAxis(x.invert(px), xhi - xlo, xKind, Math.abs(x.invert(px + 1) - x.invert(px)));
   const { svgRef, brush, handlers } = useHorizontalBrush({
     plotLeft: pad.l,
     plotRight: width - pad.r,
     width,
     field: xField,
-    // rounded to what THIS axis can show (`roundToAxis`): a hundredth for an axis of ten or more, finer for a smaller one
-    snap: (loPx, hiPx) => [roundToAxis(x.invert(loPx), xhi - xlo), roundToAxis(x.invert(hiPx), xhi - xlo)],
+    // rounded to what THIS axis can show (`roundToAxis`): a hundredth for an axis of ten or more, finer for a
+    // smaller one, and on a logarithmic one the significant digits it takes to tell one pixel from the next
+    snap: (loPx, hiPx) => [pointerValue(loPx), pointerValue(hiPx)],
     onEmit,
   });
 
@@ -253,8 +257,8 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // …and the words for a value outside the extent the axis was DECLARED on (`outsideNotes`, the one owner)
   // — counted off the marks this chart DREW, so a cell a logarithm already excluded is not said twice
   const outside = outsideNotes([
-    { channel: 'x', given: props.domain?.x, values: drawable.map((d) => d.x) },
-    { channel: 'y', given: props.domain?.y, values: drawable.map((d) => d.y) },
+    { channel: 'x', given: props.domain?.x, values: drawable.map((d) => d.x), ...(xKind === undefined ? {} : { kind: xKind }) },
+    { channel: 'y', given: props.domain?.y, values: drawable.map((d) => d.y), ...(yKind === undefined ? {} : { kind: yKind }) },
   ]);
 
   return (
