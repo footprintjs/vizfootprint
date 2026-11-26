@@ -50,7 +50,7 @@ export { validateRelations, relationEdgeId, joinsTables, relationsFrom, judgeAna
 // and `./layerAddress.ts` is the ONE owner of the marker (laws in ./README.md "Layers").
 export { LAYER_MARKER, layerAddress, splitLayerAddress, holdsLayerMarker } from './layerAddress.js';
 export type { LayerAddressParts } from './layerAddress.js';
-export { validateLayers, validateFrame, layerSurfaceOf, layerSurfacesOf } from './layers.js';
+export { validateLayers, validateFrame, layerSurfaceOf, layerSurfacesOf, AXIS_KEYS } from './layers.js';
 export type { LayerSurface } from './layers.js';
 // The long-form series contract (F3): `{t, entity, metric, value}` in, rows +
 // declared encodings out — no bespoke chart API. See `./series.ts`.

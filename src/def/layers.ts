@@ -147,8 +147,12 @@ function judgeSurface(at: string, layer: Record<string, unknown>, problems: stri
 /** The keys a resolution may carry, per mode — anything else is refused by name (R12). An independent channel has no domain, no basis, no zero policy and no bounds: there is nothing folded to apply them to, and no ONE axis for one claim about the quantity; it keeps `transform` and `zeroGuide` because its own scale is still an AXIS. */
 const SHARED_KEYS: readonly string[] = ['mode', 'domain', 'basis', 'guide', 'zero', 'transform', 'zeroGuide', 'bounds'];
 const INDEPENDENT_KEYS: readonly string[] = ['mode', 'guide', 'transform', 'zeroGuide'];
-/** …and on a view with no LAYERS: the axis keys, without the one that resolves layers (`mode`, refused by name below). */
-const AXIS_KEYS: readonly string[] = SHARED_KEYS.filter((key) => key !== 'mode');
+/**
+ * …and on a view with no LAYERS: the axis keys, without the one that resolves layers (`mode`, refused by name below).
+ * Exported so the test that walks a plain view's declared keys from the definition to the picture reads the list from
+ * its one owner: a key added here fails that test until it has a case.
+ */
+export const AXIS_KEYS: readonly string[] = Object.freeze(SHARED_KEYS.filter((key) => key !== 'mode'));
 
 /** The two shapes a resolution entry may be, spelled once each — the layered one names the mode it requires, the layerless one the axis it is. */
 const RESOLUTION_SHAPE = '{ mode: "shared" | "independent", domain?, basis?, guide?, zero?, transform?, zeroGuide?, bounds? }';
