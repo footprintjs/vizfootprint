@@ -70,6 +70,10 @@ describe('a line over numbers on a logarithmic x', () => {
     expect(container.querySelector('text.vzf-excluded-note')!.textContent).toBe(said);
     // the extent is folded from what was placed: the first drawn point is at the plot's left edge
     expect(cxOf(container, 'circle.vzf-line-dot')[0]).toBe(52);
+    // …and so are the x ticks: the first, middle and last of the points that were PLACED, each on its dot
+    const ticks = [...container.querySelectorAll('[data-axis-orient="bottom"] > g')].map((g) => ({ label: g.querySelector('text')!.textContent, at: Number(g.querySelector('line')!.getAttribute('x1')) }));
+    expect(ticks.map((t) => t.label)).toEqual(['1', '10', '100']);
+    expect(ticks.map((t) => t.at)).toEqual(cxOf(container, 'circle.vzf-line-dot'));
   });
 
   it('counts a point neither axis can place once', () => {
