@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Charts: the bar chart's count axis is ticked at round values
+
+- **Behaviour change.** The count axis a bar draws as the first scale of a
+  two-scale frame was ticked at three even cuts of its ceiling, rounded to one
+  decimal: a tallest bar of 130 read "0 43.3 86.7 130". It is now ticked at
+  round values from zero ("0 50 100"), as many as a line of text allows, and
+  large counts are written against one unit ("0.5M"). The ceiling itself is
+  labelled only when it is a round value.
+- The ticks are still placed by the bars' own scale, and zero is always one
+  of them.
+- The axis is drawn by `<Axis>`; a label wider than the margin is squeezed
+  into it.
+
 ### Charts: the box plot's value axis is ticked at round values
 
 - **Behaviour change.** A box plot's value axis was ticked at five even cuts

@@ -32,9 +32,9 @@ import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { useRef } from 'react';
 import { TICK_ANGLE, VALUE_CHAR_PX, fitTick, fitsBand } from './tickFit.js';
+import { Axis, placeTicks } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
-import { bandOrder, bandWidth, bandStart, bandCentre, domainOr, ticks, slotAt, pointerTargetWidth, crowdedMarksNote, type ChartDomain } from '../primitives/scales.js';
-import { scaleHueStyle } from '../primitives/scaleHue.js';
+import { bandOrder, bandWidth, bandStart, bandCentre, domainOr, roundTicksThatFit, slotAt, pointerTargetWidth, crowdedMarksNote, type ChartDomain } from '../primitives/scales.js';
 import { clickEmission, matchEmission, toggleInSetEmission } from '../primitives/pointSelect.js';
 import { slotValues, slotPress } from '../primitives/slotValues.js';
 import { announce } from '../primitives/announce.js';
@@ -207,9 +207,6 @@ export function VizBar(props: VizBarProps): JSX.Element {
   const axes = props.axes ?? true;
   const drawX = axes === true;
   const drawY = axes === 'y';
-  // THE INK OF THIS SCALE, on the parts of the count axis this chart draws: one inherited variable the
-  // stylesheet spends per element (`scaleHueStyle`), and nothing at all when no hue was handed
-  const hueStyle = scaleHueStyle(props.scaleHue);
   // what a bar is drawn with when nothing else names it: the hue its scale was handed, the brand where
   // there is none (a chart given `colorOf` keeps its answer — identity is never colour-alone)
   const markInk = props.scaleHue ?? 'var(--vzf-brand)';
@@ -336,18 +333,13 @@ export function VizBar(props: VizBarProps): JSX.Element {
             frame draws the x of a two-scale figure once (`axes="y"`): a bar's zero baseline IS that x */}
         {drawX && <line className="vzf-axis" x1={PAD.l} y1={axisY} x2={width - PAD.r} y2={axisY} />}
         {/* THE COUNT AXIS, on the LEFT edge and from ZERO — this layer's own scale on a two-scale frame,
-            in the hue that frame handed it. Its ticks step from the baseline to the ceiling the bars are
-            drawn against (`max`), so a tick and a bar can never be folded from two different numbers. */}
-        {drawY && <line className="vzf-axis" x1={PAD.l} y1={PAD.t} x2={PAD.l} y2={axisY} style={hueStyle} />}
-        {drawY &&
-          ticks(0, max, COUNT_TICK_STEPS).map((v, i) => (
-            <g key={`ct${String(i)}`} style={hueStyle}>
-              <line className="vzf-axis" x1={PAD.l - 4} y1={countY(v)} x2={PAD.l} y2={countY(v)} />
-              <text className="vzf-tick" x={PAD.l - 8} y={countY(v) + 3} textAnchor="end">
-                {Math.round(v * 10) / 10}
-              </text>
-            </g>
-          ))}
+            in the hue that frame handed it (`Axis`, the one part every chart's axis is drawn by). Its ticks
+            are ROUND values from the baseline up to the ceiling the bars are drawn against (`max`), placed
+            by the bars' own scale, so a tick and a bar can never be folded from two different numbers.
+            Zero is always one of them: a bar's length is read from it. */}
+        {drawY && (
+          <Axis orient="left" ticks={placeTicks(roundTicksThatFit(0, max, COUNT_TICK_STEPS, countY, 'height'), countY)} at={PAD.l} range={[PAD.t, axisY]} labelBounds={[0, width]} hue={props.scaleHue} />
+        )}
         {bands.map(({ category, datum: d }, i) => {
           const cx = bandStart(PAD.l, band, i);
           const h = d === undefined ? 0 : (d.count / max) * plot;
