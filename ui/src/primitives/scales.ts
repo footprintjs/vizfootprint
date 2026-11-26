@@ -212,6 +212,20 @@ export function domainOr(given: readonly [number, number] | undefined, own: read
 }
 
 /**
+ * THE SPAN A COUNT IS DRAWN ON: from ZERO up to its ceiling, and never a
+ * ceiling below one. A bar's and a histogram bin's length is read from zero,
+ * so the floor is zero whatever a frame folded, and a column of zeroes still
+ * gets a plot one unit tall with its bars on the floor.
+ *
+ * ONE OWNER, because three things must agree to the pixel: the bars, the
+ * histogram's bins, and the guide a frame draws for a stack that holds them.
+ * (A mark that is not a count scales by {@link domainOr}.)
+ */
+export function countSpan(given: readonly [number, number] | undefined, own: readonly [number, number]): [number, number] {
+  return [0, Math.max(1, domainOr(given, own)[1])];
+}
+
+/**
  * THE BAND ORDER a frame hands a band chart: the categories, in the order the
  * frame folded them (`frameDomains`' categorical union — first-seen across the
  * layers in declaration order). A bar layer and a bar layer over two different

@@ -17,12 +17,16 @@
  * | a logarithmic axis on a narrow frame     | decades, overlapping                 | the decades that have room                   |
  * | a flat span (a constant column)          | one value four times, at the edge    | the span the layers draw on: value ± 1       |
  * | a span given backwards                   | mirrored against the marks           | in order, as the layers draw it              |
+ * | a stack with bars, a column of zeroes    | "0" four times on the floor          | 0 0.2 … 1.0, zero on the floor under the bars|
+ * | a flat date span                         | one day four times at the edge       | four places reading as two days              |
  * | bands                                    | one tick per band                    | the same                                     |
  * | a tick                                   | placed by the frame's scale          | placed by the frame's scale                  |
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
-import { VizFrame, framePad, framePlotBox, type VizFrameProps } from './VizFrame.js';
+import { VizFrame, framePad, framePlotBox, type FrameChartKind, type VizFrameProps } from './VizFrame.js';
+import { fitTick } from './tickFit.js';
+import { bandWidth, bandCentre } from '../primitives/scales.js';
 
 afterEach(cleanup);
 
@@ -165,13 +169,17 @@ describe('the frame’s guide — dates, decades and bands', () => {
     expect(labels(draw({ x: t, y: q, domain: { x: month, y: [0, 10] }, width: 300 }), 'bottom')).toHaveLength(4);
   });
 
-  it('a flat date span is the day before, the day and the day after, as the layers draw it', () => {
+  it('a flat date span is ticked on the span the layers draw on; its ticks are distinct places that read as the same days', () => {
+    // one instant widened by a millisecond each side: four even steps, which a day label cannot tell
+    // apart. Ticks at round hours and days are a date axis's job, which this is not yet.
     const day = Date.parse('2026-01-04');
     const root = draw({ x: t, y: q, domain: { x: [day, day], y: [0, 10] } });
-    const got = labels(root, 'bottom');
-    expect(got[0]).toBe('2026-01-03');
-    expect(got.at(-1)).toBe('2026-01-04');
-    expect(new Set(marks(root, 'bottom')).size).toBe(got.length);
+    expect(labels(root, 'bottom')).toEqual(['2026-01-03', '2026-01-03', '2026-01-04', '2026-01-04']);
+    const at = marks(root, 'bottom');
+    const plot = framePlotBox(framePad(['line']), 400, 300);
+    expect(new Set(at).size).toBe(4);
+    // the instant itself is the middle of the plot, where the layers draw it
+    expect((at[1]! + at[2]!) / 2).toBeCloseTo((plot.left + plot.right) / 2, 6);
   });
 
   it('a logarithmic axis shows the decades that have room', () => {
@@ -197,12 +205,61 @@ describe('the frame’s guide — dates, decades and bands', () => {
       expect(text.getAttribute('transform')).toMatch(/^rotate\(-40 /);
       expect(text.querySelector('title')!.textContent).toBe(names[i]);
     }
-    // the room a slanted label has is counted from 12 px below the axis: with an x title under it there is less
-    const shown = (root: HTMLElement): number => axis(root, 'bottom').querySelector('text.vzf-tick')!.textContent!.length - names[0]!.length;
-    const withoutTitle = shown(long);
+    // the room a slanted label has runs from 12 px below the axis to the frame's floor: exactly what the
+    // shared fitting rule gives for that room, and less with an x title under it
+    const plot = framePlotBox(framePad(['line']), 400, 300);
+    const band = bandWidth(plot.left, plot.right, names.length);
+    const first = bandCentre(plot.left, band, 0);
+    const shown = (root: HTMLElement): string => [...axis(root, 'bottom').querySelector('text.vzf-tick')!.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('');
+    expect(shown(long)).toBe(fitTick(names[0]!, band, 300 - plot.bottom - 12, first).text);
     cleanup();
-    const withTitle = shown(draw({ x: { scale: 'categorical', label: 'category' }, domain: { categories: names } }));
-    expect(withTitle).toBeLessThan(withoutTitle);
+    const titled = draw({ x: { scale: 'categorical', label: 'category' }, domain: { categories: names } });
+    expect(shown(titled)).toBe(fitTick(names[0]!, band, 300 - plot.bottom - 12 - 24, first).text);
+    expect(shown(titled).length).toBeLessThan(fitTick(names[0]!, band, 300 - plot.bottom - 12, first).text.length);
+  });
+});
+
+describe('the frame’s guide — the span its layers draw on', () => {
+  const stack = (kinds: readonly FrameChartKind[], props: Partial<VizFrameProps>): HTMLElement =>
+    render(<VizFrame layers={kinds.map((kind, i) => ({ layerId: `l${String(i)}`, kind, render: (): JSX.Element => <svg /> }))} width={400} height={300} {...props} />).container;
+
+  it('a stack that holds bars is read from zero: a column of zeroes reads 0 … 1 with zero on the floor, where the bars stand', () => {
+    for (const kinds of [['bar'], ['histogram'], ['bar', 'line']] as const) {
+      const root = stack(kinds, { y: q, domain: { y: [0, 0] } });
+      expect(labels(root, 'left')).toEqual(['0', '0.2', '0.4', '0.6', '0.8', '1.0']);
+      expect(marks(root, 'left')[0]).toBe(framePlotBox(framePad(kinds), 400, 300).bottom);
+      cleanup();
+    }
+  });
+
+  it('…and a ceiling below one is drawn to one, a floor above zero from zero, as the bars are', () => {
+    expect(labels(stack(['bar'], { y: q, domain: { y: [0, 0.4] } }), 'left')).toEqual(['0', '0.2', '0.4', '0.6', '0.8', '1.0']);
+    cleanup();
+    expect(labels(stack(['bar'], { y: q, domain: { y: [5, 20] } }), 'left')).toEqual(['0', '5', '10', '15', '20']);
+  });
+
+  it('a stack with no count mark keeps the span it was given, a flat one widened each side', () => {
+    expect(labels(stack(['line', 'point', 'boxplot'], { y: q, domain: { y: [0, 0] } }), 'left')).toEqual(['-1.0', '-0.5', '0', '0.5', '1.0']);
+    cleanup();
+    expect(labels(stack(['line'], { y: q, domain: { y: [5, 20] } }), 'left')).toEqual(['5', '10', '15', '20']);
+  });
+
+  it('the count rule is the y axis’s: a histogram’s x keeps the span it was given', () => {
+    expect(labels(stack(['histogram'], { x: q, domain: { x: [5, 20] } }), 'bottom')).toEqual(['5', '10', '15', '20']);
+  });
+
+  it('the zero line stands on the zero tick, on a flat span too', () => {
+    // a flat 0 … 0 span under a line: widened to −1 … 1, zero in the middle of the plot
+    const root = stack(['line'], { x: q, y: q, domain: { x: [0, 10], y: [0, 0], zeroGuide: { y: true } } });
+    const zeroLine = Number(root.querySelector('.vzf-frame-guide line.vzf-zero')!.getAttribute('y1'));
+    const zeroTick = marks(root, 'left')[labels(root, 'left').indexOf('0')]!;
+    const plot = framePlotBox(framePad(['line']), 400, 300);
+    expect(zeroLine).toBeCloseTo(zeroTick, 6);
+    expect(zeroLine).toBeCloseTo((plot.top + plot.bottom) / 2, 6);
+    cleanup();
+    // …and a backwards span: the line is still on the tick
+    const back = stack(['line'], { x: q, y: q, domain: { x: [0, 10], y: [10, -10], zeroGuide: { y: true } } });
+    expect(Number(back.querySelector('.vzf-frame-guide line.vzf-zero')!.getAttribute('y1'))).toBeCloseTo(marks(back, 'left')[labels(back, 'left').indexOf('0')]!, 6);
   });
 });
 

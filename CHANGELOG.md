@@ -13,6 +13,9 @@
 - The guide is ticked over the span the layers draw on. A constant column
   (a flat span) used to put its tick at the plot's edge while the mark stood
   in the middle, and a span given backwards was mirrored against the marks.
+  A stack that holds bars or a histogram is read from zero, as those marks
+  are drawn. New export: `countSpan`, the one rule the bar, the histogram
+  and the guide share for a count's span.
 - A y label wider than the margin is squeezed into it, and an x label near
   the edge is moved inside the drawing. Both used to be cut off.
 - A logarithmic axis shows the decades that have room. A date axis keeps its
