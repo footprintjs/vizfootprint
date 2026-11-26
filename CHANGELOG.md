@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Correction: a dragged range holds everything the pointer covered
+
+- A scatter rounds the two ends of a dragged range so they read cleanly, and
+  it rounded each to the nearest. A drag that reached the edge of the plot,
+  where the smallest or the largest value can stand, left that value outside
+  its own range about half the time. The range is now rounded outward: its
+  low end down and its high end up. A bound moves by less than one step of
+  its last digit, and one that needs no rounding is unchanged.
+- `roundToAxis` takes an optional fifth argument, `'down'` or `'up'`.
+- **Behaviour change:** the ends of a range recorded by a drag on a scatter
+  can differ in their last digit from what was recorded before.
+
 ### Correction: one value on a logarithmic axis is drawn inside the plot
 
 - A chart with a single distinct value on a logarithmic axis widened that

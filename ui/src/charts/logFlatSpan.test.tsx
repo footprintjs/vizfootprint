@@ -205,8 +205,11 @@ describe('one value on a logarithmic axis, in the charts', () => {
     fireEvent.pointerUp(svg, { clientX: 307, pointerId: 1 });
     expect(onEmit).toHaveBeenCalledTimes(1);
     const [lo, hi] = onEmit.mock.calls[0]![0].rawValue as [number, number];
-    expect(lo).toBe(Number((0.001 * 10 ** (-30 / 225)).toPrecision(4)));
-    expect(hi).toBe(Number((0.001 * 10 ** (30 / 225)).toPrecision(4)));
+    // rounded outward to four digits: the low end down, the high end up
+    expect(lo).toBe(0.0007356);
+    expect(hi).toBe(0.00136);
+    expect(lo).toBeLessThanOrEqual(0.001 * 10 ** (-30 / 225));
+    expect(hi).toBeGreaterThanOrEqual(0.001 * 10 ** (30 / 225));
     expect(lo).toBeGreaterThan(0);
     expect(lo).toBeLessThan(0.001);
     expect(hi).toBeGreaterThan(0.001);
