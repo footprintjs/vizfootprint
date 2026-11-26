@@ -11,7 +11,7 @@
  * | the tap                                          | before                                  | now                          |
  * |--------------------------------------------------|-----------------------------------------|------------------------------|
  * | in the right margin, the last bucket ends there  | cleared, on some charts (float luck)    | the last bucket, always      |
- * | in the left margin, the first bucket starts there| the first bucket                        | the first bucket             |
+ * | in the left margin, the first bucket starts there| the first bucket; cleared on a few log charts | the first bucket, always |
  * | inside a bucket                                  | that bucket                             | that bucket                  |
  * | at an edge, on a domain wider than the buckets   | cleared: no bucket stands there         | cleared                      |
  * | right margin, ONE bucket with no width (at left) | cleared                                 | cleared (never a far bucket) |
@@ -97,8 +97,15 @@ describe('a tap at the edge of a histogram', () => {
     expect(tap(binsOf([0, 10, 20, 20]), 420 + 10)).toEqual([20, 20]);
   });
 
+  it('logarithmic, the left margin: the first bucket, where the edge pixel’s value fell just short of its start', () => {
+    // 10 ** log10(1.900235917753205) is a hair below 1.900235917753205, so the merged code cleared here
+    // (about 1 start in 600 behaves this way; a reviewer found this one)
+    const start = 1.900235917753205;
+    expect(10 ** Math.log10(start)).toBeLessThan(start);
+    expect(tap(binsOf([start, 19, 190]), -10, { domain: { transform: { x: 'log' } } })).toEqual([start, 19]);
+  });
+
   it('a logarithmic histogram whose first bucket has no width: the left margin picks the bucket that starts there', () => {
-    // the merged code cleared here; both buckets start at the left edge and the first has no width to tap
     expect(tap(binsOf([3, 3, 300]), -10, { domain: { transform: { x: 'log' } } })).toEqual([3, 300]);
   });
 
