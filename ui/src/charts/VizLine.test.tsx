@@ -145,7 +145,8 @@ describe('VizLine — aggregation and rendering', () => {
 
   it('the legend is a band ABOVE the plot, never over it: the plot starts below the rows, and long lists wrap', () => {
     const one = render(<VizLine data={[{ date: '2026-04-01', value: 1 }, { date: '2026-04-02', value: 2 }]} />).container;
-    const axisTop = (c: HTMLElement): number => Number(c.querySelectorAll('line.vzf-axis')[1]!.getAttribute('y1'));
+    // the value axis's own line: the one vertical axis line that is not a tick mark's
+    const axisTop = (c: HTMLElement): number => Number(c.querySelector('[data-axis-orient="left"] > line.vzf-axis')!.getAttribute('y1'));
     expect(axisTop(one)).toBe(18); // no legend ⇒ the plot keeps the top padding
     const two = render(<VizLine data={[{ date: '2026-04-01', value: 1, series: 'A' }, { date: '2026-04-01', value: 2, series: 'B' }]} />).container;
     expect(axisTop(two)).toBe(18 + 14 + 4); // one legend row above the plot

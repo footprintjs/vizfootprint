@@ -27,10 +27,10 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { roundTicksThatFit, labelCentre, roundToAxis, ticksThatFit, squeezedLength, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { roundTicksThatFit, roundToAxis, ticksThatFit, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { Axis } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
-import { scaleHueStyle } from '../primitives/scaleHue.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
 import { useBrightPredicate, dimClass } from '../primitives/useSelection.js';
 import { useReencodePicker } from '../primitives/reencode.js';
@@ -196,13 +196,9 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // x-side markup below reads one word and the y-side another.
   const drawX = axes === true;
   const drawY = axes !== false;
-  // WHERE THE Y AXIS STANDS: the plot edge on its side. The ticks read away from the plot (leftward on
-  // the left, rightward on the right) and the label rotates to face its edge — the mirror, nothing else.
+  // WHERE THE Y AXIS STANDS: the plot edge on its side. `Axis` reads away from the plot on either side
+  // and wears the hue its scale was handed (`scaleHue`), or nothing at all when no hue was handed.
   const yAxisX = props.axisSide === 'right' ? width - pad.r : pad.l;
-  const yTickDir = props.axisSide === 'right' ? 1 : -1;
-  // THE INK OF THIS SCALE, on the parts of the y axis this chart draws: one inherited variable the
-  // stylesheet spends per element (`scaleHueStyle`), and nothing at all when no hue was handed
-  const hueStyle = scaleHueStyle(props.scaleHue);
   // what an UNSPLIT mark is filled with: the hue its scale was handed, the brand where there is none
   // (a chart coloured by category keeps `colorOf`'s answer — identity is never colour-alone)
   const markInk = props.scaleHue ?? 'var(--vzf-brand)';
@@ -227,7 +223,7 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // scale's own clamped domain rather than the raw pair, because that is the span the marks were placed on.
   // …and only labels that do not touch are drawn: a linear axis takes a coarser round step
   // (`roundTicksThatFit`), a logarithmic one keeps the decades that fit (`ticksThatFit`). An x label
-  // stays inside the drawing's two edges (`labelCentre`).
+  // stays inside the drawing's two edges (`Axis`).
   const edges = [0, width] as const;
   const logTicksOf = (lo: number, hi: number): RoundTick[] => logTicks(lo, hi, 5).map((value) => ({ value, label: logTickLabel(value) }));
   const xTicks: readonly RoundTick[] = xKind === 'log' ? ticksThatFit(logTicksOf(x.domain[0], x.domain[1]), x, 'width', edges) : roundTicksThatFit(xlo, xhi, 5, x, 'width', edges);
@@ -273,28 +269,11 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         aria-label={(props.ariaLabel ?? `scatter of ${yLabel} against ${xLabel}`) + excludedNote(excluded) + [...zeroNotes, ...outside].map((note) => ` — ${note}`).join('')}
         {...handlers}
       >
-        {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
-            while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
-        {drawX && <line className="vzf-axis" x1={pad.l} y1={height - pad.b} x2={width - pad.r} y2={height - pad.b} />}
-        {drawY && <line className="vzf-axis" x1={yAxisX} y1={pad.t} x2={yAxisX} y2={height - pad.b} style={hueStyle} />}
-        {/* x ticks */}
-        {drawX && xTicks.map((t, i) => (
-          <g key={`xt${i}`}>
-            <line className="vzf-axis" x1={x(t.value)} y1={height - pad.b} x2={x(t.value)} y2={height - pad.b + 4} />
-            <text className="vzf-tick" x={labelCentre(x(t.value), t.label, edges)} y={height - pad.b + 16} textAnchor="middle">
-              {t.label}
-            </text>
-          </g>
-        ))}
-        {/* y ticks — on the axis's side, reading away from the plot */}
-        {drawY && yTicks.map((t, i) => (
-          <g key={`yt${i}`} style={hueStyle}>
-            <line className="vzf-axis" x1={yAxisX + 4 * yTickDir} y1={y(t.value)} x2={yAxisX} y2={y(t.value)} />
-            <text className="vzf-tick" x={yAxisX + 8 * yTickDir} y={y(t.value) + 3} textAnchor={yTickDir < 0 ? 'end' : 'start'} textLength={squeezedLength(t.label, yLabelRoom)} lengthAdjust="spacingAndGlyphs">
-              {t.label}
-            </text>
-          </g>
-        ))}
+        {/* the axes (`Axis`, the one part every chart's axis is drawn by) — absent while the FRAME draws
+            one merged guide for the stack; the x one absent while the frame draws x once and this chart
+            draws only its own y (`axes: 'y'`). The y one stands on the side it was given. */}
+        {drawX && <Axis orient="bottom" scale={x} ticks={xTicks} at={height - pad.b} range={[pad.l, width - pad.r]} edges={edges} />}
+        {drawY && <Axis orient={props.axisSide === 'right' ? 'right' : 'left'} scale={y} ticks={yTicks} at={yAxisX} range={[pad.t, height - pad.b]} labelRoom={yLabelRoom} hue={props.scaleHue} />}
         {/* the zero guides — furniture, UNDER the data and over the axis lines; each spans the plot box,
             so an x guide runs floor-to-ceiling and a y guide edge-to-edge. It draws no tick and no label:
             the labelled axes stay on the edges where they are readable (and where that consumer's own

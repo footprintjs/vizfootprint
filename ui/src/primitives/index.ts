@@ -105,6 +105,8 @@ export type { OutsideAsk } from './scales.js';
 export { zeroGuideFor, zeroGuideNotes } from './zeroGuide.js';
 export type { ZeroGuide, ZeroGuideAsk } from './zeroGuide.js';
 
+export { Axis } from './Axis.js';
+export type { AxisProps, AxisOrient } from './Axis.js';
 export { AxisLabel } from './AxisLabel.js';
 export type { AxisLabelProps } from './AxisLabel.js';
 
