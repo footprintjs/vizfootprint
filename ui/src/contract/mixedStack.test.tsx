@@ -115,6 +115,55 @@ describe('a count and a line on one shared y', () => {
     expect(stack(shared('quantitative', [40, 100])).innerHTML).toBe(stack(shared('quantitative', [0, 100])).innerHTML);
   });
 
+  describe('three or more layers', () => {
+    const BELOW = shared('quantitative', [-20, 100]);
+    const INDEPENDENT = { mode: 'independent', guide: 'per-layer', scale: 'quantitative' } as unknown as ResolvedChannel;
+    /** Draw any number of layers and hand back the refusal, or '' where the stack drew. */
+    const refused = (kinds: readonly ('bar' | 'line')[], layers: readonly RenderLayer[], y: ResolvedChannel): string => {
+      const el = document.createElement('div');
+      const ids = layers.map((layer) => layer.layerId);
+      const mounted = layeredRenderer({ layers: Object.fromEntries(ids.map((id, i) => [id, { kind: kinds[i]! }])) }).mount(el, {
+        protocolVersion: RENDERER_PROTOCOL_VERSION,
+        viewId: 'v',
+        callbacks: callbacks(),
+        layers: Object.fromEntries(ids.map((id) => [id, callbacks()])),
+      });
+      mounted.update({ rows: [], encodings: {}, selection: emptySelection('v'), hover: null, theme: {}, size: { width: 400, height: 300 }, layers, frame: { ...BANDS, y } });
+      return refusalOf(el);
+    };
+    const id = (layer: RenderLayer, layerId: string): RenderLayer => ({ ...layer, layerId });
+
+    it('a bar and two lines: no third side, so the bar is told to stand on a frame of its own, and what is left draws', () => {
+      const layers = [BARS, LINE, id(LINE, 'c')];
+      expect(refused(['bar', 'line', 'line'], layers, BELOW)).toBe(
+        'layer "a" is a bar, read from zero, and the y it shares with layer "b" reaches below zero (-20): one scale cannot hold a length from zero and a line under it. Draw the bar on a frame of its own.',
+      );
+      // the way out it is NOT told is refused, which is why
+      expect(refused(['bar', 'line', 'line'], layers, INDEPENDENT)).toContain('no third');
+      // followed: the two lines on the same y, and the bar alone
+      expect(refused(['line', 'line'], [LINE, id(LINE, 'c')], BELOW)).toBe('');
+      expect(refused(['bar'], [BARS], BELOW)).toBe('');
+    });
+
+    it('two bars and a line: BOTH bars are named, because one bar left beside the line is refused again', () => {
+      const layers = [BARS, id(BARS, 'b'), id(LINE, 'c')];
+      expect(refused(['bar', 'bar', 'line'], layers, BELOW)).toBe(
+        'layer "a" is a bar, read from zero, and the y it shares with layer "c" reaches below zero (-20): one scale cannot hold a length from zero and a line under it. Draw layers "a" and "b" on a frame of their own.',
+      );
+      // followed once: the two bars together, and the line alone
+      expect(refused(['bar', 'bar'], [BARS, id(BARS, 'b')], BELOW)).toBe('');
+      expect(refused(['line'], [id(LINE, 'c')], BELOW)).toBe('');
+      // moving only one bar out is the second refusal the sentence must not lead to
+      expect(refused(['bar', 'line'], [id(BARS, 'b'), id(LINE, 'c')], BELOW)).not.toBe('');
+    });
+
+    it('a third layer that binds NO y takes no side, so a bar and a line beside it are still told the two-scale way, and it draws', () => {
+      const layers = [BARS, LINE, id(BARS_NO_Y, 'c')];
+      expect(refused(['bar', 'line', 'bar'], layers, BELOW)).toMatch(/Declare the bar first and resolve y as independent, so each layer has a y of its own\.$/);
+      expect(refused(['bar', 'line', 'bar'], layers, INDEPENDENT)).toBe('');
+    });
+  });
+
   it('the way out the sentence names draws: the bar first, y independent', () => {
     const own = { mode: 'independent', guide: 'per-layer', scale: 'quantitative' } as unknown as ResolvedChannel;
     const below: RenderLayer = { ...LINE, rows: [{ k: 'A', v: -20 }, { k: 'B', v: 100 }] };
