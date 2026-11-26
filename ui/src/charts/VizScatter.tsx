@@ -205,14 +205,17 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
 
   // drag→interval on x — the brush primitive's completion discipline (a sub-4px
   // release emits the CLEARED interval); snap = this chart's own scale invert
+  // a pointer's value, rounded to what this axis can show AT THAT PIXEL: on a logarithmic axis a pixel
+  // is worth more the further along it is, so `roundToAxis` is told what this one is worth
+  const pointerValue = (px: number): number => roundToAxis(x.invert(px), xhi - xlo, xKind, Math.abs(x.invert(px + 1) - x.invert(px)));
   const { svgRef, brush, handlers } = useHorizontalBrush({
     plotLeft: pad.l,
     plotRight: width - pad.r,
     width,
     field: xField,
     // rounded to what THIS axis can show (`roundToAxis`): a hundredth for an axis of ten or more, finer for a
-    // smaller one, and four significant digits on a logarithmic one
-    snap: (loPx, hiPx) => [roundToAxis(x.invert(loPx), xhi - xlo, xKind), roundToAxis(x.invert(hiPx), xhi - xlo, xKind)],
+    // smaller one, and on a logarithmic one the significant digits it takes to tell one pixel from the next
+    snap: (loPx, hiPx) => [pointerValue(loPx), pointerValue(hiPx)],
     onEmit,
   });
 

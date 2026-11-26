@@ -17,7 +17,8 @@
  * | two or more distinct values                 | their own extent                     | the same                               |
  * | a flat span on a LINEAR axis                | one each side                        | the same                               |
  * | one value at or below zero on a log axis    | the placeholder decade, counted      | the same                               |
- * | a drag over that one value on a scatter     | (the point was off the chart)        | the span covered, to four digits       |
+ * | a drag over that one value on a scatter     | (the point was off the chart)        | the span covered, to the pixel         |
+ * | a drag on a narrow log axis (1000 … 1001)   | the span covered, to three decimals  | the span covered, to the pixel         |
  * | a value near the smallest or largest number | drawn                                | drawn: the decade is kept representable|
  * | a value outside a declared flat log domain  | counted against value ± 1            | counted against the decade drawn       |
  */
@@ -80,7 +81,12 @@ describe('the rules at the ends of what a number can hold, and for a pointer', (
     const [lo, hi] = logDomain(Number.MAX_VALUE, Number.MAX_VALUE);
     expect(lo).toBe(Number.MAX_VALUE / 10);
     expect(hi).toBe(Number.MAX_VALUE);
-    expect(logDomain(1, Infinity)[1]).toBe(Number.MAX_VALUE);
+    expect(logDomain(1, Infinity)).toEqual([1, Number.MAX_VALUE]);
+    // an end that is not finite is the largest number, on the way in: never a pair that runs backwards
+    for (const pair of [[-1, Infinity], [0, Infinity], [Infinity, Infinity]] as const) {
+      expect(logDomain(pair[0], pair[1])).toEqual([Number.MAX_VALUE / 10, Number.MAX_VALUE]);
+    }
+    expect(logDomain(Number.NaN, 5)).toEqual([1, 10]);
   });
 
   it('a span with no finite end has no decade ticks, and asking for them ends', () => {
@@ -88,11 +94,20 @@ describe('the rules at the ends of what a number can hold, and for a pointer', (
     expect(logTicks(Number.MAX_VALUE / 10, Number.MAX_VALUE).length).toBeGreaterThan(0);
   });
 
-  it('a pointer’s value on a logarithmic axis is rounded to four significant digits, whatever its size', () => {
+  it('a pointer’s value on a logarithmic axis is rounded to significant digits: four, or as many as tell one pixel from the next', () => {
+    // with nothing said about the pixel: four, whatever the value's size
     expect(roundToAxis(0.000735642, 0, 'log')).toBe(0.0007356);
     expect(roundToAxis(3.67821, 0, 'log')).toBe(3.678);
     expect(roundToAxis(123456789, 0, 'log')).toBe(123500000);
     expect(roundToAxis(Number.NaN, 0, 'log')).toBeNaN();
+    expect(roundToAxis(0, 0, 'log', 0.001)).toBe(0);
+    // a pixel worth 0.0022 at 1000.455: six digits tell it from the next, and two more are kept
+    expect(roundToAxis(1000.4554321, 0, 'log', 0.0022)).toBe(1000.4554);
+    // a coarse pixel never takes it below four, a pixel that is no size at all is ignored, and a number's own fifteen digits are the ceiling
+    expect(roundToAxis(123456.789, 0, 'log', 5000)).toBe(123500);
+    expect(roundToAxis(123456.789, 0, 'log', 0)).toBe(123500);
+    expect(roundToAxis(123456.789, 0, 'log', Number.NaN)).toBe(123500);
+    expect(roundToAxis(1.2345678901234567, 0, 'log', 1e-30)).toBe(1.23456789012346);
     // …and a linear axis keeps its rule: a flat span is a hundredth
     expect(roundToAxis(0.000735642, 0)).toBe(0);
     expect(roundToAxis(0.000735642, 0, 'linear')).toBe(0);
@@ -100,7 +115,16 @@ describe('the rules at the ends of what a number can hold, and for a pointer', (
 
   it('a value is outside a declared flat logarithmic pair when it is outside the decade drawn', () => {
     const ask = { channel: 'x', given: [0.05, 0.05] as const, values: [0.05, 0.4, 0.8] };
-    expect(outsideNotes([{ ...ask, kind: 'log' }])).toEqual(['x has 1 value outside its declared bounds [0.005, 0.5] — bounds say what the quantity CAN be, so either they are wrong or this data is']);
+    // the words "declared bounds" are followed by what was DECLARED, then by how it is drawn
+    expect(outsideNotes([{ ...ask, kind: 'log' }])).toEqual([
+      'x has 1 value outside its declared bounds [0.05, 0.05], drawn as [0.005, 0.5] on a logarithmic axis — bounds say what the quantity CAN be, so either they are wrong or this data is',
+    ]);
+    // a pair a logarithm can take as it is: no second pair to name
+    expect(outsideNotes([{ channel: 'x', given: [1, 100], values: [5, 500], kind: 'log' }])).toEqual(['x has 1 value outside its declared bounds [1, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is']);
+    // a low bound a logarithm cannot take is lifted to a decade below the high one, and said so
+    expect(outsideNotes([{ channel: 'x', given: [-1, 100], values: [5, 50], kind: 'log' }])).toEqual([
+      'x has 1 value outside its declared bounds [-1, 100], drawn as [10, 100] on a logarithmic axis — bounds say what the quantity CAN be, so either they are wrong or this data is',
+    ]);
     // on a linear axis the same pair is one either side, so nothing is outside
     expect(outsideNotes([ask])).toEqual([]);
     expect(outsideNotes([{ ...ask, kind: 'linear' }])).toEqual([]);
@@ -183,6 +207,43 @@ describe('one value on a logarithmic axis, in the charts', () => {
     expect(lo).toBeGreaterThan(0);
     expect(lo).toBeLessThan(0.001);
     expect(hi).toBeGreaterThan(0.001);
+  });
+
+  it('a drag on a NARROW logarithmic axis keeps the digits it takes to tell one pixel from the next', () => {
+    // 1000, 1000.5 and 1001 across 450 px: four digits would read 1000 and 1001, the whole axis
+    const onEmit = vi.fn();
+    const { container } = render(<VizScatter data={[1000, 1000.5, 1001].map((x, i) => ({ id: `p${String(i)}`, x, y: i }))} domain={LOG('x')} width={520} xField="mass" onEmit={onEmit} />);
+    const svg = container.querySelector('svg.vzf-scatter')!;
+    const dots = [...container.querySelectorAll('circle.vzf-dot')].map((c) => num(c, 'cx'));
+    // 20 px either side of the middle point only
+    fireEvent.pointerDown(svg, { clientX: dots[1]! - 20, pointerId: 1 });
+    fireEvent.pointerMove(svg, { clientX: dots[1]! + 20, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: dots[1]! + 20, pointerId: 1 });
+    const [lo, hi] = onEmit.mock.calls[0]![0].rawValue as [number, number];
+    expect(lo).toBeGreaterThan(1000);
+    expect(lo).toBeLessThan(1000.5);
+    expect(hi).toBeGreaterThan(1000.5);
+    expect(hi).toBeLessThan(1001);
+    // within a twentieth of a pixel of where the pointer was: one pixel here is worth about 0.0022
+    const at = (px: number): number => 1000 * (1001 / 1000) ** ((px - 52) / 450);
+    expect(Math.abs(lo - at(dots[1]! - 20))).toBeLessThan(0.0022 / 20);
+    expect(Math.abs(hi - at(dots[1]! + 20))).toBeLessThan(0.0022 / 20);
+  });
+
+  it('a value outside a declared flat logarithmic pair is said in the chart: scatter x, scatter y, line y', () => {
+    const said = (root: HTMLElement, selector: string): string => root.querySelector(selector)!.getAttribute('aria-label') ?? '';
+    const x = render(<VizScatter data={[{ id: 'a', x: 0.05, y: 1 }, { id: 'b', x: 0.8, y: 2 }]} domain={{ x: [0.05, 0.05], ...LOG('x') }} />).container;
+    expect(said(x, 'svg.vzf-scatter')).toContain('x has 1 value outside its declared bounds [0.05, 0.05], drawn as [0.005, 0.5] on a logarithmic axis');
+    cleanup();
+    const y = render(<VizScatter data={[{ id: 'a', x: 1, y: 0.05 }, { id: 'b', x: 2, y: 0.8 }]} domain={{ y: [0.05, 0.05], ...LOG('y') }} />).container;
+    expect(said(y, 'svg.vzf-scatter')).toContain('y has 1 value outside its declared bounds [0.05, 0.05], drawn as [0.005, 0.5] on a logarithmic axis');
+    cleanup();
+    const line = render(<VizLine data={[{ date: '2026-04-01', value: 0.05 }, { date: '2026-04-02', value: 0.8 }]} domain={{ y: [0.05, 0.05], ...LOG('y') }} />).container;
+    expect(said(line, 'svg.vzf-line')).toContain('y has 1 value outside its declared bounds [0.05, 0.05], drawn as [0.005, 0.5] on a logarithmic axis');
+    cleanup();
+    // on a linear axis the same pair is one either side, and 0.8 is inside it: nothing is said
+    const linear = render(<VizScatter data={[{ id: 'a', x: 0.05, y: 1 }, { id: 'b', x: 0.8, y: 2 }]} domain={{ x: [0.05, 0.05] }} />).container;
+    expect(said(linear, 'svg.vzf-scatter')).not.toContain('outside');
   });
 
   it('a value near the smallest or the largest number a chart can hold is still drawn', () => {

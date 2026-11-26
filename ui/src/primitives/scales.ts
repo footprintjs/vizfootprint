@@ -500,14 +500,15 @@ export function logScale(d0: number, d1: number, r0: number, r1: number): Linear
  *      Invented, and only ever under a picture with no marks in it.
  */
 export function logDomain(d0: number, d1: number): [number, number] {
-  const lo = Math.min(d0, d1);
-  const hi = Math.max(d0, d1);
+  // both ends kept INSIDE what a number can hold, on the way in and on the way out: an infinite end is
+  // the largest number, a decade below the smallest numbers rounds to zero (which a logarithm cannot
+  // take), and a decade above the largest to infinity
+  const lo = Math.min(Number.MAX_VALUE, Math.min(d0, d1));
+  const hi = Math.min(Number.MAX_VALUE, Math.max(d0, d1));
   if (!(hi > 0)) return [1, 10];
-  // a decade down or up, kept INSIDE what a number can hold: a decade below the smallest numbers
-  // rounds to zero (which a logarithm cannot take) and a decade above the largest to infinity
   const below = Math.max(Number.MIN_VALUE, hi / 10);
   if (lo === hi) return [below, Math.min(Number.MAX_VALUE, hi * 10)];
-  return [lo > 0 ? lo : below, Math.min(Number.MAX_VALUE, hi)];
+  return [lo > 0 ? lo : below, hi];
 }
 
 /**
@@ -723,14 +724,26 @@ function roundRun(lo: number, hi: number, target: number): RoundTick[] | undefin
  * (2.675): it is now rounded by the number's true value, where the older
  * arithmetic rounded the product. A pointer's value is practically never one.
  *
- * A LOGARITHMIC axis (`kind: 'log'`) is rounded to four significant digits
- * whatever the value's size, and `span` is not read.
+ * A LOGARITHMIC axis (`kind: 'log'`) is rounded to significant digits and
+ * `span` is not read: enough digits to tell one pixel from the next at this
+ * value (`pixel`, what one pixel is worth there), and never fewer than four.
  */
-export function roundToAxis(value: number, span: number, kind?: ScaleKind): number {
-  // ON A LOGARITHMIC AXIS a value is rounded to four significant digits, never to a number of
-  // decimals: decimals are a linear idea, and a drag around 0.001 rounded to a hundredth is [0, 0]
-  // again (and a logarithmic axis has no span to choose decimals by: it runs over factors).
-  if (kind === 'log') return Number.isFinite(value) ? Number(value.toPrecision(4)) : value;
+const LOG_POINTER_DIGITS = 4;
+/** A number holds fifteen digits it can be trusted with. */
+const MAX_POINTER_DIGITS = 15;
+export function roundToAxis(value: number, span: number, kind?: ScaleKind, pixel?: number): number {
+  // ON A LOGARITHMIC AXIS a value is rounded to SIGNIFICANT DIGITS, never to a number of decimals:
+  // decimals are a linear idea (a drag around 0.001 rounded to a hundredth is [0, 0]), and such an
+  // axis has no one span to choose them by, because a pixel is worth more the further along it is.
+  // HOW MANY DIGITS is what it takes to tell this pixel from the next one, and two more: `pixel` is
+  // what one pixel is worth at this value. Never fewer than four. A fixed four was tried and on a
+  // narrow axis (1000 … 1001) one step of the fourth digit is the whole axis, so a drag over one
+  // point recorded a range that held every point.
+  if (kind === 'log') {
+    if (!Number.isFinite(value) || value === 0) return value;
+    const needed = pixel !== undefined && pixel > 0 && Number.isFinite(pixel) ? Math.ceil(Math.log10(Math.abs(value) / pixel)) + 2 : LOG_POINTER_DIGITS;
+    return Number(value.toPrecision(Math.min(MAX_POINTER_DIGITS, Math.max(LOG_POINTER_DIGITS, needed))));
+  }
   const fine = span > 0 && Number.isFinite(span) ? 3 - Math.floor(Math.log10(span) + 1e-9) : 2;
   const decimals = Math.min(100, Math.max(2, fine));
   return Number(value.toFixed(decimals));
@@ -1080,11 +1093,17 @@ export interface OutsideAsk {
 export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
   return asks.flatMap((ask) => {
     if (ask.given === undefined || !ask.given.every((bound) => Number.isFinite(bound))) return [];
-    // the bounds AS THE AXIS DRAWS THEM, so what is counted as outside is what stands outside
-    const [lo, hi] = ask.kind === 'log' ? logDomain(...domainOr(ask.given, ask.given, 'log')) : domainOr(ask.given, ask.given);
+    // counted against the bounds AS THE AXIS DRAWS THEM, so what is counted as outside is what stands
+    // outside the plot. On a logarithmic axis those can differ from the pair that was declared (a flat
+    // pair is a decade either side; a low bound a logarithm cannot take is lifted), and then the
+    // sentence names both: the words "declared bounds" are only ever followed by what was declared.
+    const linear = domainOr(ask.given, ask.given);
+    const [lo, hi] = ask.kind === 'log' ? logDomain(...domainOr(ask.given, ask.given, 'log')) : linear;
     const n = ask.values.filter((v) => Number.isFinite(v) && (v < lo || v > hi)).length;
     if (n === 0) return [];
-    return [`${ask.channel} has ${n} ${n === 1 ? 'value' : 'values'} outside its declared bounds [${lo}, ${hi}] — bounds say what the quantity CAN be, so either they are wrong or this data is`];
+    const [said0, said1] = ask.kind === 'log' ? domainOr(ask.given, ask.given, 'log') : linear;
+    const drawn = said0 === lo && said1 === hi ? '' : `, drawn as [${lo}, ${hi}] on a logarithmic axis`;
+    return [`${ask.channel} has ${n} ${n === 1 ? 'value' : 'values'} outside its declared bounds [${said0}, ${said1}]${drawn} — bounds say what the quantity CAN be, so either they are wrong or this data is`];
   });
 }
 

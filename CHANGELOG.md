@@ -13,11 +13,17 @@
 - `domainOr` takes an optional third argument, the axis's kind, and
   `extentFor` no longer widens one distinct value on a logarithmic kind. A
   chart of your own on a logarithmic channel should pass the kind.
-- A drag across a scatter's logarithmic x reads back its span to four
-  significant digits (`roundToAxis` takes the axis's kind). It was rounded to
-  decimals chosen from a linear span, so a drag around 0.001 recorded [0, 0].
-- A value outside a declared flat pair on a logarithmic axis is counted
-  against the decade that is drawn (`outsideNotes` takes the axis's kind).
+- A drag across a scatter's logarithmic x is rounded to significant digits:
+  as many as it takes to tell one pixel from the next at that value, and
+  never fewer than four (`roundToAxis` takes the axis's kind and what a pixel
+  is worth). It was rounded to decimals chosen from a linear span, so a drag
+  around 0.001 recorded [0, 0]. This changes what a drag on ANY logarithmic
+  scatter records, not only one with a single value.
+- A value outside a declared pair on a logarithmic axis is counted against
+  the axis as it is drawn (`outsideNotes` takes the axis's kind). Where that
+  differs from the declared pair (a flat pair, or a low bound at or below
+  zero) the sentence names both: "outside its declared bounds [0.05, 0.05],
+  drawn as [0.005, 0.5] on a logarithmic axis".
 - `logDomain` keeps its decade inside what a number can hold, and `logTicks`
   answers nothing for a span with no finite end. A value near the smallest
   number threw, and one near the largest could loop without end.
