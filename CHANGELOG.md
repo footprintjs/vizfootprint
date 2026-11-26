@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added: a test that walks every axis key a plain view may declare
+
+- `AXIS_KEYS` is exported from `vizfootprint/def`: the keys a definition may
+  declare on the axis of a view with no layers (`transform`, `domain`,
+  `basis`, `guide`, `zero`, `zeroGuide`, `bounds`).
+- A new test takes that list and, for each key, builds a real definition,
+  reads the view from the store, folds it through `viewFrameFor` and draws
+  it with the scatter renderer. A key added to the definition fails the
+  test until it has a case, so it cannot be dropped on the way to the
+  picture unnoticed. No behaviour changes.
+
 ### Added: `viewFrameFor`, the frame door for a view with no layers
 
 - A definition may declare axis settings on a plain view (a logarithmic

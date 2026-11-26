@@ -697,6 +697,12 @@ at its ends. A chart on its own extent leaves one. This is per axis: a view
 that declared only its y keeps its own x, margin and all. A view with no
 entry for its axes gets `{}` and is byte for byte the chart it was.
 
+**Every key is walked, so none can be forgotten.** `declaredAxisKeys.test.tsx`
+takes the list of keys a plain view may declare from its one owner (`AXIS_KEYS`,
+`vizfootprint/def`) and, for each, builds a real definition, reads the view
+from the store, folds it through `viewFrameFor` and draws it. A key added to
+the definition fails that test until it has a case.
+
 **A category list is the fold's too.** Where the frame holds a categorical
 entry for the view's x (a bar's `category`, a line on a band), the slots are
 laid out in the fold's order, and a category with no row gets an empty slot,
