@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Charts: the box plot's value axis is ticked at round values
+
+- **Behaviour change.** A box plot's value axis was ticked at five even cuts
+  of the data's extent, rounded to two decimals: values 2 … 99 read
+  "2 26.25 50.5 74.75 99", and values 0.001 … 0.004 read "0" five times. It
+  now follows the scatter's and the line's rules: round values inside the span
+  the axis drew, written to the step's precision, as many as have room.
+- A label wider than the margin is squeezed into it. It used to be cut off by
+  the edge of the drawing.
+- A date axis keeps its four even steps. Two ticks that read as the same day
+  are now one label, and days that would touch are thinned.
+- The axis is drawn by `<Axis>`.
+
 ### Charts: the axis part takes placed ticks, and draws the line chart's x axis
 
 - **Breaking for a host that used `<Axis>` from the change below** (the
