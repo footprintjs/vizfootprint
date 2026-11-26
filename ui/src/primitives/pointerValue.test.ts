@@ -9,6 +9,7 @@
  * | a scale whose range runs the other way    | the same, with the ends the other way round |
  * | a logarithmic scale                       | the same rule                               |
  * | a range with no length                    | the low end at its one pixel                |
+ * | a domain with no length (one value)       | the scale's own inverse, at the edges too   |
  */
 import { describe, expect, it } from 'vitest';
 import { linearScale, logScale, pointerValue } from './scales.js';
@@ -51,6 +52,15 @@ describe('pointerValue', () => {
     expect(pointerValue(flat, 100)).toBe(0);
     expect(pointerValue(flat, 99)).toBe(0);
     expect(pointerValue(flat, 150)).toBe(10);
+  });
+
+  it('a domain with no length has no ends: the scale’s own inverse is answered, at the edges too', () => {
+    // one value: the scale draws it one unit wide and reports 5 for both ends, so 5 is NOT what stands at the right edge
+    const flat = linearScale(5, 5, 30, 390);
+    expect(pointerValue(flat, 30)).toBe(flat.invert(30));
+    expect(pointerValue(flat, 390)).toBe(flat.invert(390));
+    expect(pointerValue(flat, 390)).toBe(6);
+    expect(pointerValue(flat, 500)).toBe(flat.invert(500));
   });
 
   it('5,000 generated scales: at both edges the answer is the domain’s end, whatever the inverse says', () => {
