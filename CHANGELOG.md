@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Correction: a count that binds no y is refused beside a layer with a y axis
+
+- In a stack, a bar or a histogram that binds no `y` is scaled by its own
+  ceiling and draws no axis. A layer beside it that binds `y` has one
+  drawn. So the plot held one `y` axis that the count was not on, and every
+  bar was read against numbers that were not its own, with no word.
+- **That stack drew before and is now refused in words.** The sentence
+  names the way out: bind the count's `y` to its count field (the layers
+  then share one scale, or take two that the frame says in words), or give
+  the count a frame of its own.
+- Judged only where a `y` axis is drawn. A stack in which no layer binds
+  `y`, or whose merged guide was folded with no `y`, draws none and is
+  drawn as before.
+
 ### Added: a test that walks every axis key a plain view may declare
 
 - `AXIS_KEYS` is exported from `vizfootprint/def`: the keys a definition may

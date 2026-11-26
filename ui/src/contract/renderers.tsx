@@ -1422,9 +1422,39 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
   }
   const line = colouredLineRefusal(framed);
   if (line !== null) return line;
+  const unread = countOffAxisRefusal(framed, frame);
+  if (unread !== null) return unread;
   const count = countMixRefusal(framed, frame);
   if (count !== null) return count;
   return twoScalesRefusal(framed, frame);
+}
+
+/**
+ * A COUNT THAT BINDS NO y, BESIDE A LAYER THAT DOES. A bar or a histogram
+ * that binds no `y` is scaled by its own ceiling and draws no axis in a stack.
+ * A layer that binds `y` has one drawn for it (the frame's merged guide, or
+ * its own on an edge). So the plot holds ONE y axis and the count is not on
+ * it: a bar of 100 stands full height beside an axis that reads 40…100, and
+ * every length is read against numbers that are not its own. Nothing in the
+ * picture says so, so it is refused.
+ *
+ * The way out is the one that makes the picture true: bind the count's `y` to
+ * its count field, and the layers share one scale ({@link sharedYSpan}) or take
+ * two said in words.
+ *
+ * ONLY WHERE A y AXIS IS DRAWN. That is when the frame holds an entry for `y`
+ * (merged: the frame draws it; otherwise the layer draws its own on an edge),
+ * or when the guide is per-layer, which gives a layer that binds `y` its own
+ * axis. A stack in which no layer binds `y`, or whose merged guide was folded
+ * with no `y`, draws no y axis at all, so no length is read against a wrong
+ * one and it is not judged.
+ */
+function countOffAxisRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
+  const count = framed.find((f) => COUNT_KINDS.has(f.kind) && f.layer.encodings['y'] === undefined);
+  const reader = framed.find((f) => f.layer.encodings['y'] !== undefined);
+  if (count === undefined || reader === undefined) return null;
+  if (frame?.['y'] === undefined && frameGuide(frame) === 'merged') return null;
+  return `layer "${count.layer.layerId}" is a ${count.kind} that binds no y, and layer "${reader.layer.layerId}" has a y axis in the same plot: the ${count.kind}'s lengths would be read against an axis that is not theirs. Bind the ${count.kind}'s y to its count field, or give it a frame of its own.`;
 }
 
 /**
@@ -1581,9 +1611,8 @@ function wayOut(framed: readonly FramedLayer[], count: FramedLayer): string {
  * so it is told to; a histogram takes neither, and a frame has no third side,
  * so there every count is told to stand on a frame of its own.
  *
- * NOT JUDGED HERE, and unchanged: a count that binds NO y keeps its own
- * ceiling beside a line on the shared y, and the frame's one y guide is then
- * not the count's axis. That stack is drawn as it always was.
+ * A count that binds NO y beside a layer that does never gets here:
+ * {@link countOffAxisRefusal} refuses it first.
  */
 function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
   const { count, position } = sharedYReaders(framed, frame);
