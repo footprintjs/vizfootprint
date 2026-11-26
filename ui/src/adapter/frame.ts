@@ -168,8 +168,9 @@ export interface ViewFrameRequest extends Omit<FrameRequest, 'layers' | 'frame'>
   readonly table: string;
   /**
    * The view's mark, REQUIRED: it decides the zero default (`zeroPolicyFor`).
-   * A bar, a histogram and a box plot are read from zero, so their magnitude
-   * axis folds to reach zero unless the definition said otherwise; without
+   * A bar and a box plot are read from zero, so their magnitude axis folds
+   * to reach zero unless the definition said otherwise (a histogram's count
+   * is drawn from zero by the chart and is not a channel this door folds); without
    * the mark a box plot's axis would be folded from its lowest value, a cut
    * baseline nobody declared. Pass the word the definition uses
    * (`ViewEncodingDecl.chartKind`: `'scatter'`, `'line'`, `'bar'`,
