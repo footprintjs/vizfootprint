@@ -249,13 +249,16 @@ describe('what one layer cannot be is refused the same way alone and in a stack'
     expect(said(stacked('point', rows, XY, { x: cats(['a', 'b']) }))).toBe('layer "a" is a point on a band — column "x" is a category — and a point chart draws no band in this version. Draw it as a line, or give it a frame of its own.');
   });
 
-  it('a logarithmic y under a bar, a histogram or a box is refused in the definition door’s sentence', () => {
+  it('a logarithmic y under a bar or a box is refused in the definition door’s sentence, and under a histogram in the renderer’s own', () => {
     const log = { y: channel([1, 100], { transform: 'log' }) };
     const tail = ' — its y extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic';
     expect(said(draw(barRenderer(), BARS, BAR_ENC, log))).toBe(`view "v" is a bar${tail}`);
     expect(said(stacked('bar', BARS, BAR_ENC, log))).toBe(`layer "a" is a bar${tail}`);
     const bins: readonly RenderRow[] = [{ x0: 1, x1: 10, count: 2 }];
-    expect(said(draw(histogramRenderer(), bins, { x: 'mass', y: 'count' }, log))).toBe(`view "v" is a histogram${tail}`);
+    // a histogram's sentence is the renderer's own: the definition door reads a histogram's channel as its bin axis
+    const binsOnly = (who: string): string => `${who} is a histogram, and its y is its count: this version draws a histogram's count as a length on a linear axis only. Its bin axis, x, may be logarithmic; drop "transform" on y.`;
+    expect(said(draw(histogramRenderer(), bins, { x: 'mass', y: 'count' }, log))).toBe(binsOnly('view "v"'));
+    expect(said(stacked('histogram', bins, { x: 'mass', y: 'count' }, log))).toBe(binsOnly('layer "a"'));
     const box: readonly RenderRow[] = [{ category: 'A', q1: 2, median: 3, q3: 4, whiskerLo: 1, whiskerHi: 5, outliers: [], count: 4 }];
     expect(said(draw(boxPlotRenderer(), box, { x: 'category', y: 'price' }, log))).toBe(`view "v" is a boxplot${tail}`);
     expect(said(stacked('boxplot', box, { x: 'category', y: 'price' }, log))).toBe(`layer "a" is a boxplot${tail}`);
@@ -274,6 +277,9 @@ describe('what one layer cannot be is refused the same way alone and in a stack'
     expect(said(draw(barRenderer(), BARS, BAR_ENC, bounded([0, 20])))).toBe('');
     expect(said(draw(barRenderer(), BARS, BAR_ENC, bounded([20, 0])))).toBe('');
     expect(said(draw(barRenderer(), BARS, { category: 'category' }, bounded([2, 20])))).toBe('');
+    // …also when the view IS judged (its category has an entry): the bounds are on a y it does not bind
+    expect(said(draw(barRenderer(), BARS, { category: 'category' }, { ...bounded([2, 20]), category: cats(['A', 'B']) }))).toBe('');
+    expect(said(draw(barRenderer(), BARS, { category: 'category' }, { y: channel([1, 100], { transform: 'log' }), category: cats(['A', 'B']) }))).toBe('');
     // a box is a position on its value axis: its bounds are drawn as declared
     const box: readonly RenderRow[] = [{ category: 'A', q1: 2, median: 3, q3: 4, whiskerLo: 2, whiskerHi: 5, outliers: [], count: 4 }];
     expect(said(draw(boxPlotRenderer(), box, { x: 'category', y: 'price' }, bounded([2, 20])))).toBe('');

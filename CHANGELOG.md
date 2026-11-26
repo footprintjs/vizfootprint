@@ -22,13 +22,21 @@
     its slots by its rows whatever the frame listed.
 - **Refused in words now, alone and in a stack**, where the picture was
   drawn wrong or a declaration was dropped:
-  - a logarithmic `y` under a bar, a histogram or a box plot (it was drawn
-    linear, in silence), in the definition door's own sentence;
+  - a logarithmic `y` under a bar or a box plot, in the definition door's
+    own sentence, and under a histogram, in the renderer's own (each was
+    drawn linear, in silence);
   - bounds on a bar's or histogram's `y` that do not start at zero or end
     below one (the count was drawn from zero, in silence);
   - for a view alone: a scatter whose x was folded as categories (every
     point was drawn at one x), a zero line its mark does not draw, and a
     histogram whose x was folded as categories.
+- Known gap: the definition door does not yet refuse count bounds that do
+  not start at zero, or a logarithmic `y` on a histogram, so a definition
+  it passed can be refused when drawn.
+- In a stack that was already refused, the sentence shown first can now be
+  a per-layer one (a zero line, a drag) where it was a cross-layer one (two
+  bands, a box plot on a shared band, a line split into series). Both are
+  true; the second follows once the first is fixed.
 - A view with no entry for either axis is drawn exactly as before.
 - Reached today by a host that folds a frame by hand; the adapter does not
   yet fold one for a view with no layers.

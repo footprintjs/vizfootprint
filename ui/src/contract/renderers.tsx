@@ -1454,17 +1454,28 @@ function layerRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
 }
 
 /**
- * LAW 11c AS THE RENDERER REFUSES IT: a logarithmic y under a mark whose y is a
- * LENGTH (a bar, a histogram bin, a box). The charts draw that y linearly
- * whatever was asked, because on a logarithmic axis a bar four times as long
- * is not four times the value. The definition door refuses the declaration;
- * this is the second fence, for a frame folded by hand, in the door's own
- * sentence (`logOnExtentRefusal`). Without it the declared curve was dropped
- * and the chart drew a linear axis with no word.
+ * A LOGARITHMIC y UNDER A MARK WHOSE y IS A LENGTH: a bar, a box, a histogram
+ * bin. The charts draw that y linearly whatever was asked, because on a
+ * logarithmic axis a bar four times as long is not four times the value.
+ * Without this the declared curve was dropped and the chart drew a linear axis
+ * with no word.
+ *
+ * TWO SENTENCES, each with its owner:
+ *   - a BAR and a BOX: law 11c. The definition door refuses the declaration
+ *     (`zeroAnchorsChannel`, its predicate); this is the second fence, for a
+ *     frame folded by hand, in the door's own sentence (`logOnExtentRefusal`).
+ *   - a HISTOGRAM: the door reads a histogram's bound channel as its bin axis,
+ *     a position, and accepts a logarithm on it. A histogram that binds y is
+ *     binding its COUNT, which this renderer draws as a length. So the renderer
+ *     says its own sentence, about what this version draws. KNOWN GAP: the door
+ *     accepts that declaration and this door refuses it; closing it needs one
+ *     predicate both ask.
  */
 function logExtentRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject): string | null {
   const f = framed.find((one) => LENGTH_KINDS.has(one.kind) && one.layer.encodings['y'] !== undefined && frame?.['y']?.transform === 'log');
-  return f === undefined ? null : logOnExtentRefusal(named(f), f.kind, 'y');
+  if (f === undefined) return null;
+  if (f.kind === 'histogram') return `${named(f)} is a histogram, and its y is its count: this version draws a histogram's count as a length on a linear axis only. Its bin axis, x, may be logarithmic; drop "transform" on y.`;
+  return logOnExtentRefusal(named(f), f.kind, 'y');
 }
 
 /** The marks whose y is drawn as a LENGTH and never on a logarithmic curve: the counts, and the box. */
@@ -1477,6 +1488,11 @@ const LENGTH_KINDS: ReadonlySet<FrameChartKind> = new Set([...COUNT_KINDS, 'boxp
  * the declared low end was dropped with no word. A declaration is drawn as
  * declared or refused. (Beside a line the same bounds are refused by
  * {@link countMixRefusal}, in its own sentence; this is the count by itself.)
+ *
+ * KNOWN GAP, shared with `countMixRefusal`: the definition door accepts such
+ * bounds, so a definition it passed can be refused here. Refusing is better
+ * than dropping the declaration; closing the gap needs one predicate and one
+ * sentence both doors ask.
  */
 function countBoundsRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject): string | null {
   const bounds = sharedOn(frame, 'y')?.bounds;

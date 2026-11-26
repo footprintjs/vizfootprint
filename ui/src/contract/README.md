@@ -702,6 +702,12 @@ entry for the view's x (a bar's `category`, a line on a band), the slots are
 laid out in the fold's order, and a category with no row gets an empty slot,
 as in a stack. On its own extent a chart orders its slots by its rows.
 
+**A known gap with the definition door.** Two of these refusals have no twin
+at the definition door yet: bounds a count cannot stand on, and a logarithmic
+y on a histogram (the door reads a histogram's channel as its bin axis). A
+definition the door passed can therefore be refused here. Refusing is better
+than dropping the declaration; one predicate both doors ask will close it.
+
 **Known limits.** A scatter and a line's value axis still say "declared
 bounds" for a span that was folded, not declared (a chart is not told which).
 A line on a date span wider than its rows draws the span but labels only its
