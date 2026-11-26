@@ -4,60 +4,89 @@
  * WHY ONE PART. Seven charts and the frame each drew their own axis, so a
  * rule about labels reached only the charts someone remembered to change. An
  * axis is one job, and the known chart libraries give it one part: `d3-axis`
- * (`axisBottom`, `axisLeft`, `axisRight`), visx's `<Axis orientation scale>`,
- * and Observable Plot, where an axis is itself a mark. The names here are
- * theirs: `orient`, `scale`, `ticks`.
+ * (`axisBottom`, `axisLeft`, `axisRight`), visx's `<Axis orientation>`, and
+ * Observable Plot, where an axis is itself a mark.
  *
- * WHAT IT DOES NOT DECIDE. Which ticks to draw is the caller's choice (the
- * tick rules are in `./scales.ts`), so this part never drops a tick it was
- * given and never invents one. It only places what it is handed:
- *   - a label under a bottom axis stays inside the drawing (`labelCentre`);
- *   - a label beside a left or right axis is drawn whole, squeezed into the
- *     room it has when it is wider than that room (`squeezedLength`).
+ * TICKS ARRIVE ALREADY PLACED. A tick is its `position` along the axis, in
+ * pixels, and its `label`. `d3-axis` and visx's `<Axis>` take a scale and
+ * place the ticks themselves, whether the scale or the caller (`tickValues`)
+ * chose them. Here a tick also says how its own label sits (turned inward,
+ * slanted, shortened with its whole text kept), which the chart decides tick
+ * by tick, so the chart places them and this part draws what it is handed.
+ * It never drops a tick it was given and never invents one.
  *
- * Both are the caller's to switch on: with no `edges` and no `labelRoom` given
- * a label is drawn as written, wherever that puts it.
+ * WHAT IT DOES TO A LABEL, and only when `labelBounds` says where the drawing
+ * ends:
+ *   - under a bottom axis, a level label centred on its tick is moved inside
+ *     the drawing (`labelCentre`);
+ *   - beside a left or right axis, a label wider than the room between the
+ *     axis and the drawing's edge is squeezed into it, every character kept
+ *     (`squeezedLength`).
+ * With no `labelBounds` a label is drawn as written, wherever that puts it.
+ * A tick anchored at its `'start'` or `'end'`, or `slanted`, is drawn as asked
+ * and is NOT kept inside the drawing: the chart that asked for it placed it.
+ * `textAnchor` and `slanted` are a bottom axis's; a side axis ignores them,
+ * and a slanted tick ignores `textAnchor` (it ends at its tick).
  *
- * NOT SETTLED YET, and free to change while three axes use it: the prop names
- * (`ticks` here holds values with their labels; in D3 and Plot the word means
- * a count), and how a band, a date or a slanted label is handed over. Those
- * are decided when the bar and the date axes move here.
+ * WHAT IS NOT HERE: how many ticks, and how a value is written. Those belong
+ * to whoever makes the ticks (`roundTicksThatFit`, a chart's own rule), since
+ * this part is handed ticks that are already chosen and labelled.
  *
  * It renders and nothing else: no state, no measuring, no data.
  */
-import { labelCentre, squeezedLength, type LabelEdges, type RoundTick } from './scales.js';
+import { labelCentre, squeezedLength, TICK_SLANT_DEG, TICK_SLANT_DROP, type LabelEdges } from './scales.js';
 import { scaleHueStyle } from './scaleHue.js';
 
 /** The side of the plot an axis stands on, in `d3-axis`'s words. */
 export type AxisOrient = 'bottom' | 'left' | 'right';
 
-/** The length of a tick mark, and how far a label stands from the axis line, in pixels. */
+/** One tick, already placed. */
+export interface AxisTick {
+  /** Where the tick stands along the axis, in pixels. */
+  readonly position: number;
+  /** The words drawn for it. */
+  readonly label: string;
+  /**
+   * A bottom axis: which part of a level label stands on the tick (SVG's own
+   * word; Vega-Lite calls it `labelAlign`). `middle`
+   * (the default) is the one a `labelBounds` may move; `start` and `end` are
+   * drawn exactly as asked, which is how the first and last label of an axis
+   * are turned inward.
+   */
+  readonly textAnchor?: 'start' | 'middle' | 'end';
+  /** A bottom axis: draw the label on the slant, ending at its tick, because it does not fit level. */
+  readonly slanted?: boolean;
+  /** The whole text, when `label` is a shortened form of it: shown on hover. */
+  readonly title?: string;
+}
+
+/** The length of a tick mark, in pixels. */
 const TICK_SIZE = 4;
-/** A bottom label's baseline this far below the line; a side label's near end this far from it. */
+/** A level bottom label's baseline this far below the line; a side label's near end this far from the line. (A slanted label's drop and angle are the tick rules': `TICK_SLANT_DROP`, `TICK_SLANT_DEG`.) */
 const LABEL_OFFSET = { bottom: 16, side: 8 } as const;
 /** How far below its tick's centre a side label's baseline sits, so the text reads as centred on the tick. */
 const SIDE_LABEL_DROP = 3;
 
 export interface AxisProps {
   readonly orient: AxisOrient;
-  /** Where a value is drawn along the axis, in pixels. */
-  readonly scale: (value: number) => number;
-  /** The ticks to draw, each with its label. All of them are drawn. */
-  readonly ticks: readonly RoundTick[];
+  /** The ticks to draw, each already placed and labelled. All of them are drawn. */
+  readonly ticks: readonly AxisTick[];
   /** Where the axis line stands across the plot: its y for a bottom axis, its x for a left or right one. */
   readonly at: number;
   /** The two ends of the axis line, in pixels along the axis. */
   readonly range: readonly [number, number];
-  /** A bottom axis only: the drawing's left and right edges `[min, max]`, which a label stays between. Absent = labels are centred under their ticks and may leave the drawing. */
-  readonly edges?: LabelEdges;
-  /** A left or right axis only: the room a label has between its anchor and the edge of the drawing. Absent, or not above zero = labels are drawn as written and may leave the drawing. */
-  readonly labelRoom?: number;
+  /**
+   * The drawing's left and right edges `[min, max]`, in pixels: the bounds a
+   * label must stay inside. Absent = labels are drawn as written and may
+   * leave the drawing.
+   */
+  readonly labelBounds?: LabelEdges;
   /** The hue of this axis's scale, when a two-scale frame handed its layer one. Absent = the ink token. */
   readonly hue?: string;
 }
 
 export function Axis(props: AxisProps): JSX.Element {
-  const { orient, scale, ticks, at, range, edges, labelRoom } = props;
+  const { orient, ticks, at, range, labelBounds } = props;
   // THE INK OF THIS SCALE goes on the line and on each tick, the elements the stylesheet paints with it
   // (`scaleHueStyle`); with no hue nothing is written at all
   const hue = scaleHueStyle(props.hue);
@@ -65,37 +94,56 @@ export function Axis(props: AxisProps): JSX.Element {
     return (
       <g className="vzf-axis-part" data-axis-orient={orient}>
         <line className="vzf-axis" x1={range[0]} y1={at} x2={range[1]} y2={at} style={hue} />
-        {ticks.map((tick, i) => (
-          <g key={i} style={hue}>
-            <line className="vzf-axis" x1={scale(tick.value)} y1={at} x2={scale(tick.value)} y2={at + TICK_SIZE} />
-            <text className="vzf-tick" x={labelCentre(scale(tick.value), tick.label, edges)} y={at + LABEL_OFFSET.bottom} textAnchor="middle">
-              {tick.label}
-            </text>
-          </g>
-        ))}
+        {ticks.map((tick, i) => {
+          const anchor = tick.textAnchor ?? 'middle';
+          return (
+            <g key={i} style={hue}>
+              <line className="vzf-axis" x1={tick.position} y1={at} x2={tick.position} y2={at + TICK_SIZE} />
+              {tick.slanted === true ? (
+                <text className="vzf-tick" x={tick.position} y={at + TICK_SLANT_DROP} textAnchor="end" transform={`rotate(-${String(TICK_SLANT_DEG)} ${String(tick.position)} ${String(at + TICK_SLANT_DROP)})`}>
+                  {tick.title === undefined ? null : <title>{tick.title}</title>}
+                  {tick.label}
+                </text>
+              ) : (
+                <text className="vzf-tick" x={anchor === 'middle' ? labelCentre(tick.position, tick.label, labelBounds) : tick.position} y={at + LABEL_OFFSET.bottom} textAnchor={anchor}>
+                  {tick.title === undefined ? null : <title>{tick.title}</title>}
+                  {tick.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
       </g>
     );
   }
   // a side axis reads AWAY from the plot: marks and labels go left of a left axis, right of a right one
   const away = orient === 'right' ? 1 : -1;
+  // the room a label has between where it is anchored and the edge of the drawing on its side
+  const room = labelBounds === undefined ? undefined : (orient === 'right' ? labelBounds[1] - at : at - labelBounds[0]) - LABEL_OFFSET.side;
   return (
     <g className="vzf-axis-part" data-axis-orient={orient}>
       <line className="vzf-axis" x1={at} y1={range[0]} x2={at} y2={range[1]} style={hue} />
       {ticks.map((tick, i) => (
         <g key={i} style={hue}>
-          <line className="vzf-axis" x1={at + TICK_SIZE * away} y1={scale(tick.value)} x2={at} y2={scale(tick.value)} />
+          <line className="vzf-axis" x1={at + TICK_SIZE * away} y1={tick.position} x2={at} y2={tick.position} />
           <text
             className="vzf-tick"
             x={at + LABEL_OFFSET.side * away}
-            y={scale(tick.value) + SIDE_LABEL_DROP}
+            y={tick.position + SIDE_LABEL_DROP}
             textAnchor={away < 0 ? 'end' : 'start'}
-            textLength={labelRoom === undefined ? undefined : squeezedLength(tick.label, labelRoom)}
+            textLength={room === undefined ? undefined : squeezedLength(tick.label, room)}
             lengthAdjust="spacingAndGlyphs"
           >
+            {tick.title === undefined ? null : <title>{tick.title}</title>}
             {tick.label}
           </text>
         </g>
       ))}
     </g>
   );
+}
+
+/** Place value ticks through a scale: the usual way a chart turns its tick values into `AxisTick`s. */
+export function placeTicks(ticks: readonly { readonly value: number; readonly label: string }[], scale: (value: number) => number): AxisTick[] {
+  return ticks.map((tick) => ({ position: scale(tick.value), label: tick.label }));
 }

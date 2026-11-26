@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Charts: the axis part takes placed ticks, and draws the line chart's x axis
+
+- **Breaking for a host that used `<Axis>` from the change below** (the
+  packages are unpublished): a tick is now `{ position, label }`, already
+  placed in pixels, where it was a value plus a `scale` prop. `placeTicks`
+  does that step for value ticks. `edges` and `labelRoom` are one option,
+  `labelBounds`, the drawing's left and right edges.
+- A tick can name its `textAnchor`, be `slanted`, and carry a `title` (the whole
+  text of a shortened label). With these the line chart's x axis (dates,
+  numbers or bands, level or slanted) is drawn by the same part. What the
+  chart draws is unchanged.
+- New exports: `placeTicks`, `AxisTick`, and the slant's two numbers,
+  `TICK_SLANT_DEG` (read by the axis part and the label-fitting rule) and
+  `TICK_SLANT_DROP` (read by the axis part and the line chart's room for
+  slanted labels).
+
 ### Charts: one axis part
 
 - New primitive `<Axis>` (`orient`, `scale`, `ticks`, `at`, `range`, `edges`,

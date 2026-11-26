@@ -90,7 +90,7 @@ export type { SlotRow } from './slotValues.js';
 // the logarithmic axis (protocol 1.6): `scaleFor` is the ONE owner of which builder a channel gets,
 // and the rest are what a host drawing its own guide over a logarithmic channel needs — the ticks,
 // their labels, the placeability predicate and the words for what a transform could not place
-export { logScale, logDomain, extentFor, roomyExtent, EXTENT_ROOM, roundTicks, roundStep, stepDecimals, roundToAxis, ticksThatFit, roundTicksThatFit, labelsFit, labelCentre, squeezedLength, TICK_CHAR_PX, TICK_LINE_PX, TICK_GAP_PX, scaleFor, placeable, padFor, logTicks, logTickLabel, excludedNote } from './scales.js';
+export { logScale, logDomain, extentFor, roomyExtent, EXTENT_ROOM, roundTicks, roundStep, stepDecimals, roundToAxis, ticksThatFit, roundTicksThatFit, labelsFit, labelCentre, squeezedLength, TICK_CHAR_PX, TICK_LINE_PX, TICK_GAP_PX, TICK_SLANT_DEG, TICK_SLANT_DROP, scaleFor, placeable, padFor, logTicks, logTickLabel, excludedNote } from './scales.js';
 // the second axis of a frame: `padOnSide` is the ONE owner of where a chart keeps its y-axis room
 // when that axis stands on the right, read by the chart (its plot) and by `VizFrame` (its margin union)
 export { padOnSide } from './scales.js';
@@ -105,8 +105,8 @@ export type { OutsideAsk } from './scales.js';
 export { zeroGuideFor, zeroGuideNotes } from './zeroGuide.js';
 export type { ZeroGuide, ZeroGuideAsk } from './zeroGuide.js';
 
-export { Axis } from './Axis.js';
-export type { AxisProps, AxisOrient } from './Axis.js';
+export { Axis, placeTicks } from './Axis.js';
+export type { AxisProps, AxisOrient, AxisTick } from './Axis.js';
 export { AxisLabel } from './AxisLabel.js';
 export type { AxisLabelProps } from './AxisLabel.js';
 

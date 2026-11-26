@@ -129,9 +129,9 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, roundTicksThatFit, ticksThatFit, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
-import { TICK_ANGLE, fitTick } from './tickFit.js';
-import { Axis } from '../primitives/Axis.js';
+import { linearScale, extent, roundTicksThatFit, ticksThatFit, TICK_SLANT_DROP, epochOf, dayOf, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, bandOrder, bandWidth, bandCentre, slotsCovered, slotAt, noSlotsCoveredNote, valuesCovered, noValuesCoveredNote, crowdedMarksNote, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { fitTick } from './tickFit.js';
+import { Axis, placeTicks, type AxisTick } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
@@ -670,8 +670,6 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // WHERE THE Y AXIS STANDS: the plot edge on its side. `Axis` reads away from the plot on either side
   // and wears the hue its scale was handed (`scaleHue`), or nothing at all when no hue was handed.
   const yAxisX = props.axisSide === 'right' ? width - pad.r : pad.l;
-  // the room a y label has between its anchor and the edge of the drawing, on the side the axis stands
-  const yLabelRoom = (props.axisSide === 'right' ? pad.r : pad.l) - 8;
   // what an UNSPLIT mark is drawn with: the hue its scale was handed, the brand where there is none
   // (a chart split into series keeps `colorOf`'s answer — identity is never colour-alone)
   const markInk = props.scaleHue ?? 'var(--vzf-brand)';
@@ -687,7 +685,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const bandLabels = drawX && band !== undefined ? band : [];
   const slanted = bandLabels.some((name) => fitTick(name, slot, 0).rotate);
   const padB = slanted ? Math.min(pad.b + SLANT_PAD, Math.max(pad.b, height - top - MIN_PLOT)) : pad.b;
-  const tickRoom = Math.max(0, padB - 12 - AXIS_LABEL_ROOM);
+  const tickRoom = Math.max(0, padB - TICK_SLANT_DROP - AXIS_LABEL_ROOM);
   const bottom = height - padB;
   const y = scaleFor(yKind)(vlo, vhi, bottom, top);
 
@@ -843,6 +841,17 @@ export function VizLine(props: VizLineProps): JSX.Element {
    * number spelled by a date formatter is a lie about what the axis holds.
    */
   const nameOf = (key: string): string => (kind === 'dates' ? formatDate(key) : key);
+  // THE X TICKS, PLACED for the axis part: a run's ≤3 dates with their inward anchors, then a band's
+  // one tick per slot, each fitted to its slot (`fitTick`: level and whole, or slanted and shortened
+  // with the whole name kept for hover)
+  const xAxisTicks: AxisTick[] = [
+    ...tickSpecs.map((d): AxisTick => ({ position: x(d.at), label: nameOf(d.key), textAnchor: d.anchor })),
+    ...bandLabels.map((name, i): AxisTick => {
+      const position = bandCentre(pad.l, slot, i);
+      const fit = fitTick(name, slot, tickRoom, position);
+      return fit.rotate ? { position, label: fit.text, slanted: true, ...(fit.clipped ? { title: name } : {}) } : { position, label: name };
+    }),
+  ];
   // a LINEAR value axis is ticked at round values inside the span it drew (`roundTicks`), each labelled
   // to the step's precision; a LOGARITHMIC one at decades, read off the scale's own clamped domain
   // (the span the marks were actually placed on) rather than the raw pair
@@ -883,42 +892,17 @@ export function VizLine(props: VizLineProps): JSX.Element {
       >
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
             while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
-        {drawX && <line className="vzf-axis" x1={pad.l} y1={bottom} x2={width - pad.r} y2={bottom} />}
-        {/* x ticks on a RUN — actual data dates; the edge labels anchor inward so they
-            never clip at the plot edges or collide with each other */}
-        {drawX && tickSpecs.map((d) => (
-          <g key={`xt${d.key}`}>
-            <line className="vzf-axis" x1={x(d.at)} y1={bottom} x2={x(d.at)} y2={bottom + 4} />
-            <text className="vzf-tick" x={x(d.at)} y={bottom + 16} textAnchor={d.anchor}>
-              {nameOf(d.key)}
-            </text>
-          </g>
-        ))}
-        {/* x ticks on a BAND — one per slot at its centre, the band's own labels (the markup `VizBar` draws) */}
-        {bandLabels.map((name, i) => {
-          const at = bandCentre(pad.l, slot, i);
-          const tick = fitTick(name, slot, tickRoom, at);
-          return (
-            <g key={`xb${name}`}>
-              <line className="vzf-axis" x1={at} y1={bottom} x2={at} y2={bottom + 4} />
-              {tick.rotate ? (
-                <text className="vzf-tick" x={at} y={bottom + 12} textAnchor="end" transform={`rotate(-${String(TICK_ANGLE)} ${String(at)} ${String(bottom + 12)})`}>
-                  {tick.clipped ? <title>{name}</title> : null}
-                  {tick.text}
-                </text>
-              ) : (
-                <text className="vzf-tick" x={at} y={bottom + 16} textAnchor="middle">
-                  {name}
-                </text>
-              )}
-            </g>
-          );
-        })}
+        {/* the x axis (`Axis`): on a RUN, actual data dates with the edge labels turned inward so they never
+            clip at the plot edges or collide; on a BAND, one tick per slot at its centre, level when its
+            label fits the slot and slanted when it does not (the markup `VizBar` draws). NO `labelBounds`:
+            the date labels are turned inward by their own anchors, and a band's level label is centred on
+            its slot, which is how they were always drawn. */}
+        {drawX && <Axis orient="bottom" ticks={xAxisTicks} at={bottom} range={[pad.l, width - pad.r]} />}
         {/* the value axis (`Axis`, the one part every chart's axis is drawn by), on the side it was given.
             It is drawn just before the zero guide, so the guide is painted over the axis as it always was;
             both come after the x ticks and before the series. The guide meets an x tick mark only when
             zero is the floor of the axis, where it lies on the axis line over the top of each mark. */}
-        {drawY && <Axis orient={props.axisSide === 'right' ? 'right' : 'left'} scale={y} ticks={yTicks} at={yAxisX} range={[top, bottom]} labelRoom={yLabelRoom} hue={props.scaleHue} />}
+        {drawY && <Axis orient={props.axisSide === 'right' ? 'right' : 'left'} ticks={placeTicks(yTicks, y)} at={yAxisX} range={[top, bottom]} labelBounds={[0, width]} hue={props.scaleHue} />}
         {/* the zero guide — furniture, edge to edge across the plot, under the series and over the axis;
             drawn by whoever draws this axis, so a layer under a merged guide draws none */}
         {zeroY !== undefined && 'at' in zeroY && <line className="vzf-zero" x1={pad.l} y1={zeroY.at} x2={width - pad.r} y2={zeroY.at} />}

@@ -9,13 +9,14 @@
  * asks the same question of its value labels and simply omits the ones that
  * would collide — a number that cannot be read is worse than none.
  */
+import { TICK_SLANT_DEG } from '../primitives/scales.js';
 
 /** Pixels one tick character occupies (`.vzf-tick` is 10px monospace ≈ 6px advance). */
 export const TICK_CHAR_PX = 6;
 /** Pixels one value-label character occupies (`.vzf-barval` is 11px monospace ≈ 6.6px advance). */
 export const VALUE_CHAR_PX = 6.6;
-/** The slant, in degrees, for labels that do not fit horizontally. */
-export const TICK_ANGLE = 40;
+/** The slant, in degrees, for labels that do not fit horizontally (`TICK_SLANT_DEG`, the tick rules' one number). */
+export const TICK_ANGLE = TICK_SLANT_DEG;
 
 export interface TickFit {
   /** Draw the label on the slant (anchored at its end) rather than flat. */

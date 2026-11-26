@@ -694,6 +694,10 @@ export const TICK_CHAR_PX = 6;
 /** The height of one line of tick label, and the least gap two labels keep between them. */
 export const TICK_LINE_PX = 10;
 export const TICK_GAP_PX = 4;
+/** A tick label that does not fit level is drawn on this slant, in degrees, ending at its tick… */
+export const TICK_SLANT_DEG = 40;
+/** …with that end this far below the axis line, in pixels. The room a slanted label has is counted from here. */
+export const TICK_SLANT_DROP = 12;
 
 /** The two edges of the drawing a horizontal label must stay between, in pixels. */
 export type LabelEdges = readonly [min: number, max: number];
