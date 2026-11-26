@@ -28,7 +28,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
 import { roundTicksThatFit, roundToAxis, ticksThatFit, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
-import { Axis } from '../primitives/Axis.js';
+import { Axis, placeTicks } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
@@ -228,8 +228,6 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   const logTicksOf = (lo: number, hi: number): RoundTick[] => logTicks(lo, hi, 5).map((value) => ({ value, label: logTickLabel(value) }));
   const xTicks: readonly RoundTick[] = xKind === 'log' ? ticksThatFit(logTicksOf(x.domain[0], x.domain[1]), x, 'width', edges) : roundTicksThatFit(xlo, xhi, 5, x, 'width', edges);
   const yTicks: readonly RoundTick[] = yKind === 'log' ? ticksThatFit(logTicksOf(y.domain[0], y.domain[1]), y, 'height') : roundTicksThatFit(ylo, yhi, 5, y, 'height');
-  // the room a y label has between its anchor and the edge of the drawing, on the side the axis stands
-  const yLabelRoom = (props.axisSide === 'right' ? pad.r : pad.l) - 8;
 
   // ZERO IS A PLACE ON THE AXIS (law 12): one line inside the plot where a signed scale crosses zero,
   // drawn whenever the chart was TOLD to — a Ramachandran plot's φ and ψ both ask for one.
@@ -272,8 +270,8 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
         {/* the axes (`Axis`, the one part every chart's axis is drawn by) — absent while the FRAME draws
             one merged guide for the stack; the x one absent while the frame draws x once and this chart
             draws only its own y (`axes: 'y'`). The y one stands on the side it was given. */}
-        {drawX && <Axis orient="bottom" scale={x} ticks={xTicks} at={height - pad.b} range={[pad.l, width - pad.r]} edges={edges} />}
-        {drawY && <Axis orient={props.axisSide === 'right' ? 'right' : 'left'} scale={y} ticks={yTicks} at={yAxisX} range={[pad.t, height - pad.b]} labelRoom={yLabelRoom} hue={props.scaleHue} />}
+        {drawX && <Axis orient="bottom" ticks={placeTicks(xTicks, x)} at={height - pad.b} range={[pad.l, width - pad.r]} labelBounds={edges} />}
+        {drawY && <Axis orient={props.axisSide === 'right' ? 'right' : 'left'} ticks={placeTicks(yTicks, y)} at={yAxisX} range={[pad.t, height - pad.b]} labelBounds={edges} hue={props.scaleHue} />}
         {/* the zero guides — furniture, UNDER the data and over the axis lines; each spans the plot box,
             so an x guide runs floor-to-ceiling and a y guide edge-to-edge. It draws no tick and no label:
             the labelled axes stay on the edges where they are readable (and where that consumer's own

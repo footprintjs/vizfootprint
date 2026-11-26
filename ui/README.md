@@ -523,16 +523,29 @@ squeezedLength('-3.710M', 44);                                      // undefined
 
 ### One axis part
 
-Every chart's axis is meant to be drawn by one part, `<Axis>`. Until now each chart drew its own axis line, ticks and labels, so a rule about labels reached only the charts someone remembered to change. The known chart libraries give an axis one part too: `d3-axis` (`axisBottom`, `axisLeft`, `axisRight`), visx's `<Axis orientation scale>`, and Observable Plot, where an axis is itself a mark. The prop names are theirs.
+Every chart's axis is meant to be drawn by one part, `<Axis>`. Until now each chart drew its own axis line, ticks and labels, so a rule about labels reached only the charts someone remembered to change. The known chart libraries give an axis one part too: `d3-axis` (`axisBottom`, `axisLeft`, `axisRight`), visx's `<Axis orientation>`, and Observable Plot, where an axis is itself a mark.
 
 ```tsx
-import { Axis, linearScale, roundTicksThatFit } from 'vizfootprint-ui';
+import { Axis, placeTicks, linearScale, roundTicksThatFit } from 'vizfootprint-ui';
 
 const y = linearScale(0, 100, 296, 18);
-<Axis orient="left" scale={y} ticks={roundTicksThatFit(0, 100, 5, y, 'height')} at={52} range={[18, 296]} labelRoom={44} />
+const ticks = placeTicks(roundTicksThatFit(0, 100, 5, y, 'height'), y);
+<Axis orient="left" ticks={ticks} at={52} range={[18, 296]} labelBounds={[0, 520]} />
 ```
 
-Which ticks to draw stays the caller's choice (the rules above), so the part never drops a tick. To find an axis in the markup, select it by `[data-axis-orient]`, not by position. The prop names may still change while only three axes use the part: `ticks` holds values with their labels here, and in D3 and Plot that word means a count. The scatter's two axes and the line's value axis use it today, and what they draw is unchanged. The other charts and the frame move to it next; tick count, format, grid lines and the label strategy become options on it after that.
+**Ticks arrive already placed.** A tick is its `position` along the axis in pixels and its `label`. `d3-axis` takes a scale and asks it for ticks. Here a number, a date and a band are placed by three different rules, and which ticks to draw is the chart's choice (the rules above), so the chart places them and the part draws what it is handed. It never drops a tick and never adds one. `placeTicks` does the usual step for value ticks.
+
+A tick can also say how its label sits:
+
+| on the tick | what it does |
+|---|---|
+| `anchor: 'start'` or `'end'` | a bottom label drawn from, or up to, its tick: how the first and last date of an axis are turned inward |
+| `slanted: true` | a bottom label drawn on the slant, ending at its tick, because it does not fit level |
+| `title` | the whole text, shown on hover, when `label` is a shortened form |
+
+`labelBounds` is the drawing's left and right edges. Given them, a centred bottom label is moved inside the drawing, and a side label wider than the room between the axis and the edge is squeezed into it; a label wider than the whole drawing still leaves it. Without them every label is drawn as written.
+
+The scatter's two axes and both axes of the line chart (values; dates, numbers or bands) use the part today, and what they draw is unchanged. The bar, histogram, box plot, heat map and the frame move to it next. To find an axis in the markup, select it by `[data-axis-orient]`, not by position.
 
 Widths are estimated at 6 px a character, the stylesheet's 10 px mono tick font (6.02 measured in Chromium). A theme that changes the tick font or size makes the estimate wrong until chart text sizes are theme tokens.
 
@@ -1019,7 +1032,7 @@ What each primitive is, and what contract behavior it guarantees:
 | `keyActivates` | Enter/Space activation for clickable marks. | Every mouse gesture stays keyboard-reachable. |
 | `useKeepPredicate` / `dimClass` | Consume the clause-addressable selection as one memoized keep-predicate. | Self-exclusion ("dim under everyone's brush but my own") and dim-not-hide — a filtered-out mark dims, it never disappears. |
 | `selectedValue` | The controlled-prop rule for a chart's own outline. | An explicit `selected` prop wins; otherwise the outline derives from the session fold — never from private chart state. |
-| `<Axis>` | One axis: the line a scale stands on, its tick marks and their labels, for the bottom, left or right of a plot. | It draws every tick it is given and adds none. Given the drawing's edges (`edges`) or a label's room above zero (`labelRoom`), a label is moved inside or squeezed so that all of it is drawn; one wider than the whole drawing still leaves it. Without them it is drawn as written. |
+| `<Axis>` + `placeTicks` | One axis: the line a scale stands on, its tick marks and their labels, for the bottom, left or right of a plot. Ticks arrive already placed. | It draws every tick it is given and adds none. Given the drawing's edges (`labelBounds`), a label is moved inside or squeezed so that all of it is drawn; one wider than the whole drawing still leaves it. Without them it is drawn as written. |
 | `<AxisLabel>` + `useReencodePicker` + `defaultCompat` | The interactive axis label and its two-mode dispatch. | In contract mode the HOST owns the picker (`reencodeRequest`); the built-in picker disables incompatible columns **with the reason**. |
 | `zeroGuideFor` + `zeroGuideNotes` | Zero is a place on the axis: whether a declared zero guide is drawn, and the words for one that cannot be. | The guide is **declared, never automatic** (a picture that changed its own furniture with the data would say nothing about why), it is **named for zero and not the centre**, and an axis with no zero on it is **refused in one sentence** — in the plot and in the accessible name — rather than clamped to an edge or silently dropped. |
 | `outsideNotes` | What the quantity CAN be: the words for a value outside the extent an axis was DECLARED on (`ChannelResolution.bounds`, law 14). | A declared extent **never hides a value** — the mark is still placed at its true position, which past the plot edge is invisible, so the count is the only thing that says it is there. Said per axis, in the picture and in the accessible name, in the same register as `excludedNote`: a value outside means either the data is wrong or the claim is, and the reader is the only one who can tell. Only for an extent the chart was GIVEN; a chart on its own extent has nothing outside it. |
