@@ -172,5 +172,17 @@ describe('labels on a narrow chart, the way the known libraries do it', () => {
     expect(short.length).toBeLessThan(tall.length);
     expect(short).toContain('0');
   });
-});
 
+  it('a short line chart over tens of millions reads in round millions, not its two ends in full', () => {
+    const data = [51.3e6, 55e6, 59.4e6].map((value, i) => ({ date: `2026-04-0${i + 1}`, value }));
+    const { container } = render(<VizLine data={data} width={520} height={100} />);
+    expect(ticksOf(container).filter((t) => t.endsWith('M'))).toEqual(['52M', '56M']);
+    expect(container.querySelector('text.vzf-tick[textLength]')).toBeNull();
+  });
+
+  it('a 121 px scatter with a zero line keeps the zero label beside it', () => {
+    const { container } = render(<VizScatter data={points([[-84.88, 1], [81.47, 2]])} width={121} height={300} domain={{ x: [-84.88, 81.47], zeroGuide: { x: true } }} />);
+    expect(xLabels(container).map((t) => t.textContent)).toEqual(['0', '50']);
+    expect(container.querySelector('line.vzf-zero')).not.toBeNull();
+  });
+});

@@ -614,6 +614,12 @@ const SUFFIXES: readonly (readonly [number, string])[] = [
  * in full (the function body lists the cases).
  */
 export function roundTicks(lo: number, hi: number, target: number): RoundTick[] {
+  // `String` writes a number so that it reads back as itself: two different ends never read alike
+  return roundRun(lo, hi, target) ?? [Math.min(lo, hi), Math.max(lo, hi)].map((value) => ({ value, label: String(value) }));
+}
+
+/** `roundTicks` without its last resort: `undefined` where no honest run of round ticks exists, so a caller that can do better than the two ends knows to. */
+function roundRun(lo: number, hi: number, target: number): RoundTick[] | undefined {
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [];
   const [a, b] = lo <= hi ? [lo, hi] : [hi, lo];
   if (a === b) return [{ value: a, label: String(a) }];
@@ -637,9 +643,8 @@ export function roundTicks(lo: number, hi: number, target: number): RoundTick[] 
   //  - more ticks were asked for than an axis can hold, or no round value lies inside the span;
   //  - the ticks would differ only past the thirteenth digit: a number here holds fifteen or
   //    sixteen, and two are kept back so a tick's own rounding stays far below one step.
-  // `String` writes a number so that it reads back as itself: two different ends never read alike.
   if (parts === undefined || !(step > 0) || !Number.isFinite(step) || !Number.isSafeInteger(first) || !Number.isSafeInteger(first + count) || count < 0 || count > MAX_TICKS || digits > MAX_TICK_DIGITS) {
-    return [a, b].map((value) => ({ value, label: String(value) }));
+    return undefined;
   }
   // a round step is 1, 2 or 5 times a power of ten: its decimals are that power's
   const power = parts.exponent;
@@ -735,8 +740,8 @@ export function labelsFit(ticks: readonly RoundTick[], place: (value: number) =>
 
 /**
  * ROUND TICKS AN AXIS HAS ROOM TO LABEL: `roundTicks` for the most ticks, up
- * to `target`, whose labels do not touch. An axis that has two ticks to show
- * always shows at least two, because one label does not give a scale.
+ * to `target`, whose labels do not touch. An axis that has two round ticks to
+ * show always shows at least two, because one label does not give a scale.
  *
  * In order, the first that holds:
  *
@@ -744,32 +749,49 @@ export function labelsFit(ticks: readonly RoundTick[], place: (value: number) =>
  *      labels fit. This is how the tick count is chosen where it follows the
  *      room (Observable Plot's `tickSpacing`; the D3 habit `ticks(width / 80)`):
  *      the scale picks the step, so the labels stay multiples of 1, 2 or 5.
- *   2. EVERY SECOND (third, …) of the ticks first asked for, counted FROM
- *      ZERO, when no round step leaves two labels that fit. This is Vega's
+ *   2. EVERY SECOND (third, …) of the finest round ticks, counted FROM ZERO,
+ *      when no round step leaves two labels that fit. This is Vega's
  *      `labelOverlap: 'parity'`, anchored so the labels are still multiples of
  *      one step.
- *   3. THE FIRST AND THE LAST of the ticks first asked for, on an axis too
- *      short for any two labels. They may touch. Vega keeps two the same way.
+ *   3. ZERO AND ONE END of those ticks, when zero is among them and the pair
+ *      fits: a zero line keeps its label for as long as any second label fits
+ *      beside it.
+ *   4. THE FIRST AND THE LAST of those ticks. Vega keeps two the same way.
+ *      They may touch, on an axis too short for any two labels.
  *
- * Under 1 and 2 ZERO, a multiple of every step, is never the label that goes:
- * a zero line has its label beside it.
+ * "The finest round ticks" are `roundTicks` for the highest count, up to
+ * `target`, that HAS a run of round ticks. The two ends written in full, which
+ * `roundTicks` gives when there is no such run, are used only when no count
+ * has one: a rounder answer is never passed over for them.
+ *
+ * Under 1 and 2 zero, a multiple of every step, is never the label that goes.
  */
 export function roundTicksThatFit(lo: number, hi: number, target: number, place: (value: number) => number, along: 'width' | 'height', edges?: LabelEdges): readonly RoundTick[] {
   const most = Number.isFinite(target) ? Math.min(MAX_TICKS, Math.max(1, Math.floor(target))) : target > 0 ? MAX_TICKS : 1;
-  const asked = roundTicks(lo, hi, most);
-  if (asked.length < 3 || labelsFit(asked, place, along, edges)) return asked;
-  for (let count = most - 1; count >= 1; count--) {
-    const ticks = roundTicks(lo, hi, count);
+  let finest: readonly RoundTick[] | undefined;
+  for (let count = most; count >= 1; count--) {
+    const ticks = roundRun(lo, hi, count);
+    if (ticks === undefined) continue;
+    finest ??= ticks;
     if (ticks.length >= 2 && labelsFit(ticks, place, along, edges)) return ticks;
   }
+  if (finest === undefined) return roundTicks(lo, hi, most);
+  if (finest.length < 3) return finest;
   // which multiple of the step each tick is: the step is the distance between two neighbours
-  const step = asked[1]!.value - asked[0]!.value;
+  const step = finest[1]!.value - finest[0]!.value;
   const multiple = (tick: RoundTick): number => Math.round(tick.value / step);
-  for (let every = 2; every < asked.length; every++) {
-    const ticks = asked.filter((tick) => multiple(tick) % every === 0);
-    if (ticks.length >= 2 && labelsFit(ticks, place, along, edges)) return ticks;
+  const fits = (ticks: readonly RoundTick[]): boolean => ticks.length >= 2 && labelsFit(ticks, place, along, edges);
+  for (let every = 2; every < finest.length; every++) {
+    const ticks = finest.filter((tick) => multiple(tick) % every === 0);
+    if (fits(ticks)) return ticks;
   }
-  return [asked[0]!, asked[asked.length - 1]!];
+  const [first, last] = [finest[0]!, finest[finest.length - 1]!];
+  const zero = finest.find((tick) => tick.value === 0);
+  if (zero !== undefined && zero !== first && zero !== last) {
+    // a pair with the further end was already tried above, as every k-th from zero: what is left is zero beside a near end
+    for (const pair of [[zero, last], [first, zero]]) if (fits(pair)) return pair;
+  }
+  return [first, last];
 }
 
 /**

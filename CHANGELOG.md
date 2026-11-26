@@ -10,8 +10,9 @@
   left 0 and 1000 only. The tick count follows the room and the scale picks the
   step (Observable Plot's `tickSpacing`; the usual D3 `ticks(count)` call).
   When no round step leaves two labels that fit, every second (third, …) tick
-  is kept, counted from zero. Zero keeps its label either way. An axis shows
-  at least two labels.
+  is kept, counted from zero; failing that, zero and one end; last, the first
+  and the last round tick. An axis shows at least two labels. Zero keeps its
+  label for as long as a second label fits beside it.
 - A logarithmic axis keeps every label that has room, each measured by its own
   width (Vega's `labelOverlap: 'greedy'`). It used to drop every second label
   along the whole axis when only one end was crowded. The last tick can now be
