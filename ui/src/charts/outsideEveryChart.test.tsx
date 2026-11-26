@@ -232,8 +232,12 @@ describe('outsideNotes: the one owner of the sentence', () => {
   it('a mark with width is counted once, whichever end reaches out, and an absent end is not a reach', () => {
     expect(outsideNotes([{ channel: 'x', given: [0, 10], values: [[-1, 11], [2, 3], [Number.NaN, 5], [9, 12]], noun: ['bin', 'bins'], undeclared: true }])).toEqual(['x has 2 bins that reach outside the span this axis was given [0, 10]']);
   });
-  it('a pair given backwards is quoted as given and drawn in order', () => {
+  it('a pair given backwards is quoted as given and drawn in order, with no reason: order is not a count’s or a logarithm’s doing', () => {
     expect(outsideNotes([{ channel: 'x', given: [10, 0], values: [11], undeclared: true }])).toEqual(['x has 1 value outside the span this axis was given [10, 0], drawn as [0, 10]']);
+    expect(outsideNotes([{ channel: 'y', given: [5, 0], values: [9], count: true, noun: ['bar', 'bars'], undeclared: true }])).toEqual(['y has 1 bar outside the span this axis was given [5, 0], drawn as [0, 5]']);
+    expect(outsideNotes([{ channel: 'x', given: [40, 3], values: [[1, 10], [10, 100]], kind: 'log', noun: ['bin', 'bins'], undeclared: true }])).toEqual(['x has 2 bins that reach outside the span this axis was given [40, 3], drawn as [3, 40]']);
+    // …and the reason is back where the axis also moved an end
+    expect(outsideNotes([{ channel: 'y', given: [5, 3], values: [9], count: true, undeclared: true }])).toEqual(['y has 1 value outside the span this axis was given [5, 3], drawn as [0, 5] because a count is read from zero']);
   });
   it('a mark with width on a logarithmic axis is counted against the span as it is drawn', () => {
     expect(outsideNotes([{ channel: 'x', given: [1, 100], values: [[0.5, 2], [10, 100]], kind: 'log', noun: ['bin', 'bins'], undeclared: true }])).toEqual(['x has 1 bin that reaches outside the span this axis was given [1, 100]']);

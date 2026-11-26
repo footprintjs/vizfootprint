@@ -1185,8 +1185,11 @@ export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
     const [one, many] = ask.noun ?? ['value', 'values'];
     if (ask.undeclared === true) {
       // the pair AS GIVEN, then the pair as drawn where they differ: a count from zero, a logarithmic
-      // axis, or a flat or backwards pair the axis had to open or put in order
-      const reason = ask.count === true ? ' because a count is read from zero' : ask.kind === 'log' ? ' on a logarithmic axis' : '';
+      // axis, or a flat or backwards pair the axis had to open or put in order. The REASON is said only
+      // where it is the reason: a pair that was merely put in order is the same span, whatever the axis
+      const [low, high] = [Math.min(...ask.given), Math.max(...ask.given)];
+      const moved = low !== lo || high !== hi;
+      const reason = !moved ? '' : ask.count === true ? ' because a count is read from zero' : ask.kind === 'log' ? ' on a logarithmic axis' : '';
       const opened = ask.given[0] === lo && ask.given[1] === hi ? '' : `, drawn as [${write(lo)}, ${write(hi)}]${reason}`;
       const reach = ask.values.some((v) => typeof v !== 'number') ? (n === 1 ? `${one} that reaches` : `${many} that reach`) : n === 1 ? one : many;
       return [`${ask.channel} has ${n} ${reach} outside the span this axis was given [${write(ask.given[0])}, ${write(ask.given[1])}]${opened}`];
