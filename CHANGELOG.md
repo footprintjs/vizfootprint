@@ -22,8 +22,9 @@
   now refused by `validateDashboardDef` and `buildDashboard`, with the way
   out in the sentence.
 - In the renderer, bounds with a bound that is not a finite number (only a
-  frame folded by hand can hold one) are refused under a count, as before
-  this change.
+  frame folded by hand can hold one) are refused under a count.
+  `[Infinity, 0]` was refused before; `[0, Infinity]` was drawn exactly as
+  if no bounds had been declared, and is now refused too.
 - Each law has one predicate and one sentence, exported from
   `vizfootprint/def`: `COUNT_MARKS`, `boundsFitACount`, `countBoundsRefusal`,
   `histogramCountLogRefusal`, `countOffAxisRefusal`. The renderer asks the

@@ -72,6 +72,9 @@ describe('bounds a count cannot stand on', () => {
     const said = countBoundsRefusal('layer "counts"', 'bar', [2, 20], 'layer "trend"');
     expect(said).toBe('layer "counts" is a bar, read from zero, and the y it shares with layer "trend" declares bounds [2, 20]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.');
     expect(stack(layers, { y: { mode: 'shared', bounds: [2, 20] } })).toEqual([`encodings[0].frame.y.bounds: ${said}`]);
+    // a line beside it that binds NO y shares nothing: the sentence says "its y"
+    const beside = stack([layer('counts', 'bar', { x: 'group', y: 'size' }), layer('trend', 'line', { x: 'group' })], { y: { mode: 'shared', bounds: [2, 20] } });
+    expect(beside).toEqual([`encodings[0].frame.y.bounds: ${countBoundsRefusal('layer "counts"', 'bar', [2, 20])}`]);
     // two counts, each named once
     const two = stack([layer('a', 'bar', { x: 'group', y: 'size' }), layer('b', 'histogram', { x: 'size', y: 'size' })], { y: { mode: 'shared', bounds: [2, 20] } });
     expect(two.filter((line) => line.includes('read from zero'))).toEqual([`encodings[0].frame.y.bounds: ${countBoundsRefusal('layer "a"', 'bar', [2, 20])}`, `encodings[0].frame.y.bounds: ${countBoundsRefusal('layer "b"', 'histogram', [2, 20])}`]);
