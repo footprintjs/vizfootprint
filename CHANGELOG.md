@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Correction: the definition door refuses what the renderer refuses about a count
+
+- The renderer refuses three declarations about a bar or a histogram,
+  because each would draw something untrue. The definition door accepted
+  all three, so a definition it passed could be refused when drawn. The
+  door now refuses them too, in the renderer's own sentences:
+  - bounds on the `y` a bar or a histogram binds that do not start at zero,
+    or end below one (a count is drawn from zero whatever is declared);
+  - `transform: 'log'` on the `y` a histogram binds (its `y` is its count;
+    its bin axis, `x`, may still be logarithmic);
+  - a bar or histogram layer that binds no `y` beside a layer that binds
+    one (the count would be read against an axis that is not its own).
+- A layer is judged by what its `initial` binds (a layer cannot be
+  re-encoded). A plain view is judged by its `channels`, because one
+  `reencode` would bind them: a plain bar that declares `y` with bounds
+  [2, 20] is refused although it binds no `y` yet.
+- **A break:** a definition that declared one of these built before and is
+  now refused by `validateDashboardDef` and `buildDashboard`, with the way
+  out in the sentence.
+- In the renderer, bounds with a bound that is not a finite number (only a
+  frame folded by hand can hold one) are refused under a count.
+  `[Infinity, 0]` was refused before; `[0, Infinity]` was drawn exactly as
+  if no bounds had been declared, and is now refused too.
+- Each law has one predicate and one sentence, exported from
+  `vizfootprint/def`: `COUNT_MARKS`, `boundsFitACount`, `countBoundsRefusal`,
+  `histogramCountLogRefusal`, `countOffAxisRefusal`. The renderer asks the
+  same ones.
+- Not a door matter: a shared `y` whose rows reach below zero under a bar
+  and a line depends on the data, and is refused when drawn.
+
 ### Correction: a count that binds no y is refused beside a layer with a y axis
 
 - In a stack, a bar or a histogram that binds no `y` is scaled by its own
@@ -13,10 +43,8 @@
   count a frame of its own. With its `y` bound the layers share one scale
   or take two that the frame says in words, or the stack is told its next
   step in words (a bar on a scale of its own must be declared first; a
-  shared `y` below zero has its own sentence).
-- Known gap: the definition door accepts a count layer with no `y` beside
-  a layer that binds one, so a definition it passed can be refused when
-  drawn.
+  shared `y` below zero, or with bounds a count cannot stand on, has its
+  own sentence).
 - Judged only where a `y` axis is drawn. A stack in which no layer binds
   `y`, or whose merged guide was folded with no `y`, draws none and is
   drawn as before.
@@ -87,9 +115,6 @@
   - for a view alone: a scatter whose x was folded as categories (every
     point was drawn at one x), a zero line its mark does not draw, and a
     histogram whose x was folded as categories.
-- Known gap: the definition door does not yet refuse count bounds that do
-  not start at zero, or a logarithmic `y` on a histogram, so a definition
-  it passed can be refused when drawn.
 - In a stack that was already refused, the sentence shown first can now be
   a per-layer one (a zero line, a drag) where it was a cross-layer one (two
   bands, a box plot on a shared band, a line split into series). Both are

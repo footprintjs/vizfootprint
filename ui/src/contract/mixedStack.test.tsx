@@ -21,6 +21,8 @@
  * | a bar and a line, y logarithmic   | any                       | drawn linear, in silence             | refused by the logarithm's rule |
  */
 import { describe, expect, it, vi } from 'vitest';
+import { COUNT_MARKS } from 'vizfootprint/def';
+import { COUNT_KINDS } from '../charts/VizFrame.js';
 import { layeredRenderer, RENDERER_PROTOCOL_VERSION, type RenderLayer, type RendererCallbacks, type ResolvedChannel } from './index.js';
 import { emptySelection } from './selection.js';
 
@@ -210,6 +212,12 @@ describe('what this rule leaves alone', () => {
   });
 });
 
+describe('the count laws have one owner, which the definition door asks too', () => {
+  it('the renderer’s count marks are the definition’s', () => {
+    expect([...COUNT_KINDS].sort()).toEqual([...COUNT_MARKS].sort());
+  });
+});
+
 describe('a count that binds no y, beside a layer with a y axis', () => {
   const said = (who: string, kind: string, other: string): string => `layer "${who}" is a ${kind} that binds no y, and layer "${other}" has a y axis in the same plot: the ${kind}'s lengths would be read against an axis that is not theirs. Bind the ${kind}'s y to its count field, or give it a frame of its own.`;
   const INDEPENDENT = { mode: 'independent', guide: 'per-layer', scale: 'quantitative' } as unknown as ResolvedChannel;
@@ -226,8 +234,7 @@ describe('a count that binds no y, beside a layer with a y axis', () => {
   it('comes after the laws about who draws which axis: a stack they refuse draws no y axis to speak of', () => {
     const xLeftToLayers = { category: shared('categorical', ['A', 'B'], { guide: 'per-layer' }), x: shared('categorical', ['A', 'B'], { guide: 'per-layer' }) };
     const first = refusalOf(drawn(['bar', 'line'], [BARS_NO_Y, LINE], xLeftToLayers));
-    expect(first).not.toBe('');
-    expect(first).not.toContain('binds no y');
+    expect(first).toMatch(/^x is per-layer on layers/);
   });
 
   it('is not judged where no y axis is drawn: a merged guide folded with no y', () => {

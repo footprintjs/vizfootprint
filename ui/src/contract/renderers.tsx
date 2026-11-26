@@ -70,7 +70,7 @@ import {
   type RenderSelection,
   type RenderState,
 } from './types.js';
-import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, logOnExtentRefusal, type ResolvedChannel } from 'vizfootprint/def';
+import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, logOnExtentRefusal, boundsFitACount, countBoundsRefusal as countBoundsSentence, histogramCountLogRefusal, countOffAxisRefusal as countOffAxisSentence, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
 import { bandOrder, countSpan, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
 import { VizFrame, COUNT_KINDS, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
@@ -1454,18 +1454,17 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
  * shared y that reaches below zero or declares bounds a count cannot stand on
  * gets {@link countMixRefusal}'s sentence.
  *
- * KNOWN GAP, as {@link countBoundsRefusal}'s: the definition door accepts a
- * count layer with no `y` beside a layer that binds one, so a definition it
- * passed can be refused here. A layer's bindings are fixed by its `initial`,
- * so the door can judge it; one predicate and one sentence both doors ask
- * will close it.
+ * THE DEFINITION DOOR REFUSES THE SAME STACK, in the same sentence
+ * (`countOffAxisRefusal` in `vizfootprint/def`, its one owner; the door judges
+ * what each layer binds at the start). This is the second fence, for a frame
+ * and layers a host builds by hand.
  */
 function countOffAxisRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): string | null {
   const count = framed.find((f) => COUNT_KINDS.has(f.kind) && f.layer.encodings['y'] === undefined);
   const reader = framed.find((f) => f.layer.encodings['y'] !== undefined);
   if (count === undefined || reader === undefined) return null;
   if (frame?.['y'] === undefined && frameGuide(frame) === 'merged') return null;
-  return `layer "${count.layer.layerId}" is a ${count.kind} that binds no y, and layer "${reader.layer.layerId}" has a y axis in the same plot: the ${count.kind}'s lengths would be read against an axis that is not theirs. Bind the ${count.kind}'s y to its count field, or give it a frame of its own.`;
+  return countOffAxisSentence(`layer "${count.layer.layerId}"`, count.kind, `layer "${reader.layer.layerId}"`);
 }
 
 /**
@@ -1504,17 +1503,15 @@ function layerRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
  *   - a BAR and a BOX: law 11c. The definition door refuses the declaration
  *     (`zeroAnchorsChannel`, its predicate); this is the second fence, for a
  *     frame folded by hand, in the door's own sentence (`logOnExtentRefusal`).
- *   - a HISTOGRAM: the door reads a histogram's bound channel as its bin axis,
- *     a position, and accepts a logarithm on it. A histogram that binds y is
- *     binding its COUNT, which this renderer draws as a length. So the renderer
- *     says its own sentence, about what this version draws. KNOWN GAP: the door
- *     accepts that declaration and this door refuses it; closing it needs one
- *     predicate both ask.
+ *   - a HISTOGRAM: its bin axis (x) is a position and may be logarithmic; a
+ *     histogram that binds y is binding its COUNT, which every chart draws as
+ *     a length. One sentence, `histogramCountLogRefusal`, said by the
+ *     definition door and here.
  */
 function logExtentRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject): string | null {
   const f = framed.find((one) => LENGTH_KINDS.has(one.kind) && one.layer.encodings['y'] !== undefined && frame?.['y']?.transform === 'log');
   if (f === undefined) return null;
-  if (f.kind === 'histogram') return `${named(f)} is a histogram, and its y is its count: this version draws a histogram's count as a length on a linear axis only. Its bin axis, x, may be logarithmic; drop "transform" on y.`;
+  if (f.kind === 'histogram') return histogramCountLogRefusal(named(f));
   return logOnExtentRefusal(named(f), f.kind, 'y');
 }
 
@@ -1529,18 +1526,15 @@ const LENGTH_KINDS: ReadonlySet<FrameChartKind> = new Set([...COUNT_KINDS, 'boxp
  * declared or refused. (Beside a line the same bounds are refused by
  * {@link countMixRefusal}, in its own sentence; this is the count by itself.)
  *
- * KNOWN GAP, shared with `countMixRefusal`: the definition door accepts such
- * bounds, so a definition it passed can be refused here. Refusing is better
- * than dropping the declaration; closing the gap needs one predicate and one
- * sentence both doors ask.
+ * One predicate and one sentence, both from `vizfootprint/def`
+ * (`boundsFitACount`, `countBoundsRefusal`): the definition door asks them
+ * too, so a definition it passes is not refused here.
  */
 function countBoundsRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject): string | null {
   const bounds = sharedOn(frame, 'y')?.bounds;
   const f = framed.find((one) => COUNT_KINDS.has(one.kind) && one.layer.encodings['y'] !== undefined);
   if (bounds === undefined || f === undefined || sharedYReaders(framed, frame).position !== undefined) return null;
-  const [lo, hi] = countSpan(bounds, bounds);
-  if (lo === Math.min(...bounds) && hi === Math.max(...bounds)) return null;
-  return `${named(f)} is a ${f.kind}, read from zero, and its y declares bounds [${String(bounds[0])}, ${String(bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.`;
+  return boundsFitACount(bounds) ? null : countBoundsSentence(named(f), f.kind, bounds);
 }
 
 /**
@@ -1631,11 +1625,10 @@ function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<
   const shared = sharedOn(frame, 'y')!; // both read it, so it is there
   const [who, apart] = [`layer "${count.layer.layerId}" is a ${count.kind}, read from zero, and the y it shares with layer "${position.layer.layerId}"`, wayOut(framed, count)];
   if (shared.bounds !== undefined) {
-    // in order: a pair given backwards is drawn in order by every chart, so it is the same declaration
-    const [low, high] = [Math.min(...shared.bounds), Math.max(...shared.bounds)];
-    const [lo, hi] = countSpan(shared.bounds, shared.bounds);
-    if (lo === low && hi === high) return null;
-    return `${who} declares bounds [${String(shared.bounds[0])}, ${String(shared.bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none. ${apart}.`;
+    // judged in order (`boundsFitACount`): a pair given backwards is drawn in order by every chart, so it is the same declaration
+    if (boundsFitACount(shared.bounds)) return null;
+    // the definition door's sentence (one owner), then the way out only this door can judge: two scales
+    return `${countBoundsSentence(`layer "${count.layer.layerId}"`, count.kind, shared.bounds, `layer "${position.layer.layerId}"`)} ${apart}.`;
   }
   const span = spanOf(shared)!; // a quantitative channel has a span
   const low = Math.min(span[0], span[1]);

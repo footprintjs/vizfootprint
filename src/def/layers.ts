@@ -23,7 +23,7 @@
  */
 import type { ColumnFacet } from '../data/types.js';
 import type { ColumnDecl, EncodingSurface } from '../encoding/index.js';
-import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsIntervalBrush, drawsZeroGuide, firstScaleTakenRefusal, frameScaleOf, intervalGestureRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal, logOnExtentRefusal } from '../encoding/index.js';
+import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsIntervalBrush, drawsZeroGuide, firstScaleTakenRefusal, frameScaleOf, intervalGestureRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal, logOnExtentRefusal, COUNT_MARKS, boundsFitACount, countBoundsRefusal, histogramCountLogRefusal, countOffAxisRefusal } from '../encoding/index.js';
 import { ENCODING_KIND, type LinkView } from '../links/index.js';
 import type { MintedTable } from './builtinAnalyses.js';
 import { LAYER_MARKER, holdsLayerMarker, layerAddress } from './layerAddress.js';
@@ -75,6 +75,35 @@ export function validateLayers(raw: unknown, where: string, viewId: string, data
     judgeTable(at, layer.table, data, minted, problems);
     judgeSurface(at, layer, problems);
   });
+  judgeCountsOnTheAxis(raw, where, problems);
+}
+
+/**
+ * A COUNT THAT BINDS NO y MAY NOT STAND BESIDE A LAYER THAT DOES. A bar or a
+ * histogram with no `y` is scaled by its own ceiling and draws no axis; a
+ * layer that binds `y` has a y axis drawn (an undeclared channel is shared and
+ * merged by default, so the frame draws it). The count's lengths would be read
+ * against an axis that is not theirs. The renderer refuses that stack, so the
+ * door does, in the same sentence (`countOffAxisRefusal`, one owner).
+ *
+ * Judged on what each layer binds at the start (`initial`): a layer cannot be
+ * re-encoded, so that is the stack the definition draws for good.
+ *
+ * STRICTER THAN THE RENDERER, on purpose, in one case: the renderer judges only
+ * where a y axis is in fact drawn, and a host that folds a frame by hand can
+ * leave y out. The adapter's own door always folds a channel a layer binds, so
+ * for a definition drawn the library's way the two agree.
+ */
+function judgeCountsOnTheAxis(raw: readonly unknown[], where: string, problems: string[]): void {
+  // only the layers that are well formed: a malformed one was refused on its own line and is judged no further
+  const layers = raw.map((layer, j) => ({ j, layer: wellFormedLayer(layer) })).filter((entry): entry is { j: number; layer: LayerDecl } => entry.layer !== undefined);
+  const bindsY = (layer: LayerDecl): boolean => layer.initial?.['y'] !== undefined;
+  const reader = layers.find((entry) => bindsY(entry.layer));
+  if (reader === undefined) return;
+  for (const { j, layer } of layers) {
+    if (bindsY(layer) || !COUNT_MARKS.includes(layer.chartKind)) continue;
+    problems.push(`${where}.layers[${j}]: ${countOffAxisRefusal(`layer "${layer.layerId}"`, layer.chartKind, `layer "${reader.layer.layerId}"`)}`);
+  }
 }
 
 /** Law 1: a layerId is a non-empty string, wears no marker, and is declared once within its view. */
@@ -330,10 +359,23 @@ interface FrameBinder {
   readonly initial?: Readonly<Record<string, string>>;
   /** The table whose DECLARED columns judge its bindings — the layer's own, or the def's default table. */
   readonly table: string | undefined;
+  /**
+   * CAN ITS BINDINGS CHANGE AFTER THE BUILD? A layer's cannot: the session
+   * refuses a re-encode of a layer, so what it binds is its `initial`. A
+   * plain view's can: a `reencode` binds any channel it declares. A law about
+   * what a mark binds is therefore judged by `initial` on a layer and by
+   * `channels` on a view ({@link mayBind}).
+   */
+  readonly rebindable: boolean;
+}
+
+/** May this binder come to bind the channel, at the build or by an act after it? */
+function mayBind(binder: FrameBinder, channel: string): boolean {
+  return binder.rebindable ? binder.channels.includes(channel) : binder.initial?.[channel] !== undefined;
 }
 
 function binderOfLayer(layer: LayerDecl): FrameBinder {
-  return { subject: `layer "${layer.layerId}"`, name: layer.layerId, chartKind: layer.chartKind, channels: layer.channels, ...(layer.initial !== undefined ? { initial: layer.initial } : {}), table: layer.table };
+  return { subject: `layer "${layer.layerId}"`, name: layer.layerId, chartKind: layer.chartKind, channels: layer.channels, ...(layer.initial !== undefined ? { initial: layer.initial } : {}), table: layer.table, rebindable: false };
 }
 
 function binderOfView(viewId: string, view: FrameView): FrameBinder {
@@ -344,6 +386,7 @@ function binderOfView(viewId: string, view: FrameView): FrameBinder {
     channels: Array.isArray(view.channels) ? view.channels.filter(nonEmpty) : [],
     ...(isObject(view.initial) ? { initial: view.initial as Record<string, string> } : {}),
     table: view.table,
+    rebindable: true,
   };
 }
 
@@ -466,6 +509,16 @@ function judgeBounds(at: string, channel: string, bounds: readonly [number, numb
     if (field === undefined) continue;
     const type = declaredFacet(data, binder.table, field, minted).type;
     if (type !== 'unknown' && type !== 'number') problems.push(`${at}.bounds needs a number — ${binder.subject} binds ${channel} to "${field}", a ${type}`);
+  }
+  // c. A COUNT IS DRAWN FROM ZERO. Bounds that do not start at zero (or end below one) on the y a bar or a
+  //    histogram binds would be drawn from zero anyway, the declared low end dropped: refused in the
+  //    renderer's own sentence (`countBoundsRefusal`, one owner), so the two doors agree. Judged by what
+  //    the mark MAY bind (`mayBind`): a plain view can be re-encoded onto y after the build. Beside a line
+  //    or a point on the same y the sentence says whose y it is, as the renderer's does.
+  if (channel !== 'y' || boundsFitACount(bounds)) return;
+  const position = binders.find((b) => !COUNT_MARKS.includes(b.chartKind) && mayBind(b, 'y'));
+  for (const binder of binders.filter((b) => COUNT_MARKS.includes(b.chartKind) && mayBind(b, 'y'))) {
+    problems.push(`${at}.bounds: ${countBoundsRefusal(binder.subject, binder.chartKind, bounds, position?.subject)}`);
   }
 }
 
@@ -598,6 +651,11 @@ function judgeLogarithm(at: string, channel: string, resolution: Record<string, 
     if (zeroAnchorsChannel(binder.chartKind, channel)) {
       problems.push(`${at}: ${logOnExtentRefusal(binder.subject, binder.chartKind, channel)}`);
     }
+    // d. A HISTOGRAM'S COUNT. Its bin axis (x) is a position and may be logarithmic (c above leaves it
+    //    open); its y, where it binds one, is its count, which every chart draws as a linear length. The
+    //    renderer refuses it, so this door does too, in the same sentence (`histogramCountLogRefusal`)
+    //    Judged by what the mark MAY bind (`mayBind`): a plain view can be re-encoded onto y after the build.
+    if (binder.chartKind === 'histogram' && channel === 'y' && mayBind(binder, 'y')) problems.push(`${at}: ${histogramCountLogRefusal(binder.subject)}`);
     const field = binder.initial?.[channel];
     if (field === undefined) continue;
     const type = declaredFacet(data, binder.table, field, minted).type;

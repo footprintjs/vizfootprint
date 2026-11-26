@@ -259,6 +259,66 @@ export function drawsZeroGuide(chartKind: string, channel: string): boolean {
   return (ZERO_GUIDE_CHANNELS.get(chartKind) ?? []).includes(channel);
 }
 
+// ── a count: what the definition door and the renderer both refuse, said once ──
+
+/**
+ * THE MARKS WHOSE y IS A COUNT, drawn as a length from zero: a bar, and a
+ * histogram's bin. One owner for the three laws below, which the definition
+ * door and the renderer both ask, so a definition the door passes is not one
+ * the renderer refuses.
+ */
+export const COUNT_MARKS: readonly string[] = Object.freeze(['bar', 'histogram']);
+
+/**
+ * Can a count be drawn on these bounds as declared? Only from zero, to one or
+ * more: the span a count is always drawn on. A bound that is not a finite
+ * number is no bound a chart can draw on, so it never fits (the definition
+ * door refuses such a pair by shape; a frame folded by hand can still hold one).
+ */
+export function boundsFitACount(bounds: readonly [number, number]): boolean {
+  return bounds.every((bound) => Number.isFinite(bound)) && Math.min(...bounds) === 0 && Math.max(...bounds) >= 1;
+}
+
+/**
+ * THE WORDS FOR BOUNDS A COUNT CANNOT STAND ON. A chart draws a count from
+ * zero whatever it is handed, so a declared low end that is not zero (or a
+ * ceiling below one) would be dropped with no word. Declared, it is drawn as
+ * declared or refused.
+ *
+ * `sharedWith` names a line or a point that binds the same y: the sentence
+ * then says whose y it is. (The renderer adds, after it, the way out it alone
+ * can judge: two scales, where the frame has room for them.)
+ */
+export function countBoundsRefusal(subject: string, chartKind: string, bounds: readonly [number, number], sharedWith?: string): string {
+  const whose = sharedWith === undefined ? 'its y' : `the y it shares with ${sharedWith}`;
+  return `${subject} is a ${chartKind}, read from zero, and ${whose} declares bounds [${String(bounds[0])}, ${String(bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.`;
+}
+
+/**
+ * THE WORDS FOR A LOGARITHM ON A HISTOGRAM'S COUNT. A histogram's bin axis
+ * (x) is a position and may be logarithmic; its y is its count, which every
+ * chart here draws as a length on a linear axis. (A bar and a box are law
+ * 11c's, {@link logOnExtentRefusal}.)
+ *
+ * NOT YET ONE READING: {@link zeroAnchorsChannel} still treats every channel a
+ * histogram binds as its bin axis, a position. That is right for x and not
+ * for y, so a histogram's `zero: false` on y is still accepted and has
+ * nothing to change. Settling it there is a task of its own.
+ */
+export function histogramCountLogRefusal(subject: string): string {
+  return `${subject} is a histogram, and its y is its count: this version draws a histogram's count as a length on a linear axis only. Its bin axis, x, may be logarithmic; drop "transform" on y.`;
+}
+
+/**
+ * THE WORDS FOR A COUNT THAT BINDS NO y BESIDE A LAYER THAT DOES. The count is
+ * scaled by its own ceiling and draws no axis; the other layer has a y axis
+ * drawn; so the count's lengths would be read against an axis that is not
+ * theirs.
+ */
+export function countOffAxisRefusal(subject: string, chartKind: string, other: string): string {
+  return `${subject} is a ${chartKind} that binds no y, and ${other} has a y axis in the same plot: the ${chartKind}'s lengths would be read against an axis that is not theirs. Bind the ${chartKind}'s y to its count field, or give it a frame of its own.`;
+}
+
 /**
  * THE WORDS FOR A LOGARITHM ON A MAGNITUDE (law 11c): one owner, said by the
  * definition door and by the renderer's second fence, so a frame folded by

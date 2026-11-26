@@ -159,6 +159,12 @@ export {
   drawsZeroGuide,
   zeroGuideKindRefusal,
   logOnExtentRefusal,
+  // a count: the three laws the definition door and the renderer both ask, each with one sentence
+  COUNT_MARKS,
+  boundsFitACount,
+  countBoundsRefusal,
+  histogramCountLogRefusal,
+  countOffAxisRefusal,
   noZeroOnALogAxis,
   zeroOnAxis,
   // law 13's own two: does this mark draw an interval brush on an x of this scale kind, and the words for one that does not

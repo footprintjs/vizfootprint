@@ -529,10 +529,17 @@ describe('LAW 11 — the logarithmic axis: the frame owns whether an axis is lin
     expect(plain({ y: { transform: 'log' } }, { chartKind: 'bar' })).toEqual([
       'encodings[0].frame.y: view "net" is a bar — its y extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic',
     ]);
-    // A HISTOGRAM'S BOUND CHANNEL IS ITS BIN AXIS — a position, so log-spaced bins are legitimate. This is
-    // `zeroAnchorsChannel` answering, the same predicate the zero law and the fold read (one owner, no drift).
+    // A HISTOGRAM'S BIN AXIS IS A POSITION, so log-spaced bins are legitimate: that axis is x. Its y, where it
+    // binds one, is its COUNT, which every chart draws as a linear length, so a logarithm there is refused in
+    // the renderer's own sentence (`histogramCountLogRefusal`; `countLaws.def.test.ts` holds the cases). A LAYER
+    // that binds no y (no `initial`) has no count on that axis and is not judged; a plain VIEW that declares the
+    // channel can be re-encoded onto it after the build, so it is.
+    expect(framed({ x: { mode: 'shared', transform: 'log' } }, [{ ...barLayer, chartKind: 'histogram' }])).toEqual([]);
     expect(framed({ y: { mode: 'shared', transform: 'log' } }, [{ ...barLayer, chartKind: 'histogram' }])).toEqual([]);
-    expect(plain({ y: { transform: 'log' } }, { chartKind: 'histogram' })).toEqual([]);
+    expect(plain({ x: { transform: 'log' } }, { chartKind: 'histogram' })).toEqual([]);
+    expect(plain({ y: { transform: 'log' } }, { chartKind: 'histogram' })).toEqual([
+      'encodings[0].frame.y: view "net" is a histogram, and its y is its count: this version draws a histogram\'s count as a length on a linear axis only. Its bin axis, x, may be logarithmic; drop "transform" on y.',
+    ]);
     // …and a point layer's y is a position wherever it sits
     expect(framed({ y: { mode: 'shared', transform: 'log' } }, [nodesLayer, edgesLayer])).toEqual([]);
     // a NON-magnitude channel of a bar is a colour ramp, not a length
