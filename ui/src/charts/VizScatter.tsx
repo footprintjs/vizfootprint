@@ -27,7 +27,7 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { roundTicksThatFit, ticksThatFit, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { roundTicksThatFit, ticksThatFit, pointerValue, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { Axis, placeTicks } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
@@ -205,18 +205,14 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
 
   // drag→interval on x — the brush primitive's completion discipline (a sub-4px
   // release emits the CLEARED interval); snap = this chart's own scale invert
-  // THE VALUE UNDER THE POINTER, AS IT IS: the scale's own inverse, never snapped to a mark and never
-  // rounded (the line chart's rule, `numericSpan`: a snap or a round claims a value the reader did not
-  // drag over, or drops one they did). A pointer HELD AT AN EDGE of the plot is at the axis's own end,
-  // and is recorded as that end exactly: the inverse of the edge pixel can differ from it in the last
-  // bit, which is enough to leave the smallest or largest value outside a drag across everything.
-  const valueAt = (px: number): number => (px <= pad.l ? x.domain[0] : px >= width - pad.r ? x.domain[1] : x.invert(px));
+  // a drag records THE VALUE UNDER THE POINTER, as it is, and the axis's own end where the pointer was
+  // held at an edge of the plot (`pointerValue`, the one owner of that rule)
   const { svgRef, brush, handlers } = useHorizontalBrush({
     plotLeft: pad.l,
     plotRight: width - pad.r,
     width,
     field: xField,
-    snap: (loPx, hiPx) => [valueAt(loPx), valueAt(hiPx)],
+    snap: (loPx, hiPx) => [pointerValue(x, loPx), pointerValue(x, hiPx)],
     onEmit,
   });
 

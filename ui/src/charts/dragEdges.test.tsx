@@ -18,10 +18,12 @@
  * | any drag                                               | a covered point could fall just outside  | every covered point is inside, no other  |
  * | a logarithmic axis narrower than one part in 1e10      | highest point left out                   | inside                                   |
  * | a release under 4 px                                   | the cleared interval                     | the same                                 |
+ * | a line over numbers, across the whole plot             | the highest point missed in its last bit | the axis's two ends, exactly             |
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { VizScatter } from './VizScatter.js';
+import { VizLine } from './VizLine.js';
 import { linearScale, logScale } from '../primitives/scales.js';
 
 afterEach(cleanup);
@@ -172,3 +174,40 @@ describe('what a drag covers is what it records', () => {
     expect(outside).toBeGreaterThan(400);
   });
 });
+
+describe('a line over numbers keeps the same rule at its plot’s edges', () => {
+  it('a drag across the whole plot records the axis’s two ends exactly: 150 linear and 150 logarithmic charts on a declared domain', () => {
+    const next = random(33);
+    for (let run = 0; run < 300; run++) {
+      const log = run % 2 === 0;
+      const lo = log ? 10 ** (next() * 10 - 4) : (next() - 0.5) * 10 ** (next() * 6);
+      const hi = log ? lo * 10 ** (0.5 + next() * 8) : lo + 10 ** (next() * 6);
+      const mid = log ? Math.sqrt(lo * hi) : (lo + hi) / 2;
+      const onEmit = vi.fn();
+      const { container } = render(
+        <VizLine data={[lo, mid, hi].map((at, i) => ({ at, value: i + 1 }))} domain={{ x: [lo, hi], ...(log ? LOG : {}) }} width={520} dateField="mass" onEmit={onEmit} />,
+      );
+      const svg = container.querySelector('svg.vzf-line')!;
+      fireEvent.pointerDown(svg, { clientX: -40, pointerId: 1 });
+      fireEvent.pointerMove(svg, { clientX: 560, pointerId: 1 });
+      fireEvent.pointerUp(svg, { clientX: 560, pointerId: 1 });
+      const [a, b] = onEmit.mock.calls.at(-1)![0].rawValue as [number, number];
+      const what = `${log ? 'log' : 'linear'} ${String(lo)} … ${String(hi)} → [${String(a)}, ${String(b)}]`;
+      expect(a, what).toBe(lo);
+      expect(b, what).toBe(hi);
+      cleanup();
+    }
+  });
+
+  it('inside the plot it still records the value under the pointer, as it is', () => {
+    const onEmit = vi.fn();
+    const data = [100, 110, 120, 130, 140].map((at) => ({ at, value: at / 10 }));
+    const { container } = render(<VizLine data={data} width={520} dateField="resnum" onEmit={onEmit} />);
+    const svg = container.querySelector('svg.vzf-line')!;
+    fireEvent.pointerDown(svg, { clientX: 97, pointerId: 1 });
+    fireEvent.pointerMove(svg, { clientX: 232, pointerId: 1 });
+    fireEvent.pointerUp(svg, { clientX: 232, pointerId: 1 });
+    expect(onEmit.mock.calls.at(-1)![0].rawValue).toEqual([104, 116]);
+  });
+});
+
