@@ -671,9 +671,13 @@ dropped and nothing said so, while a stack of layers honoured them.
 **The rule.** Where the frame holds an entry for a channel the view binds to
 x or y, the view is described as the one layer it is and asked the stack's own
 questions: the same function builds its scales (`layerDomain`), and the same
-two refusals apply to it (a zero line its mark does not draw; a histogram
-whose x was folded as categories), naming `view "id"`. One rule, so a
-declaration means the same thing alone and in a stack.
+list of refusals judges it (`layerRefusal`: everything a layer cannot be by
+itself), naming `view "id"`. That list is: a point on a band; a logarithmic y
+under a bar, a histogram or a box, whose y is a length; bounds on a count's y
+that do not start at zero; a zero line the mark does not draw; a histogram
+whose x was folded as categories. A stack runs the same list over each of its
+layers, so a declaration means the same thing alone and in a stack, and a new
+per-layer refusal reaches both.
 
 ```ts
 // a scatter whose definition declared a logarithmic x and bounds on y
@@ -692,6 +696,17 @@ the span the fold gives it, as a layer's is, and that span has no empty margin
 at its ends. A chart on its own extent leaves one. This is per axis: a view
 that declared only its y keeps its own x, margin and all. A view with no
 entry for its axes gets `{}` and is byte for byte the chart it was.
+
+**A category list is the fold's too.** Where the frame holds a categorical
+entry for the view's x (a bar's `category`, a line on a band), the slots are
+laid out in the fold's order, and a category with no row gets an empty slot,
+as in a stack. On its own extent a chart orders its slots by its rows.
+
+**Known limits.** A scatter and a line's value axis still say "declared
+bounds" for a span that was folded, not declared (a chart is not told which).
+A line on a date span wider than its rows draws the span but labels only its
+own dates. A histogram's fold is over the bound column, so bins whose edges
+lie past it stand outside the plot, and are said in words.
 
 **Not judged here.** The stack's other refusals compare one layer with another
 or place a layer in a shared box; a view alone has neither. The host decides

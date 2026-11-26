@@ -70,7 +70,7 @@ import {
   type RenderSelection,
   type RenderState,
 } from './types.js';
-import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, type ResolvedChannel } from 'vizfootprint/def';
+import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, logOnExtentRefusal, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
 import { bandOrder, countSpan, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
 import { VizFrame, COUNT_KINDS, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
@@ -156,9 +156,9 @@ interface MarkDraw {
   readonly scaleHue?: string;
   /**
    * PROTOCOL 1.5's fold, PASSED THROUGH RAW — `RenderState.frame`, unread by
-   * every mark but `lineMark`. A plain view binds no `layers`, so nothing here
-   * builds it a `FramedLayer` to ask `xBinding`/`bandX` the layered path's
-   * question ("is this layer's x a band?") — but a host can still fold ONE
+   * every mark but `lineMark`, which asks it whether its x is a band (the
+   * stack asks `xBinding`/`bandX`; a plain view's scales now come the stack's
+   * way too, `plainView`, and this stays the line's own question). A host can fold ONE
    * channel's scale for a plain view the same door folds it for a stack
    * (`frameFor`, `ui/src/adapter/frame.ts` — "first customers: … the gallery
    * page"), and when it does, this is where that answer rides to the mark
@@ -197,9 +197,10 @@ function viewDraw(state: RenderState, handshake: HostHandshake, domain: ChartDom
  *
  * ONE RULE, not a second copy of the stack's: the view is described as the one
  * layer it is and asked the stack's own questions ({@link layerDomain} for the
- * scales, {@link zeroGuideRefusal} and {@link intervalBrushRefusal} for what
- * its mark cannot honour). So a declaration means the same thing on a plain
- * view and on a stack, and a new axis setting reaches both or neither.
+ * scales, {@link layerRefusal} for what its mark cannot honour: every refusal
+ * that judges a layer by itself, in one list both doors run). So a declaration
+ * means the same thing on a plain view and on a stack, and a new axis setting
+ * or a new per-layer refusal reaches both or neither.
  *
  * WHAT IT COSTS, on purpose: an axis the definition declared something about
  * is drawn on the span the fold gives it, as a layer's is, and that span has
@@ -211,8 +212,8 @@ function viewDraw(state: RenderState, handshake: HostHandshake, domain: ChartDom
  * chart it always was; one that declared only its y keeps its own x.
  *
  * The stack's other refusals judge one layer against another (a band under a
- * run, two scales, a count beside a line) or a layer's place in a shared box
- * (a line split into series), and a view alone has neither.
+ * run, two bands, two scales, a count beside a line) or a layer's place in a
+ * shared box (a line split into series), and a view alone has neither.
  */
 function plainView(state: RenderState, handshake: HostHandshake, kind: FrameChartKind, mark: (draw: MarkDraw) => JSX.Element): JSX.Element {
   const declared = AXES.some((axis) => state.encodings[AXIS_CHANNELS[kind][axis]] !== undefined && state.frame?.[AXIS_CHANNELS[kind][axis]] !== undefined);
@@ -220,7 +221,7 @@ function plainView(state: RenderState, handshake: HostHandshake, kind: FrameChar
   // the view as the one layer it is. Its table is not known at this door and no question asked here reads it.
   const self: FramedLayer = { layer: { layerId: handshake.viewId, table: '', rows: state.rows, encodings: state.encodings }, kind, spec: { kind } };
   const named = (): string => `view "${handshake.viewId}"`;
-  const refused = zeroGuideRefusal([self], state.frame, named) ?? intervalBrushRefusal([self], state.frame, named);
+  const refused = layerRefusal([self], state.frame, named, '');
   if (refused !== null) return frameRefusal(refused);
   // nothing else draws this view's axes, so it is asked for all of its own furniture
   return mark(viewDraw(state, handshake, layerDomain(self, [self], state.frame, fullBandOrder([self], state.frame), { x: false, y: false })));
@@ -352,7 +353,8 @@ export function lineRenderer(options: LineRendererOptions = {}): Renderer {
  *
  * THE BUG THE SECOND ARM FIXED: `viewDraw` builds no band order of its own
  * to merge (there is no stack), so a layerless view's `domain.categories` was
- * ALWAYS undefined — a line over a category the door had just accepted built
+ * ALWAYS undefined (since `plainView` it is the fold's own list where the frame
+ * holds one for x) — a line over a category the door had just accepted built
  * DATED points regardless, `Date.parse` could not place "flu" or "TX", and
  * every point was silently skipped. The door and the renderer agreeing is
  * exactly what this packet's law requires — pinned in `renderers.test.tsx`,
@@ -1401,13 +1403,10 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
     const run = runs[0]!;
     return `layer "${run.layer.layerId}" draws its x as a run — ${runXWords(run, frame)} — over layer "${bands[0]!.layer.layerId}"'s bands; a ${run.kind} over bands must bind a category to x, or take a frame of its own.`;
   }
-  // A POINT ON A BAND is classified as a band (that is the column's fact), and then refused: `VizScatter`
-  // places x on a run of numbers and draws no band in this version, so the picture would be drawn wrong.
-  const point = bands.find((f) => f.kind === 'point');
-  if (point !== undefined) {
-    // a point is among the bands only because `xBinding` found its column folded as categories, so the binding is there
-    return `layer "${point.layer.layerId}" is a point on a band — column "${xBinding(point, frame)!.column}" is a category — and a point chart draws no band in this version. Draw it as a line, or give it a frame of its own.`;
-  }
+  // WHAT A LAYER CANNOT BE BY ITSELF, whatever stands beside it (`layerRefusal`, the list a view drawn
+  // alone is judged by too)
+  const alone = layerRefusal(framed, frame, layerNamed, ', or give it a frame of its own');
+  if (alone !== null) return alone;
   if (bands.length > 1) {
     // TWO BANDS LINE UP ONLY OFF ONE CATEGORY LIST. Without it each lays its slots
     // out from its own rows, and two tables with different values put "Formal"
@@ -1424,13 +1423,68 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
   }
   const line = colouredLineRefusal(framed);
   if (line !== null) return line;
-  const zero = zeroGuideRefusal(framed, frame);
-  if (zero !== null) return zero;
-  const interval = intervalBrushRefusal(framed, frame);
-  if (interval !== null) return interval;
   const count = countMixRefusal(framed, frame);
   if (count !== null) return count;
   return twoScalesRefusal(framed, frame);
+}
+
+/**
+ * WHAT ONE LAYER CANNOT BE, JUDGED BY ITSELF: the refusals that need no second
+ * layer, in one list. A stack runs it over each of its layers and a view drawn
+ * alone runs it over the one layer it is ({@link plainView}), so the two doors
+ * cannot drift: a new per-layer refusal is added HERE and reaches both.
+ *
+ *   - a POINT ON A BAND: `VizScatter` places x on a run of numbers and draws no
+ *     band in this version, so the picture would be drawn wrong;
+ *   - a LOGARITHM ON A MAGNITUDE ({@link logExtentRefusal});
+ *   - BOUNDS A COUNT CANNOT STAND ON ({@link countBoundsRefusal});
+ *   - a ZERO LINE the mark does not draw ({@link zeroGuideRefusal});
+ *   - a DRAG the x cannot carry ({@link intervalBrushRefusal}).
+ *
+ * `named` says what is being refused (a layer, or a view), and `apart` is the
+ * way out only a layer has: a frame of its own. A view alone already has one.
+ */
+function layerRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject, apart: string): string | null {
+  const point = framed.find((f) => f.kind === 'point' && bandX(f, frame));
+  if (point !== undefined) {
+    // a point is on a band only because `xBinding` found its column folded as categories, so the binding is there
+    return `${named(point)} is a point on a band — column "${xBinding(point, frame)!.column}" is a category — and a point chart draws no band in this version. Draw it as a line${apart}.`;
+  }
+  return logExtentRefusal(framed, frame, named) ?? countBoundsRefusal(framed, frame, named) ?? zeroGuideRefusal(framed, frame, named) ?? intervalBrushRefusal(framed, frame, named);
+}
+
+/**
+ * LAW 11c AS THE RENDERER REFUSES IT: a logarithmic y under a mark whose y is a
+ * LENGTH (a bar, a histogram bin, a box). The charts draw that y linearly
+ * whatever was asked, because on a logarithmic axis a bar four times as long
+ * is not four times the value. The definition door refuses the declaration;
+ * this is the second fence, for a frame folded by hand, in the door's own
+ * sentence (`logOnExtentRefusal`). Without it the declared curve was dropped
+ * and the chart drew a linear axis with no word.
+ */
+function logExtentRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject): string | null {
+  const f = framed.find((one) => LENGTH_KINDS.has(one.kind) && one.layer.encodings['y'] !== undefined && frame?.['y']?.transform === 'log');
+  return f === undefined ? null : logOnExtentRefusal(named(f), f.kind, 'y');
+}
+
+/** The marks whose y is drawn as a LENGTH and never on a logarithmic curve: the counts, and the box. */
+const LENGTH_KINDS: ReadonlySet<FrameChartKind> = new Set([...COUNT_KINDS, 'boxplot']);
+
+/**
+ * BOUNDS A COUNT CANNOT STAND ON: a bar or a histogram that binds a shared y
+ * whose declared bounds are not a count's span (they do not start at zero, or
+ * end below one). The chart draws a count from zero whatever it is handed, so
+ * the declared low end was dropped with no word. A declaration is drawn as
+ * declared or refused. (Beside a line the same bounds are refused by
+ * {@link countMixRefusal}, in its own sentence; this is the count by itself.)
+ */
+function countBoundsRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject): string | null {
+  const bounds = sharedOn(frame, 'y')?.bounds;
+  const f = framed.find((one) => COUNT_KINDS.has(one.kind) && one.layer.encodings['y'] !== undefined);
+  if (bounds === undefined || f === undefined || sharedYReaders(framed, frame).position !== undefined) return null;
+  const [lo, hi] = countSpan(bounds, bounds);
+  if (lo === Math.min(...bounds) && hi === Math.max(...bounds)) return null;
+  return `${named(f)} is a ${f.kind}, read from zero, and its y declares bounds [${String(bounds[0])}, ${String(bounds[1])}]: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.`;
 }
 
 /**
@@ -1438,12 +1492,12 @@ function stackRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
  * a position? A COUNT is a bar or a histogram bin, a length from zero; a
  * POSITION is a line, a point, a box. Every mark's y channel is the one name
  * `y` (`AXIS_CHANNELS`), so there is one shared y to ask about. Nothing where
- * it is not shared, is not a number, or is drawn on a logarithmic curve (a
- * count has no logarithmic axis, and the def door refuses one).
+ * it is not shared or is not a number. (A count on a logarithmic y never gets
+ * here: {@link logExtentRefusal} refuses it first.)
  */
 function sharedYReaders(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined): { readonly count?: FramedLayer; readonly position?: FramedLayer } {
   const shared = sharedOn(frame, 'y');
-  if (shared?.scale !== 'quantitative' || shared.transform === 'log') return {};
+  if (shared?.scale !== 'quantitative') return {};
   const readers = framed.filter((f) => f.layer.encodings['y'] !== undefined);
   const [count, position] = [readers.find((f) => COUNT_KINDS.has(f.kind)), readers.find((f) => !COUNT_KINDS.has(f.kind))];
   return { ...(count === undefined ? {} : { count }), ...(position === undefined ? {} : { position }) };

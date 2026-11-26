@@ -21,13 +21,17 @@
  * | bounds the data runs past                    | drawn roomy, in silence | drawn on the bounds, and said in words             |
  * | `zeroGuide: true` where the mark draws none  | dropped                 | refused in words, naming the view                  |
  * | a histogram's x folded as categories         | drawn, its drag mute    | refused in words, naming the view                  |
+ * | a scatter's x folded as categories           | every point at x = 0    | refused in words: a point draws no band            |
+ * | `transform: 'log'` on a bar's, histogram's or box's y | linear, in silence | refused in words (in a stack too)              |
+ * | bounds on a bar's y that do not start at zero | drawn from zero, in silence | refused in words (in a stack too)            |
+ * | a category list on a line's or a bar's x     | slots in row order      | slots in the fold's order, an empty slot for a category with no row |
  * | an entry on one axis only                    |                         | the other axis keeps its own extent and its margin |
  * | an entry on a channel the view does not bind | ignored                 | ignored                                            |
  * | an independent channel with no keys          | its own extent          | byte-identical                                     |
  * | nothing                                      | its own extent          | byte-identical                                     |
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { boxPlotRenderer, barRenderer, histogramRenderer, lineRenderer, scatterRenderer } from './renderers.js';
+import { boxPlotRenderer, barRenderer, histogramRenderer, layeredRenderer, lineRenderer, scatterRenderer } from './renderers.js';
 import { emptySelection } from './selection.js';
 import { RENDERER_PROTOCOL_VERSION, type Renderer, type RenderRow, type RenderState, type ResolvedChannel } from './types.js';
 
@@ -224,3 +228,68 @@ describe('a plain histogram, box plot and bar', () => {
     expect(draw(barRenderer(), bars, { category: 'category' }, { y: channel([0, 3], { zeroGuide: true }) }).innerHTML).toBe(plain);
   });
 });
+
+describe('what one layer cannot be is refused the same way alone and in a stack', () => {
+  const cats = (domain: readonly string[]): ResolvedChannel => ({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'categorical', domain }) as unknown as ResolvedChannel;
+  const said = (el: HTMLElement): string => el.querySelector('p.vzf-chart-refusal')?.textContent ?? '';
+  /** The same rows drawn as the one layer of a stack. */
+  function stacked(kind: 'bar' | 'histogram' | 'boxplot' | 'point', rows: readonly RenderRow[], encodings: Readonly<Record<string, string>>, frame: Frame): HTMLElement {
+    const el = document.createElement('div');
+    const cb = () => ({ emit: vi.fn(), hover: vi.fn(), reencodeRequest: vi.fn(), navigate: vi.fn() });
+    const m = layeredRenderer({ layers: { a: { kind } } }).mount(el, { protocolVersion: RENDERER_PROTOCOL_VERSION, viewId: 'v', callbacks: cb(), layers: { a: cb() } });
+    m.update({ rows: [], encodings: {}, selection: emptySelection('v'), hover: null, theme: {}, size: { width: 400, height: 300 }, layers: [{ layerId: 'a', table: 't', rows, encodings }], frame });
+    return el;
+  }
+  const BARS: readonly RenderRow[] = [{ category: 'A', count: 3 }, { category: 'B', count: 8 }];
+  const BAR_ENC = { category: 'category', y: 'count' };
+
+  it('a scatter whose x was folded as categories: a point draws no band, and the way out is one a view has', () => {
+    const rows: readonly RenderRow[] = [{ id: 'p', x: 'a', y: 1 }];
+    expect(said(draw(scatterRenderer(), rows, XY, { x: cats(['a', 'b']) }))).toBe('view "v" is a point on a band — column "x" is a category — and a point chart draws no band in this version. Draw it as a line.');
+    expect(said(stacked('point', rows, XY, { x: cats(['a', 'b']) }))).toBe('layer "a" is a point on a band — column "x" is a category — and a point chart draws no band in this version. Draw it as a line, or give it a frame of its own.');
+  });
+
+  it('a logarithmic y under a bar, a histogram or a box is refused in the definition door’s sentence', () => {
+    const log = { y: channel([1, 100], { transform: 'log' }) };
+    const tail = ' — its y extent IS the quantity, and on a logarithmic axis a bar four times as long is not four times the value; a POSITION channel of a bar, histogram or boxplot may still be logarithmic';
+    expect(said(draw(barRenderer(), BARS, BAR_ENC, log))).toBe(`view "v" is a bar${tail}`);
+    expect(said(stacked('bar', BARS, BAR_ENC, log))).toBe(`layer "a" is a bar${tail}`);
+    const bins: readonly RenderRow[] = [{ x0: 1, x1: 10, count: 2 }];
+    expect(said(draw(histogramRenderer(), bins, { x: 'mass', y: 'count' }, log))).toBe(`view "v" is a histogram${tail}`);
+    const box: readonly RenderRow[] = [{ category: 'A', q1: 2, median: 3, q3: 4, whiskerLo: 1, whiskerHi: 5, outliers: [], count: 4 }];
+    expect(said(draw(boxPlotRenderer(), box, { x: 'category', y: 'price' }, log))).toBe(`view "v" is a boxplot${tail}`);
+    expect(said(stacked('boxplot', box, { x: 'category', y: 'price' }, log))).toBe(`layer "a" is a boxplot${tail}`);
+    // a bar that binds no y declared nothing about its count, and a histogram's BIN axis may be logarithmic
+    expect(said(draw(barRenderer(), BARS, { category: 'category' }, log))).toBe('');
+    expect(said(draw(histogramRenderer(), bins, { x: 'mass' }, { x: channel([1, 10], { transform: 'log' }) }))).toBe('');
+  });
+
+  it('bounds a count cannot stand on are refused: a declared low end is drawn or refused, never dropped', () => {
+    const bounded = (bounds: readonly [number, number]): Frame => ({ y: channel([3, 8], { bounds }) });
+    const sentence = (who: string, pair: string): string => `${who} is a bar, read from zero, and its y declares bounds ${pair}: a length from zero cannot be drawn on them as declared. Declare bounds that start at zero and reach one or more, or declare none.`;
+    expect(said(draw(barRenderer(), BARS, BAR_ENC, bounded([2, 20])))).toBe(sentence('view "v"', '[2, 20]'));
+    expect(said(stacked('bar', BARS, BAR_ENC, bounded([2, 20])))).toBe(sentence('layer "a"', '[2, 20]'));
+    expect(said(draw(barRenderer(), BARS, BAR_ENC, bounded([0, 0.5])))).toBe(sentence('view "v"', '[0, 0.5]'));
+    // bounds that are a count's span draw, backwards or not, and a bar that binds no y declared none
+    expect(said(draw(barRenderer(), BARS, BAR_ENC, bounded([0, 20])))).toBe('');
+    expect(said(draw(barRenderer(), BARS, BAR_ENC, bounded([20, 0])))).toBe('');
+    expect(said(draw(barRenderer(), BARS, { category: 'category' }, bounded([2, 20])))).toBe('');
+    // a box is a position on its value axis: its bounds are drawn as declared
+    const box: readonly RenderRow[] = [{ category: 'A', q1: 2, median: 3, q3: 4, whiskerLo: 2, whiskerHi: 5, outliers: [], count: 4 }];
+    expect(said(draw(boxPlotRenderer(), box, { x: 'category', y: 'price' }, bounded([2, 20])))).toBe('');
+  });
+
+  it('a category list on x is the fold’s: its order, and an empty slot for a category with no row', () => {
+    const slots = (el: HTMLElement): string[] => [...el.querySelectorAll('[data-axis-orient="bottom"] text.vzf-tick, text.vzf-bar-catlabel, text.vzf-tick')].map((t) => t.textContent ?? '').filter((t) => /^[ABZ]$/.test(t));
+    const own = draw(barRenderer(), [{ category: 'B', count: 3 }, { category: 'A', count: 8 }], { category: 'category' });
+    expect(slots(own)).toEqual(['B', 'A']);
+    const ownWidth = num(own.querySelector('rect.vzf-barrect')!, 'width');
+    document.body.innerHTML = '';
+    const folded = draw(barRenderer(), [{ category: 'B', count: 3 }, { category: 'A', count: 8 }], { category: 'category' }, { category: cats(['Z', 'A', 'B']) });
+    expect(slots(folded)).toEqual(['Z', 'A', 'B']);
+    // three slots where there were two, so each bar is narrower, and Z has a slot and no bar
+    expect(folded.querySelectorAll('rect.vzf-barrect')).toHaveLength(2);
+    expect(num(folded.querySelector('rect.vzf-barrect')!, 'width')).toBeLessThan(ownWidth);
+  });
+});
+

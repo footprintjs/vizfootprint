@@ -6,20 +6,34 @@
 
 - The five single-mark renderers (scatter, line, bar, histogram, box plot)
   handed their chart an empty domain whatever `RenderState.frame` held. A
-  logarithmic axis, a zero line, declared bounds and a span folded to reach
-  zero were all dropped for a view with no layers, in silence. A stack of
-  layers honoured them.
+  logarithmic position axis, a zero line, declared bounds and a span folded
+  to reach zero were all dropped for a view with no layers, in silence. A
+  stack of layers honoured them.
 - A view drawn alone is now treated as a stack of one: for each channel it
   binds to x or y that has an entry on the frame, the same function that
-  builds a layer's scales builds its own. A zero line its mark does not
-  draw, and a histogram whose x was folded as categories, are refused in
-  words, naming the view.
-- **A visible change:** an axis with an entry on the frame is drawn on the
-  span the fold gives it, with no empty margin at its ends, as a layer's
-  is. An axis with no entry keeps its own extent and its margin. A view
-  with no entry for either axis is drawn exactly as before.
+  builds a layer's scales builds its own, and the same list of refusals
+  judges it, naming the view.
+- **Visible changes** for a view whose frame holds an entry for its axis:
+  - the axis is drawn on the span the fold gives it, with no empty margin
+    at its ends, as a layer's is. An axis with no entry keeps its own
+    extent and its margin;
+  - a category list is the fold's: slots in the fold's order, and an empty
+    slot for a category with no row. Before, a plain bar or line ordered
+    its slots by its rows whatever the frame listed.
+- **Refused in words now, alone and in a stack**, where the picture was
+  drawn wrong or a declaration was dropped:
+  - a logarithmic `y` under a bar, a histogram or a box plot (it was drawn
+    linear, in silence), in the definition door's own sentence;
+  - bounds on a bar's or histogram's `y` that do not start at zero or end
+    below one (the count was drawn from zero, in silence);
+  - for a view alone: a scatter whose x was folded as categories (every
+    point was drawn at one x), a zero line its mark does not draw, and a
+    histogram whose x was folded as categories.
+- A view with no entry for either axis is drawn exactly as before.
 - Reached today by a host that folds a frame by hand; the adapter does not
   yet fold one for a view with no layers.
+- New export from `vizfootprint/def`: `logOnExtentRefusal` (the one owner
+  of the sentence for a logarithm on a magnitude).
 
 ### Correction: every chart says what stands outside the span its axis was given
 

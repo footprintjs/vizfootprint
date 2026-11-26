@@ -67,7 +67,7 @@ export { discreteCoercer, BUILTIN_COERCERS } from './coercers.js';
 export { frameDomains, frameLint, frameScaleOf, resolutionFor, zeroAnchorsChannel, zeroPolicyFor, mayTakeFirstScale, firstScaleTakenRefusal, FRAME_LAYER_LINT, ZERO_ANCHORED_KINDS } from './frame.js';
 // law 12 — zero is a place on the axis: which marks draw a guide there, the words for one that does not,
 // the logarithm's own vocabulary for a key that asked for a zero it has none of, and the closed-interval test
-export { drawsZeroGuide, zeroGuideKindRefusal, noZeroOnALogAxis, zeroOnAxis } from './frame.js';
+export { drawsZeroGuide, zeroGuideKindRefusal, logOnExtentRefusal, noZeroOnALogAxis, zeroOnAxis } from './frame.js';
 // a band is a range too (law 13): the ONE predicate both twins ask about a declared interval gesture, and the ONE sentence they both say
 export { drawsIntervalBrush, intervalGestureRefusal } from './frame.js';
 // …and law 13 one layer in, at the VALUE: whether a clause a gesture actually delivered can address the
