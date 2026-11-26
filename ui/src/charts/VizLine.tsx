@@ -916,7 +916,8 @@ export function VizLine(props: VizLineProps): JSX.Element {
         })}
         {/* the value axis (`Axis`, the one part every chart's axis is drawn by), on the side it was given.
             It is drawn just before the zero guide, so the guide is painted over the axis as it always was;
-            both come after the x ticks, which they never cross, and before the series. */}
+            both come after the x ticks and before the series. The guide meets an x tick mark only when
+            zero is the floor of the axis, where it lies on the axis line over the top of each mark. */}
         {drawY && <Axis orient={props.axisSide === 'right' ? 'right' : 'left'} scale={y} ticks={yTicks} at={yAxisX} range={[top, bottom]} labelRoom={yLabelRoom} hue={props.scaleHue} />}
         {/* the zero guide — furniture, edge to edge across the plot, under the series and over the axis;
             drawn by whoever draws this axis, so a layer under a merged guide draws none */}
