@@ -5,6 +5,9 @@
  */
 
 export { buildDashboard, buildDashboardAsync } from './buildDashboard.js';
+// One date-order witness for folded axes and original row dates on an own-extent chart.
+export { dateOrderConflictOf } from '../encoding/temporal.js';
+export type { DateOrderConflict } from '../encoding/dateOrder.js';
 export type { Dashboard, BuildDashboardOptions, BuildDashboardAsyncOptions, RefreshOptions, RefreshOutcome, RefreshResult, RefreshRecord } from './buildDashboard.js';
 export { validateDashboardDef, parseDashboardDef, DashboardDefError, dispatchVerbs } from './validate.js';
 // WHAT THIS BUILD CAN DO, read off the build — the feature card a gallery filters

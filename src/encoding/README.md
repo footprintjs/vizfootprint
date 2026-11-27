@@ -327,7 +327,7 @@ One thing this law does not do: a channel with no foldable cell still gets **no 
 
 ## Files
 
-`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge, and which channels a kind binds · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` shape checks for the two declaration doors — the def's, and the ACT's landed column (`landedColumnProblems`) · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `recommend.ts` the preference policy · `propose.ts` whole charts, offered · `graphReading.ts` matrix or node-link, the rule as data · `lint.ts` the lint door · `frame.ts` THE FRAME — one domain per shared channel, folded from the layers' own values (`frameDomains`, the resolution defaults, the zero policy, the LOGARITHMIC fold with its `excluded` count, and `frameLint`, the layer-count ADVICE a host reaches through `Dashboard.lintFrames()` as `FrameNote` rows) · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter
+`types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge, and which channels a kind binds · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` shape checks for the two declaration doors — the def's, and the ACT's landed column (`landedColumnProblems`) · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `recommend.ts` the preference policy · `propose.ts` whole charts, offered · `graphReading.ts` matrix or node-link, the rule as data · `lint.ts` the lint door · [`temporal.ts`](temporal.ts) instant reader and date fold · [`domains.ts`](domains.ts) domain vocabulary · [`dateOrder.ts`](dateOrder.ts) positive string-order witness · `frame.ts` THE FRAME — one domain per shared channel, folded from the layers' own values (`frameDomains`, the resolution defaults, the zero policy, the LOGARITHMIC fold with its `excluded` count, and `frameLint`, the layer-count ADVICE a host reaches through `Dashboard.lintFrames()` as `FrameNote` rows) · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter
 
 ### Temporal domain ownership
 
@@ -337,6 +337,24 @@ and fold as whole units; [`domains.ts`](domains.ts) owns their existing domain
 type, re-exported unchanged by `frame.ts`. This avoids a type-import cycle.
 For example, mixed-offset strings are still compared by their parsed instants
 and the earliest/latest original spelling is returned, with first-read ties.
-This step only moves code: it adds no date-order witness or renderer protocol
-field. The remaining numeric/category folds and resolution rules stay in the
+The initial ownership step only moved code; the witness feature below adds
+derived metadata without changing the interval law. The remaining numeric/category folds and resolution rules stay in the
 existing facade until their own extraction steps.
+
+### Date-order witness
+
+`temporal.ts` owns the existing instant reader and temporal fold;
+`domains.ts` owns the domain union; `dateOrder.ts` owns the pure participant
+rule. `dateOrderConflictOf` is exposed through `vizfootprint/def` for line
+charts already holding original row strings. The fold reuses parsed cells and
+adds only a positive witness. Equal-instant different spellings disagree; exact
+duplicates alone do not. The optional fact counts inspected string occurrences,
+not unreadable/excluded rows, and absence never certifies all dates safe.
+The native text interval predicate, SQL and replay are unchanged.
+
+For example, [`2026-04-01T23:00:00-05:00`, `2026-04-02T01:00:00Z`,
+`2026-04-02T05:00:00Z`] yields `{ compared: 3, conflicted: 2 }`.
+A monotone run whose parsed and text comparison signs agree needs no sort;
+otherwise a copied sort and prefix/suffix scan find every participating cell,
+including ties across distinct text. Worst-case O(n log n) time/O(n) storage;
+no persistent cache, another cell read or spelling-based fast assumption.

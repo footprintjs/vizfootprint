@@ -1,3 +1,5 @@
+import type { DateOrderConflict } from './dateOrder.js';
+
 /**
  * The domain, with the SCALE KIND it was folded as — a consumer branches on
  * `scale` before it reads `domain`, because the three are three different
@@ -24,5 +26,5 @@ export type ResolvedDomain =
        */
       readonly excluded?: number;
     }
-  | { readonly scale: 'temporal'; readonly domain: readonly [string, string] }
+  | { readonly scale: 'temporal'; readonly domain: readonly [string, string]; readonly dateOrder?: DateOrderConflict }
   | { readonly scale: 'categorical'; readonly domain: readonly string[] };

@@ -1560,3 +1560,17 @@ by, and it used to live only inside that fold. A host that reads one clause's
 value by hand has to narrow by the same rule or its dashboard says a link is
 off while the view moves anyway, so the demo restated the line. It is exported
 now and `keepPredicate` calls it: one rule, one spelling, one answer.
+
+### Protocol 1.12: observed date-order disagreement
+
+The same unreleased minor adds optional positive
+`dateOrder: { compared, conflicted }` to a folded temporal domain in
+`RenderState.frame`. It counts original parseable string occurrences in that
+channel's inspected basis, not pairs, unique rows or unreadable dates. An
+absent field does not assert safety, and an unfolded domain carries no witness.
+Old hosts omit it and old renderers ignore it. The built-in renderer says the
+fact once per shared channel, or uses original line-row strings when no
+temporal fold exists; any temporal fold suppresses that fallback. Independent
+line words name their layer. No extra query, recording event, interval coercion,
+timer or retry is introduced. The visible and accessible words come from one
+composer; a separate band keeps the existing notes readable.

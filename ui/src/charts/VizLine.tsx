@@ -144,12 +144,16 @@ import { announce } from '../primitives/announce.js';
 import { useReencodePicker } from '../primitives/reencode.js';
 import { boundField } from './binding.js';
 import { EncodingPicker } from './EncodingPicker.js';
-import { defaultCompat, type Compatibility } from '../primitives/compat.js';
+import { lineCompat } from './lineCompat.js';
+export { lineCompat } from './lineCompat.js';
+import { lineDateOrder, dateOrderWords, dateOrderLayout, DateOrderNotes, DateOrderRefusal, type DateOrderReading } from '../primitives/dateOrder.js';
 
 /** A point on a RUN of dates. */
 export interface DatedLinePoint {
-  /** ISO-8601 date (or timestamp) string — lexicographic == chronological. */
+  /** Original date text; positions use instants, recorded intervals compare the text. */
   readonly date: string;
+  /** Original row cell when an adapter made the display string. Presence preserves unknown/non-string evidence; absent means date itself is the original string. */
+  readonly cell?: unknown;
   readonly value: number;
   /** Optional series split (coloured via `colorOf`). */
   readonly series?: string;
@@ -202,6 +206,8 @@ export type LinePoint = DatedLinePoint | BandLinePoint | NumericLinePoint;
 export interface VizLineProps {
   /** The chart's accessible name — the prose plane's `altShort` lands here; absent = the chart names itself from its bindings. */
   readonly ariaLabel?: string;
+  /** Authoritative folded reading, or false when the containing frame draws the note. Absent: original drawn date strings. */
+  readonly dateOrder?: DateOrderReading | false;
   readonly viewId?: string;
   /** RAW points, already crossfiltered by the consumer — the chart aggregates (mean per date — or per category, on a band — per series). */
   readonly data: readonly LinePoint[];
@@ -324,34 +330,6 @@ export interface VizLineProps {
    * `var(--vzf-brand)`, byte-identical to this chart before the prop existed.
    */
   readonly scaleHue?: string;
-}
-
-/**
- * The line chart's channel/column compatibility: x takes a DATE-capable
- * column (reported type `'date'`, or vouched for via `dateFields`), a CATEGORY
- * column (`'string'`/`'boolean'`) or a NUMBER — the three x kinds this chart
- * draws ({@link xKindOf}), which is exactly what the session's own door admits
- * (`CHART_REQUIREMENTS.line.x`, `src/encoding/requirements.ts`), so the two no
- * longer disagree. The number used to be REFUSED here, and that refusal was
- * honest while it stood: the chart had no numeric-run arm and every x it drew
- * was a date or a band. It has one now, so the veto goes — a picker that greys
- * a column the chart can draw is the same lie in the other direction.
- *
- * y takes only numeric ones — each refusal names its reason (honest
- * affordance). Other channels (color …) fall through to {@link defaultCompat}.
- */
-export function lineCompat(dateFields: readonly string[] = []) {
-  return (channel: string, column: ColumnView): Compatibility => {
-    if (channel === 'x') {
-      if (column.type === 'date' || column.type === 'string' || column.type === 'boolean' || column.type === 'number' || dateFields.includes(column.field)) return { ok: true };
-      return { ok: false, reason: `the x of a line needs a date, a number or a category column — "${column.field}" is ${column.type}` };
-    }
-    if (channel === 'y') {
-      if (column.type === 'number') return { ok: true };
-      return { ok: false, reason: `y needs a numeric column — "${column.field}" is ${column.type}` };
-    }
-    return defaultCompat(channel, column);
-  };
 }
 
 /** A band point carries a category, a dated one a date — the discriminant is what the point was given, never a prop. */
@@ -642,7 +620,10 @@ export function VizLine(props: VizLineProps): JSX.Element {
 
   // THE MARGIN THIS INSTANCE DRAWS INSIDE: `PAD` with its y-axis room on the side the axis stands
   // on (`padOnSide`, the one owner of that swap). With no side asked it IS `PAD`, so nothing moves.
-  const pad = padOnSide(PAD, props.axisSide);
+  const margin = padOnSide(PAD, props.axisSide);
+  const dateWords = kind === 'dates' ? dateOrderWords(props.dateOrder ?? lineDateOrder(undefined, scoped.map(p => 'date' in p ? ('cell' in p ? p.cell : p.date) : undefined))) : '';
+  const dateLayout = dateOrderLayout(dateWords ? [dateWords] : [], width - margin.l - margin.r);
+  const pad = dateLayout.height === 0 ? margin : { ...margin, t: margin.t + dateLayout.height };
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
   const [elo, ehi] = domainOr(props.domain?.x, extentFor(positions, (d) => d.at, 0, xKind), xKind);
   // a run of numbers is placed on the curve the frame declared (`scaleFor`, the one owner of the
@@ -901,6 +882,7 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // one answer, read by path, dot and legend swatch alike: the series' colour where the chart is split, `markInk` where it is not
   const seriesColor = (name: string | undefined): string => (colorOf ? colorOf(name) : markInk);
   const showLegend = series.length >= 2;
+  if (dateLayout.height > 0 && bottom - top < MIN_PLOT) return <DateOrderRefusal words={[dateWords]} />;
 
   return (
     <>
@@ -909,9 +891,10 @@ export function VizLine(props: VizLineProps): JSX.Element {
         className={`vzf-chart vzf-line${props.className ? ' ' + props.className : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded) + [...zeroNotes, ...outside].map((note) => ` — ${note}`).join('') + crowded}
+        aria-label={(props.ariaLabel ?? `${yLabel} over ${xLabel}`) + excludedNote(excluded) + [...zeroNotes, ...outside].map((note) => ` — ${note}`).join('') + crowded + (dateWords ? ` — ${dateWords}` : '')}
         {...handlers}
       >
+        {dateWords && <DateOrderNotes layout={dateLayout} left={pad.l} top={margin.t} />}
         {/* axes frame — absent while the FRAME draws one merged guide for the stack; the x half absent
             while the frame draws x once and this chart draws only its own y (`axes: 'y'`) */}
         {/* the x axis (`Axis`): on a RUN, actual data dates with the edge labels turned inward so they never

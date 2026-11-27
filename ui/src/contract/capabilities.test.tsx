@@ -11,6 +11,7 @@
  * wiring the behaviour (or wires behaviour without flipping the flag) is
  * caught here rather than by a user who believed the claim.
  */
+import { frameDomains } from 'vizfootprint/def';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { fireEvent } from '@testing-library/dom';
 import { act } from '@testing-library/react';
@@ -135,8 +136,10 @@ describe('canLayer is a promise about the BOUND renderer (protocol 1.2)', () => 
     { layerId: 'nodes', table: 'nodes', rows: [{ id: 'flu', group: 'viral' }, { id: 'cold', group: 'viral' }], encodings: { color: 'group' } },
   ] as const;
 
-  it('the protocol this build speaks is 1.12 — the minor in which a declared channel with no span to fold is still handed over', () => {
+  it('the protocol this build speaks is 1.12 — unavailable spans and positive temporal dateOrder witnesses are additive frame metadata', () => {
     expect(RENDERER_PROTOCOL_VERSION).toBe('1.12');
+    const frame = frameDomains([{layerId:'a',channels:{x:{type:'date',values:['2026-04-02T01:00:00Z','2026-04-01T20:00:00-05:00']}}}]);
+    expect(frame.x).toMatchObject({dateOrder:{compared:2,conflicted:2}});
   });
 
   it('declares TRUE — and a layered frame pushed through the bind draws BOTH layers, each under its own table', () => {
