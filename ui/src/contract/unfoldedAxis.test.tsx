@@ -18,13 +18,12 @@
  * | bounds a count cannot stand on        | a bar that binds y        | drawn from zero              | refused in words, as with a span                 |
  * | a category or a date x, a no-op key   | a line                    | the chart                    | the chart: nothing was asked that changes it     |
  * | bounds on a DATE x (numbers on dates) | a line                    | the chart                    | refused in words: bounds need a number           |
- * | any of them, in a STACK               |                           | the stack                    | the same stack, byte for byte: a stack reads folded spans only |
+ * | any of them, in a STACK               |                           | the stack                    | refused in words: a stack cannot share a missing domain |
  *
  * WHY A STACK DOES NOT TAKE THE ENTRY. With no span, each layer would draw on
  * its own extent, and one axis, one zero line or one "shared scale" over them
- * would be untrue. So `layeredRenderer` reads the frame without such entries,
- * which is the frame it was handed before. That a stack still drops such a
- * declaration with no word is older than this change and a task of its own.
+ * would be untrue. D27 makes `layeredRenderer` name that missing shared domain
+ * before it draws a stack; the plain view's own-extent handling stays unchanged.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { barRenderer, layeredRenderer, lineRenderer, scatterRenderer } from './renderers.js';
@@ -116,20 +115,19 @@ describe('a stack reads folded spans only', () => {
   const line = (layerId: string, values: readonly number[]): RenderLayer => ({ layerId, table: 't', rows: values.map((v, i) => ({ k: i === 0 ? 'A' : 'B', v })), encodings: { x: 'k', y: 'v' } });
   const bars: RenderLayer = { layerId: 'a', table: 't', rows: [{ k: 'A', count: 5 }, { k: 'B', count: 8 }], encodings: { category: 'k', y: 'count' } };
 
-  it('with an unfolded y, whatever it declares, the stack is the stack with no y entry, byte for byte', () => {
+  it('with an unfolded y, whatever it declares, the stack names the missing shared domain', () => {
     const lines = [line('a', [1, 100]), line('b', [10, 1000])];
-    const without = stack(['line', 'line'], lines, BANDS);
     for (const declared of [{ transform: 'log' }, { transform: 'linear' }, { zeroGuide: true }, { zeroGuide: false }, { bounds: [0, 5000] }, { guide: 'per-layer', transform: 'log' }]) {
-      expect(stack(['line', 'line'], lines, { ...BANDS, y: unfolded('quantitative', declared) }), JSON.stringify(declared)).toBe(without);
+      expect(stack(['line', 'line'], lines, { ...BANDS, y: unfolded('quantitative', declared) }), JSON.stringify(declared)).toContain('no shared domain');
     }
   });
 
   it('…also for a bar beside a line, and for an unfolded x', () => {
     const mixed = [bars, line('b', [4, 6])];
-    expect(stack(['bar', 'line'], mixed, { ...BANDS, y: unfolded('quantitative', { bounds: [2, 20] }) })).toBe(stack(['bar', 'line'], mixed, BANDS));
+    expect(stack(['bar', 'line'], mixed, { ...BANDS, y: unfolded('quantitative', { bounds: [2, 20] }) })).toContain('no shared domain');
     const lines = [line('a', [1, 100]), line('b', [10, 1000])];
     const y = folded('quantitative', [1, 1000]);
-    expect(stack(['line', 'line'], lines, { x: unfolded('categorical', { zeroGuide: false }), y })).toBe(stack(['line', 'line'], lines, { y }));
+    expect(stack(['line', 'line'], lines, { x: unfolded('categorical', { zeroGuide: false }), y })).toContain('no shared domain');
   });
 
   it('a folded entry is still read: the same declaration WITH a span changes the stack', () => {

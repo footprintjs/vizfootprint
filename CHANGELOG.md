@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A layered chart now names a bound shared axis that has no folded domain instead of silently dropping its settings and drawing separate extents. Plain views and fully folded stacks retain their behavior.
+
 - Date-order notes name layer-read occurrences, distinguish the fact from a selectable date interval, and use compact words before refusing a small chart. Full words remain accessible; line brush renders reuse the same assessment. The date-order reading type is exported by the UI package.
 
 ### Added: date-text ordering warning
