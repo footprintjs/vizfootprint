@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDashboardAsync } from '../def/index.js';
 import { duckdbConnection } from './duckdbConnection.js';
+import { canLoad, type LoadingConnection } from './sqlConnection.js';
 const cases = [
   { name: 'mixed offsets', values: ['2026-04-01T23:00:00-05:00','2026-04-02T01:00:00Z','2026-04-02T05:00:00Z'], range: ['2026-04-02T01:00:00Z','2026-04-02T05:00:00Z'], ids: ['1','2'] },
   { name: 'same instant', values: ['2026-04-02T01:00:00Z','2026-04-01T20:00:00-05:00','2026-04-02T05:00:00Z'], range: ['2026-04-02T01:00:00Z','2026-04-02T05:00:00Z'], ids: ['0','2'] },
@@ -24,11 +25,13 @@ describe.each([true,false])('original date text on memory and SQL (declared date
         actors:{view:{actor:'user'}},defaultTable:'t',
       },{openSqlConnection:async()=>{
         const conn=await opener();
-        return {query:sql=>conn.query(sql),load:async(table,data)=>{
+        if (!canLoad(conn)) throw new Error('DuckDB must expose its loading port');
+        const tapped: LoadingConnection = {query:sql=>conn.query(sql),load:async(table,data)=>{
           await conn.load(table,data);
           const quoted='"'+table.replaceAll('"','""')+'"';
           schemas.push(await conn.query('DESCRIBE '+quoted));
-        },close:()=>conn.close()};
+        },close:async()=>{await conn.close?.();}};
+        return tapped;
       }});
       try {
         const session=dashboard.createSession();

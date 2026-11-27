@@ -46,7 +46,7 @@ describe('date order — one observed fact, no change to interval meaning', () =
   });
   it('does not add an independent carrier or assess a categorical date-shaped label', () => {
     const layer={layerId:'series',channels:{x:{type:'date' as const,values:mixed}}};
-    expect(frameDomains([layer],{x:{mode:'independent',guide:'per-layer',basis:'rows'}}).x).toEqual({mode:'independent',guide:'per-layer'});
+    expect(frameDomains([layer],{x:{mode:'independent',guide:'per-layer'}}).x).toEqual({mode:'independent',guide:'per-layer'});
     expect(frameDomains([{layerId:'series',channels:{x:{type:'string',values:mixed}}}]).x).toEqual({mode:'shared',guide:'merged',basis:'table',scale:'categorical',domain:mixed});
   });
   it('does not carry a previous update into later canonical data', () => {

@@ -621,7 +621,8 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // THE MARGIN THIS INSTANCE DRAWS INSIDE: `PAD` with its y-axis room on the side the axis stands
   // on (`padOnSide`, the one owner of that swap). With no side asked it IS `PAD`, so nothing moves.
   const margin = padOnSide(PAD, props.axisSide);
-  const dateWords = kind === 'dates' ? dateOrderWords(props.dateOrder ?? lineDateOrder(undefined, scoped.map(p => 'date' in p ? ('cell' in p ? p.cell : p.date) : undefined))) : '';
+  // kind has already ruled out band/numeric points: read the original cell, never a converted Date string.
+  const dateWords = kind === 'dates' ? dateOrderWords(props.dateOrder ?? lineDateOrder(undefined, scoped.map(p => 'cell' in p ? p.cell : (p as DatedLinePoint).date))) : '';
   const dateLayout = dateOrderLayout(dateWords ? [dateWords] : [], width - margin.l - margin.r);
   const pad = dateLayout.height === 0 ? margin : { ...margin, t: margin.t + dateLayout.height };
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
