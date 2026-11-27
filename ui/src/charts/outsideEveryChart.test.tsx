@@ -11,7 +11,8 @@
  * the data is, and the chart says so. Otherwise it says "the span this axis
  * was given", and blames nobody. A count and a mark with width (a bin, a
  * column, a box) always say the second: a count names the pair it was given
- * and the pair it drew, and a wide mark's ends are not data. The table is the
+ * and the pair it drew; a bin's or a column's edges are the binning's choice,
+ * and a box reaches past the span when only an outlier does. The table is the
  * sentence with no word about where the pair came from.
  *
  * | the chart, the axis   | given      | the data                    | before  | now, in the picture and in the accessible name                             |
@@ -242,7 +243,7 @@ describe('declared or only given: the chart is told, and says the sentence that 
     // …and with no word about it, its value axis no longer says "declared"
     expectSaid(render(<VizLine data={run} domain={{ y: [1, 2] }} />).container, 'y has 2 values outside the span this axis was given [1, 2]');
   });
-  it('a mark with width says "reaches outside the span" even where the bounds ARE declared: its ends are not data', () => {
+  it('a mark with width says "reaches outside the span" even where the bounds ARE declared: an overhanging edge or a lone outlier is not wrong data', () => {
     // all the data may lie inside: a bin's edge is the binning's choice, and a box reaches as far as its outlier
     expectSaid(render(<VizHistogram data={BINS} field="price" domain={{ x: [25, 75], declared: { x: true } }} />).container, 'x has 2 bins that reach outside the span this axis was given [25, 75]');
     cleanup();

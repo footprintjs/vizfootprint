@@ -465,10 +465,11 @@ say the second sentence, declared or not. A COUNT axis (`VizBar`,
 `VizHistogram`), because it names both the pair it was given and the pair it
 drew: `given [3, 5], drawn as [0, 5] because a count is read from zero`. And a
 MARK WITH WIDTH (a histogram's bins, a heat map's columns, a box with its
-whiskers and outliers), because its ends are not data: a bin's edge is the
-binning's choice and a box reaches as far as its farthest outlier, so "either
-the bounds are wrong or this data is" would blame the data for an edge nobody
-measured. A flat or logarithmic pair is opened the
+whiskers and outliers): a bin's or a column's edges are the binning's choice,
+and a box reaches past the span when only an outlier does, while the box
+itself may stand inside. "Either the bounds are wrong or this data is" would
+blame the data for an edge nobody measured, or call a box outside that is
+not. A flat or logarithmic pair is opened the
 same way, and a date axis writes a day, or the whole instant where a bound is
 not a day's start. Still drawn, still at its true
 position — counted, never hidden, and never refused. The band spelling of that law is the same: a
@@ -751,9 +752,7 @@ sentence the way out only it can judge: two scales, where the frame has room.
 What the door cannot know is the data: a shared y whose rows reach below zero
 under a bar and a line is refused only when it is drawn.
 
-**Known limits.** A scatter and a line's value axis still say "declared
-bounds" for a span that was folded, not declared (a chart is not told which).
-A line on a date span wider than its rows draws the span but labels only its
+**Known limits.** A line on a date span wider than its rows draws the span but labels only its
 own dates. A histogram's fold is over the bound column, so bins whose edges
 lie past it stand outside the plot, and are said in words.
 

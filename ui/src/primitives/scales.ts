@@ -1139,8 +1139,9 @@ export interface OutsideAsk {
    * data: a bin's edge and a column's edge are the binning's choice, and a box reaches as far as its
    * farthest outlier while the box itself may stand inside. "Either the bounds are wrong or the data
    * is" would blame the data for an edge nobody measured. "Reaches outside the span" is true.
-   * Absent = the sentence for DECLARED bounds ("declared bounds … either they are wrong or this data
-   * is"), which a chart asks for only where it was told the pair is a declaration
+   * Absent, for an ask of plain values that is not a count = the sentence for DECLARED bounds
+   * ("declared bounds … either they are wrong or this data is"), which a chart asks for only where it
+   * was told the pair is a declaration
    * (`ChartDomain.declared`, {@link declaredOn}).
    */
   readonly undeclared?: true;

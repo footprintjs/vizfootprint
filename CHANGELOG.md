@@ -24,8 +24,9 @@
 - Unchanged: a count axis (bar, histogram) and a mark with width (a
   histogram's bins, a heat map's columns, a box) say the neutral sentence
   either way. A count names both the pair it was given and the pair it
-  drew, and a wide mark's ends are not data, so the sentence about wrong
-  data would not be true of them.
+  drew. A bin's or a column's edges are the binning's choice, and a box
+  reaches past the span when only an outlier does, so the sentence about
+  wrong data would not be true of them.
 
 ### Correction: a logarithm, bounds or `zero` on an axis that is not a number axis is refused
 
