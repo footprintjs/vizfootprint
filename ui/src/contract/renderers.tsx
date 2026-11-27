@@ -2128,6 +2128,11 @@ function layerDomain(f: FramedLayer, framed: readonly FramedLayer[], frame: Read
   // the span every reader of this y draws on: the count's, where a count reads it (`sharedYSpan`)
   const y = sharedYSpan(framed, frame, spanOf(bound(channels.y)));
   const boundCategories = bound(channels.x) === undefined ? undefined : categories;
+  // WHICH PAIR IS A DECLARATION (`ChartDomain.declared`): the one read off `bounds`. Only this door knows;
+  // a chart told nothing says only that a mark stands outside the span it was given, and blames nobody
+  const declares = (span: readonly [number, number] | undefined, channel: SharedChannel | undefined): boolean => span !== undefined && channel?.bounds !== undefined;
+  const [declaredX, declaredY] = [declares(x, bound(channels.x)), declares(y, bound(channels.y))];
+  const declared = declaredX || declaredY ? { declared: { ...(declaredX ? { x: true } : {}), ...(declaredY ? { y: true } : {}) } } : {};
   // the curve reaches a layer for the channels it BINDS — the same law as the spans above, and on both
   // modes, because an independent channel's per-layer scale is an axis too and still has to be the one the
   // def asked for
@@ -2143,7 +2148,7 @@ function layerDomain(f: FramedLayer, framed: readonly FramedLayer[], frame: Read
   // the frame draws. So the chart now draws the guide it was asked for whatever `axes` says, and the ask
   // stops here for an axis that is not this layer's to draw.
   const zero = zeroGuideAsk(frame, (axis) => (frameDraws[axis] ? [] : onBound(axis)));
-  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...(boundCategories === undefined ? {} : { categories: boundCategories }), ...transformAsk(frame, onBound), ...zero };
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }), ...declared, ...(boundCategories === undefined ? {} : { categories: boundCategories }), ...transformAsk(frame, onBound), ...zero };
 }
 
 /**

@@ -163,6 +163,20 @@ export function rampStep(value: number, max: number): number {
 export interface ChartDomain {
   readonly x?: readonly [number, number];
   readonly y?: readonly [number, number];
+  /**
+   * WHICH OF THE TWO PAIRS ABOVE IS A DECLARATION — what the quantity CAN be
+   * (`ChannelResolution.bounds`), and not a span folded from the rows.
+   *
+   * A chart needs to know to speak truly about a mark outside its span. Past
+   * DECLARED bounds, either the bounds are wrong or the data is, and the chart
+   * says so. Past a FOLDED span nothing was claimed: a fold is not always a
+   * union that holds every mark (it is taken over one bound column, and may
+   * read a cell differently from the chart), so the chart says only that the
+   * mark stands outside the span it was given. Absent = not declared, which is
+   * the honest reading of a pair handed over with no word about where it came
+   * from ({@link declaredOn}).
+   */
+  readonly declared?: { readonly x?: boolean; readonly y?: boolean };
   /** The frame's BAND ORDER for a shared categorical channel — see {@link bandOrder}. A chart with no band ignores it. */
   readonly categories?: readonly string[];
   /**
@@ -1114,13 +1128,21 @@ export interface OutsideAsk {
    */
   readonly values: readonly (number | readonly [number, number])[];
   /**
-   * THE CHART CANNOT SAY THIS SPAN WAS DECLARED. A `ChartDomain` pair is declared bounds or a span a
-   * frame folded (or widened), and a chart is not told which. A fold is not always a union that holds
-   * every mark: it is taken over one bound column, so a bin's far edge or a whisker is not in it, and
-   * a fold that reads a cell differently from the chart leaves that mark outside too. So the sentence
-   * says only what is true either way, the span the axis was GIVEN, and blames nobody.
-   * Absent = the older sentence ("declared bounds … either they are wrong or this data is"), kept for
-   * the two axes that have always said it.
+   * THE CHART WAS NOT TOLD THIS SPAN WAS DECLARED. A `ChartDomain` pair is declared bounds or a span a
+   * frame folded (or widened), and `ChartDomain.declared` says which ({@link declaredOn}). A fold is
+   * not always a union that holds every mark: it is taken over one bound column, and a fold that
+   * reads a cell differently from the chart leaves that mark outside. So for a pair not known to be
+   * declared the sentence says only what is true either way, the span the axis was GIVEN, and blames
+   * nobody.
+   *
+   * A MARK WITH WIDTH ALWAYS GETS THIS SENTENCE, declared or not, as a count does. Its ends are not
+   * data: a bin's edge and a column's edge are the binning's choice, and a box reaches as far as its
+   * farthest outlier while the box itself may stand inside. "Either the bounds are wrong or the data
+   * is" would blame the data for an edge nobody measured. "Reaches outside the span" is true.
+   * Absent, for an ask of plain values that is not a count = the sentence for DECLARED bounds
+   * ("declared bounds … either they are wrong or this data is"), which a chart asks for only where it
+   * was told the pair is a declaration
+   * (`ChartDomain.declared`, {@link declaredOn}).
    */
   readonly undeclared?: true;
   /** The curve the axis is drawn on. On a logarithmic one a flat declared pair is a decade either side, as it is drawn (`logDomain`), not one either side. */
@@ -1136,6 +1158,11 @@ export interface OutsideAsk {
   readonly noun?: readonly [string, string];
   /** How a bound is written in the sentence (a date axis holds epoch milliseconds, and says days). Absent = the number. */
   readonly format?: (bound: number) => string;
+}
+
+/** Was the pair a chart was handed for this axis DECLARED (`ChartDomain.declared`)? Absent reads as no. */
+export function declaredOn(domain: ChartDomain | undefined, axis: 'x' | 'y'): boolean {
+  return domain?.declared?.[axis] === true;
 }
 
 /**
@@ -1159,7 +1186,8 @@ export interface OutsideAsk {
  * has nothing outside it by construction. The first sentence was written on the
  * belief that a frame's fold is a union over the layers' rows, so a count above
  * zero means a DECLARATION. That does not always hold (see
- * {@link OutsideAsk.undeclared}), so every axis added since asks for the second
+ * {@link OutsideAsk.undeclared}), so a chart asks for it only where it was told
+ * the pair is declared ({@link declaredOn}), and otherwise for the second
  * sentence, which names the span the axis was given and blames nobody.
  *
  * Bare sentences, in the order the axes were asked and empty for a chart with
@@ -1184,8 +1212,9 @@ export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
     if (n === 0) return [];
     const write = ask.format ?? String;
     const [one, many] = ask.noun ?? ['value', 'values'];
-    // a count axis always says the second sentence: it is newer than the first, and no chart asks otherwise
-    if (ask.undeclared === true || ask.count === true) {
+    // a count axis and a mark with width always say the second sentence, declared or not (see `OutsideAsk.undeclared`)
+    const wide = ask.values.some((v) => typeof v !== 'number');
+    if (ask.undeclared === true || ask.count === true || wide) {
       // the pair AS GIVEN, then the pair as drawn where they differ: a count from zero, a logarithmic
       // axis, or a flat or backwards pair the axis had to open or put in order. The REASON is said only
       // where it is the whole reason. A pair merely put in order is the same span, whatever the axis.
@@ -1194,7 +1223,7 @@ export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
       const [low, high] = [Math.min(...ask.given), Math.max(...ask.given)];
       const reason = ask.count === true ? (low !== lo && high === hi ? ' because a count is read from zero' : '') : ask.kind === 'log' && (low !== lo || high !== hi) ? ' on a logarithmic axis' : '';
       const opened = ask.given[0] === lo && ask.given[1] === hi ? '' : `, drawn as [${write(lo)}, ${write(hi)}]${reason}`;
-      const reach = ask.values.some((v) => typeof v !== 'number') ? (n === 1 ? `${one} that reaches` : `${many} that reach`) : n === 1 ? one : many;
+      const reach = wide ? (n === 1 ? `${one} that reaches` : `${many} that reach`) : n === 1 ? one : many;
       return [`${ask.channel} has ${n} ${reach} outside the span this axis was given [${write(ask.given[0])}, ${write(ask.given[1])}]${opened}`];
     }
     const drawn = said[0] === lo && said[1] === hi ? '' : `, drawn as [${write(lo)}, ${write(hi)}] on a logarithmic axis`;

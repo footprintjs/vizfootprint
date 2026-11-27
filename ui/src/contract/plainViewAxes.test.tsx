@@ -112,6 +112,12 @@ describe('a plain scatter', () => {
     expect([...el.querySelectorAll('text.vzf-outside-note')].map((t) => t.textContent)).toEqual(['x has 1 value outside its declared bounds [0, 500] — bounds say what the quantity CAN be, so either they are wrong or this data is']);
   });
 
+  it('a mark outside a FOLDED span is said without the word "declared": nothing was declared, and nobody is blamed', () => {
+    // a fold that does not hold a row the chart draws (it happens: a fold reads one column, or reads a cell differently)
+    const el = draw(scatterRenderer(), POINTS, XY, { x: channel([1, 500]) });
+    expect([...el.querySelectorAll('text.vzf-outside-note')].map((t) => t.textContent)).toEqual(['x has 1 value outside the span this axis was given [1, 500]']);
+  });
+
   it('ignores a key on a channel it does not bind', () => {
     const plain = draw(scatterRenderer(), POINTS, { x: 'x' }).innerHTML;
     document.body.innerHTML = '';

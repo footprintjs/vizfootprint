@@ -450,23 +450,28 @@ off-centre. So the chart COUNTS what falls outside and says it, in the picture
 and in the accessible name, in the register the logarithm's exclusions already
 use: `x has 3 values outside its declared bounds [0, 100] — bounds say what the
 quantity CAN be, so either they are wrong or this data is` (`outsideNotes`,
-`primitives/scales.ts`, beside `excludedNote`; said by `VizScatter` on both
-axes and by `VizLine` on its value axis). Every other axis that scales by a
-span it is given says a second sentence, which blames nobody: `VizBar` and
-`VizHistogram` on their count axis, `VizHistogram` on its bin axis,
-`VizBoxPlot` on its value axis, `VizHeatmap` on its column axis and `VizLine`
-on its x axis say `x has 2 bins that reach outside the span this axis was
-given [25, 75]`. WHY NOT "DECLARED" THERE: a chart is handed a pair and is not
-told whether it is declared bounds or a span the frame folded, and a fold does
-not always hold every mark (it is taken over one bound column, so a bin's far
-edge or a whisker is not in it; a fold that reads a cell differently from the
-chart leaves that mark out too). So the sentence says what is true either
-way. It quotes the pair as given, and the pair as drawn where they differ: a
-count axis is read from zero (`given [3, 5], drawn as [0, 5] because a count
-is read from zero`), and a flat or logarithmic pair is opened. A date axis
-writes a day, or the whole instant where a bound is not a day's start. KNOWN
-LIMIT: the two older axes still say "declared" for a span that was folded;
-telling a chart which it holds is a task of its own. Still drawn, still at its true
+`primitives/scales.ts`, beside `excludedNote`). That is the sentence for a
+pair the chart is TOLD was declared: this door sets `ChartDomain.declared` for
+the axis whose pair it read off `bounds`. A pair handed over with no such word
+is a span the frame folded, or one a host passed in, and the chart says a
+second sentence that blames nobody: `x has 2 bins that reach outside the span
+this axis was given [25, 75]`. WHY THE DIFFERENCE: past declared bounds either
+the bounds are wrong or the data is. Past a folded span nothing was claimed,
+and a fold does not always hold every mark (it is taken over one bound column,
+so a bin's far edge or a whisker is not in it; a fold that reads a cell
+differently from the chart leaves that mark out too). `VizScatter` and
+`VizLine` read the flag on both axes (`declaredOn`). Two kinds of axis always
+say the second sentence, declared or not. A COUNT axis (`VizBar`,
+`VizHistogram`), because it names both the pair it was given and the pair it
+drew: `given [3, 5], drawn as [0, 5] because a count is read from zero`. And a
+MARK WITH WIDTH (a histogram's bins, a heat map's columns, a box with its
+whiskers and outliers): a bin's or a column's edges are the binning's choice,
+and a box reaches past the span when only an outlier does, while the box
+itself may stand inside. "Either the bounds are wrong or this data is" would
+blame the data for an edge nobody measured, or call a box outside that is
+not. A flat or logarithmic pair is opened the
+same way, and a date axis writes a day, or the whole instant where a bound is
+not a day's start. Still drawn, still at its true
 position — counted, never hidden, and never refused. The band spelling of that law is the same: a
 category the frame's list does not name is APPENDED, never hidden, and a slot
 the layer has no row for stays EMPTY rather than becoming a bar of zero ("no
@@ -747,9 +752,7 @@ sentence the way out only it can judge: two scales, where the frame has room.
 What the door cannot know is the data: a shared y whose rows reach below zero
 under a bar and a line is refused only when it is drawn.
 
-**Known limits.** A scatter and a line's value axis still say "declared
-bounds" for a span that was folded, not declared (a chart is not told which).
-A line on a date span wider than its rows draws the span but labels only its
+**Known limits.** A line on a date span wider than its rows draws the span but labels only its
 own dates. A histogram's fold is over the bound column, so bins whose edges
 lie past it stand outside the plot, and are said in words.
 
