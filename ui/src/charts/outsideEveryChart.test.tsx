@@ -6,11 +6,13 @@
  * place, which is past the plot's edge, so only words can say it is there. The
  * scatter and the line's value axis said so; the others drew it in silence.
  *
- * THE SENTENCE BLAMES NOBODY. A chart is handed a pair and is not told whether
- * it is declared bounds or a span a frame folded, so every axis added here says
- * "the span this axis was given". (The scatter and the line's value axis keep
- * their older "declared bounds" sentence; telling a chart which it holds is a
- * task of its own.)
+ * TWO SENTENCES. Where the chart is told a pair was DECLARED
+ * (`ChartDomain.declared`), a value outside it means the bounds are wrong or
+ * the data is, and the chart says so. Otherwise it says "the span this axis
+ * was given", and blames nobody. A count and a mark with width (a bin, a
+ * column, a box) always say the second: a count names the pair it was given
+ * and the pair it drew, and a wide mark's ends are not data. The table is the
+ * sentence with no word about where the pair came from.
  *
  * | the chart, the axis   | given      | the data                    | before  | now, in the picture and in the accessible name                             |
  * |-----------------------|------------|-----------------------------|---------|----------------------------------------------------------------------------|
@@ -233,15 +235,20 @@ describe('declared or only given: the chart is told, and says the sentence that 
     const { notes } = said(render(<VizScatter data={scatter} domain={{ x: [0, 10], y: [0, 10], declared: { x: true } }} />).container);
     expect(notes).toEqual([`x has 1 value outside its declared bounds [0, 10]${TAIL}`, 'y has 1 value outside the span this axis was given [0, 10]']);
   });
-  it('every chart that scales by a span reads the same flag', () => {
+  it('the line reads the same flag on both its axes', () => {
     const run = [1, 10, 100, 1000].map((at, i) => ({ at, value: i + 1 }));
     expectSaid(render(<VizLine data={run} domain={{ x: [1, 100], declared: { x: true } }} />).container, `x has 1 position outside its declared bounds [1, 100]${TAIL}`);
     cleanup();
-    expectSaid(render(<VizHistogram data={BINS} field="price" domain={{ x: [25, 75], declared: { x: true } }} />).container, `x has 2 bins outside its declared bounds [25, 75]${TAIL}`);
+    // …and with no word about it, its value axis no longer says "declared"
+    expectSaid(render(<VizLine data={run} domain={{ y: [1, 2] }} />).container, 'y has 2 values outside the span this axis was given [1, 2]');
+  });
+  it('a mark with width says "reaches outside the span" even where the bounds ARE declared: its ends are not data', () => {
+    // all the data may lie inside: a bin's edge is the binning's choice, and a box reaches as far as its outlier
+    expectSaid(render(<VizHistogram data={BINS} field="price" domain={{ x: [25, 75], declared: { x: true } }} />).container, 'x has 2 bins that reach outside the span this axis was given [25, 75]');
     cleanup();
-    expectSaid(render(<VizBoxPlot viewId="b" data={BOXES} xField="category" yField="price" domain={{ y: [0, 90], declared: { y: true } }} />).container, `y has 2 boxes outside its declared bounds [0, 90]${TAIL}`);
+    expectSaid(render(<VizBoxPlot viewId="b" data={BOXES} xField="category" yField="price" domain={{ y: [0, 90], declared: { y: true } }} />).container, 'y has 2 boxes that reach outside the span this axis was given [0, 90]');
     cleanup();
-    expectSaid(render(<VizHeatmap viewId="h" data={CELLS} xField="price" yField="category" domain={{ x: [0, 50], declared: { x: true } }} />).container, `x has 1 column outside its declared bounds [0, 50]${TAIL}`);
+    expectSaid(render(<VizHeatmap viewId="h" data={CELLS} xField="price" yField="category" domain={{ x: [0, 50], declared: { x: true } }} />).container, 'x has 1 column that reaches outside the span this axis was given [0, 50]');
   });
   it('a count axis says the neutral sentence either way: it names the pair it was given and the pair it drew', () => {
     expectSaid(render(<VizBar data={BARS} field="category" domain={{ y: [3, 5], declared: { y: true } }} />).container, 'y has 1 bar outside the span this axis was given [3, 5], drawn as [0, 5] because a count is read from zero');
@@ -279,7 +286,8 @@ describe('outsideNotes: the one owner of the sentence', () => {
     // a count axis never says the older sentence, asked for or not
     expect(outsideNotes([{ channel: 'y', given: [3, 5], values: [9], count: true, noun: ['bar', 'bars'] }])).toEqual(['y has 1 bar outside the span this axis was given [3, 5], drawn as [0, 5] because a count is read from zero']);
     expect(outsideNotes([{ channel: 'x', given: [0, 50], values: [60], kind: 'log' }])).toEqual([`x has 1 value outside its declared bounds [0, 50], drawn as [5, 50] on a logarithmic axis${TAIL}`]);
-    expect(outsideNotes([{ channel: 'x', given: [0, 10], values: [[9, 12]] }])).toEqual([`x has 1 value outside its declared bounds [0, 10]${TAIL}`]);
+    // a mark with width never says the declared sentence, asked for or not
+    expect(outsideNotes([{ channel: 'x', given: [0, 10], values: [[9, 12]] }])).toEqual(['x has 1 value that reaches outside the span this axis was given [0, 10]']);
   });
   it('dateOfEpoch writes a day at a day’s start, the instant otherwise, and an epoch no date can hold as its number', () => {
     expect(dateOfEpoch(Date.parse('2026-04-01T00:00:00Z'))).toBe('2026-04-01');

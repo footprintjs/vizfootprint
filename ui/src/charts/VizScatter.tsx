@@ -251,7 +251,8 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   const zeroX = zeroGuideFor({ channel: 'x', asked: props.domain?.zeroGuide?.x, domain: [xlo, xhi], ...(xKind === undefined ? {} : { transform: xKind }), place: x });
   const zeroY = zeroGuideFor({ channel: 'y', asked: props.domain?.zeroGuide?.y, domain: [ylo, yhi], ...(yKind === undefined ? {} : { transform: yKind }), place: y });
   const zeroNotes = zeroGuideNotes(zeroX, zeroY);
-  // …and the words for a value outside the extent the axis was DECLARED on (`outsideNotes`, the one owner)
+  // …and the words for a value outside the span its axis was given: the sentence about declared bounds where the
+  // chart was told they are declared (`declaredOn`), the one that blames nobody otherwise (`outsideNotes`, the one owner)
   // — counted off the marks this chart DREW, so a cell a logarithm already excluded is not said twice
   const outside = outsideNotes([
     { channel: 'x', given: props.domain?.x, values: drawable.map((d) => d.x), ...(xKind === undefined ? {} : { kind: xKind }), ...(declaredOn(props.domain, 'x') ? {} : { undeclared: true as const }) },

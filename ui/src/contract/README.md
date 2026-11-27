@@ -459,12 +459,16 @@ this axis was given [25, 75]`. WHY THE DIFFERENCE: past declared bounds either
 the bounds are wrong or the data is. Past a folded span nothing was claimed,
 and a fold does not always hold every mark (it is taken over one bound column,
 so a bin's far edge or a whisker is not in it; a fold that reads a cell
-differently from the chart leaves that mark out too). Every chart that scales
-by a span reads the same flag (`declaredOn`): `VizScatter`, `VizLine`,
-`VizHistogram` on its bin axis, `VizBoxPlot`, `VizHeatmap`. A COUNT axis
-(`VizBar`, `VizHistogram`) always says the second sentence, because it names
-both the pair it was given and the pair it drew: `given [3, 5], drawn as [0, 5]
-because a count is read from zero`. A flat or logarithmic pair is opened the
+differently from the chart leaves that mark out too). `VizScatter` and
+`VizLine` read the flag on both axes (`declaredOn`). Two kinds of axis always
+say the second sentence, declared or not. A COUNT axis (`VizBar`,
+`VizHistogram`), because it names both the pair it was given and the pair it
+drew: `given [3, 5], drawn as [0, 5] because a count is read from zero`. And a
+MARK WITH WIDTH (a histogram's bins, a heat map's columns, a box with its
+whiskers and outliers), because its ends are not data: a bin's edge is the
+binning's choice and a box reaches as far as its farthest outlier, so "either
+the bounds are wrong or this data is" would blame the data for an edge nobody
+measured. A flat or logarithmic pair is opened the
 same way, and a date axis writes a day, or the whole instant where a bound is
 not a day's start. Still drawn, still at its true
 position — counted, never hidden, and never refused. The band spelling of that law is the same: a

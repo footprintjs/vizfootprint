@@ -204,7 +204,7 @@ describe('a plain histogram, box plot and bar', () => {
   it('a box plot says in words which boxes reach past declared bounds', () => {
     const box: readonly RenderRow[] = [{ category: 'A', q1: 2, median: 3, q3: 4, whiskerLo: 1, whiskerHi: 5, outliers: [12], count: 4 }];
     const el = draw(boxPlotRenderer(), box, { x: 'category', y: 'price' }, { y: channel([1, 12], { bounds: [0, 10] }) });
-    expect([...el.querySelectorAll('text.vzf-outside-note')].map((t) => t.textContent)).toEqual(['y has 1 box outside its declared bounds [0, 10] — bounds say what the quantity CAN be, so either they are wrong or this data is']);
+    expect([...el.querySelectorAll('text.vzf-outside-note')].map((t) => t.textContent)).toEqual(['y has 1 box that reaches outside the span this axis was given [0, 10]']);
   });
 
   it('a bar that binds y is drawn on the folded count, from zero, and says which bars are taller than declared bounds', () => {
