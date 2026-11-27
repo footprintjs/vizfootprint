@@ -328,3 +328,15 @@ One thing this law does not do: a channel with no foldable cell still gets **no 
 ## Files
 
 `types.ts` the vocabulary · `requirements.ts` built-in channel requirements + merge, and which channels a kind binds · `sentences.ts` templates · `facets.ts` column → facet · `validate.ts` the validator · `shape.ts` shape checks for the two declaration doors — the def's, and the ACT's landed column (`landedColumnProblems`) · `fits.ts` what fits where · `whatFits.ts` the same, before a build · `recommend.ts` the preference policy · `propose.ts` whole charts, offered · `graphReading.ts` matrix or node-link, the rule as data · `lint.ts` the lint door · `frame.ts` THE FRAME — one domain per shared channel, folded from the layers' own values (`frameDomains`, the resolution defaults, the zero policy, the LOGARITHMIC fold with its `excluded` count, and `frameLint`, the layer-count ADVICE a host reaches through `Dashboard.lintFrames()` as `FrameNote` rows) · `describe.ts` rules as sentences · `coercers.ts` the built-in adapter
+
+### Temporal domain ownership
+
+`frameDomains` still owns channel resolution and delegates its date span to
+[`temporal.ts`](temporal.ts). That module contains the existing instant reader
+and fold as whole units; [`domains.ts`](domains.ts) owns their existing domain
+type, re-exported unchanged by `frame.ts`. This avoids a type-import cycle.
+For example, mixed-offset strings are still compared by their parsed instants
+and the earliest/latest original spelling is returned, with first-read ties.
+This step only moves code: it adds no date-order witness or renderer protocol
+field. The remaining numeric/category folds and resolution rules stay in the
+existing facade until their own extraction steps.

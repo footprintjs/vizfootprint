@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Internal: temporal domain ownership
+
+- Move the existing temporal fold and instant reader into their own module,
+  with the domain type in a shared owner. Domain values, parsing, tie handling
+  and the public frame exports are unchanged. No date-order warning is added.
+
+
 ### Correction: a date axis is folded by instant, not by text
 
 - The fold made a date span by comparing the cells as text. That is

@@ -38,6 +38,9 @@ import type { ColumnType } from '../data/types.js';
 import type { ChannelResolution } from '../def/types.js';
 // the ONE owner of which channels carry a magnitude — the same set the def door's law 9 reads
 import { MAGNITUDE_CHANNELS } from './types.js';
+import { temporal } from './temporal.js';
+import type { ResolvedDomain } from './domains.js';
+export type { ResolvedDomain } from './domains.js';
 
 // ── what a fold is given ──────────────────────────────────────────────────────
 
@@ -57,35 +60,6 @@ export interface FrameLayer {
 }
 
 // ── what a fold answers ───────────────────────────────────────────────────────
-
-/**
- * The domain, with the SCALE KIND it was folded as — a consumer branches on
- * `scale` before it reads `domain`, because the three are three different
- * things: a pair of numbers, a pair of ISO strings, an ordered category list.
- */
-export type ResolvedDomain =
-  | {
-      readonly scale: 'quantitative';
-      readonly domain: readonly [number, number];
-      /**
-       * HOW MANY CELLS THE TRANSFORM COULD NOT PLACE — a zero or a negative
-       * number on a LOGARITHMIC axis (`ChannelResolution.transform`), which a
-       * logarithm has no answer for. Set only when something was excluded, so a
-       * linear fold is byte-identical to the one that existed before.
-       *
-       * WHY it is counted and not dropped: which cells those are is DATA, not
-       * declaration, so the door cannot refuse them — and a picture that
-       * silently draws 300 of 1000 planets is worse than one that says so
-       * ("exclude and count, never silently drop", the law the absence work set
-       * in `../data/silence.ts`). It is a SEPARATE fact from a silence: a
-       * silence is a cell the data says nothing about, and this is a cell the
-       * data speaks plainly about but a logarithm cannot place. The adapter has
-       * already dropped the silences before this fold sees a value.
-       */
-      readonly excluded?: number;
-    }
-  | { readonly scale: 'temporal'; readonly domain: readonly [string, string] }
-  | { readonly scale: 'categorical'; readonly domain: readonly string[] };
 
 /**
  * A SHARED CHANNEL WITH NO SPAN TO FOLD, kept because its definition DECLARED
@@ -925,60 +899,6 @@ function quantitative(cells: readonly unknown[], zero: boolean, transform?: 'lin
   // not one readable cell: no domain. `zero: true` says where a domain must REACH, never that one exists
   if (lo === Infinity) return undefined;
   return { scale: 'quantitative', domain: zero ? [Math.min(lo, 0), Math.max(hi, 0)] : [lo, hi], ...(excluded > 0 ? { excluded } : {}) };
-}
-
-/**
- * `[earliest, latest]` over the dates in the cells, compared as INSTANTS and
- * answered in the cells' own spelling.
- *
- * WHY INSTANTS AND NOT TEXT. The fold used to compare the strings, which is
- * chronological order only while every cell is spelled the same way. A column
- * that mixes spellings is not: `'2026-04-01T23:00-05:00'` sorts before
- * `'2026-04-02T01:00Z'` as text and is three hours AFTER it, and a date with a
- * time and no zone is read in the reader's own zone, which no text order
- * knows. A chart places a date by `Date.parse`, so a span folded by text could
- * leave a row the chart draws outside its own axis. One reading for both: the
- * fold compares what `Date.parse` makes of each cell, the same call the charts
- * place it by (`epochOf`, `vizfootprint-ui/primitives/scales.ts`).
- *
- * THE ANSWER IS STILL THE CELL AS WRITTEN: the earliest and the latest cell,
- * untouched. So a column folds to the pair it always did wherever text order
- * was already chronological. It was not at the edges even in one spelling: a
- * clock time inside a daylight-saving gap, a day that does not exist
- * (`2026-02-30`, which `Date.parse` rolls forward), a month 13 (no date at all),
- * a year before zero. There the fold now agrees with the chart. On equal
- * instants the first one read is kept.
- *
- * THE READING IS `Date.parse`'s, with what that brings: a date-time with no
- * zone is read in the zone of the process that folds (so a fold and a chart
- * agree when they run in one process, which is how a host folds), and text
- * that is not ISO-8601 is read as a date wherever the engine reads it.
- *
- * A `Date` OBJECT counts, as its own ISO spelling. The engines hand ISO strings
- * for a date column, but a def can be written in TypeScript and an adapter can
- * answer with real Dates — and a dropped Date is worse than no domain: mixed
- * with strings it leaves a domain that EXCLUDES rows the frame is drawing. An
- * invalid Date is an absence like any other, and so is a string no date can be
- * read from: it has no instant to compare, and a chart cannot place it either.
- */
-function temporal(cells: readonly unknown[]): ResolvedDomain | undefined {
-  let lo: { readonly at: number; readonly as: string } | undefined;
-  let hi: { readonly at: number; readonly as: string } | undefined;
-  for (const cell of cells) {
-    const when = instantOf(cell);
-    if (when === undefined) continue;
-    if (lo === undefined || when.at < lo.at) lo = when;
-    if (hi === undefined || when.at > hi.at) hi = when;
-  }
-  return lo === undefined || hi === undefined ? undefined : { scale: 'temporal', domain: [lo.as, hi.as] };
-}
-
-/** One cell as a date the fold can compare: the instant it is, and the spelling it is answered in. `undefined` for one no date can be read from. */
-function instantOf(cell: unknown): { readonly at: number; readonly as: string } | undefined {
-  const as = typeof cell === 'string' ? cell : cell instanceof Date && Number.isFinite(cell.getTime()) ? cell.toISOString() : undefined;
-  if (as === undefined) return undefined;
-  const at = Date.parse(as);
-  return Number.isFinite(at) ? { at, as } : undefined;
 }
 
 /** The union of the categories in first-seen order across the layers, in declaration order. */
