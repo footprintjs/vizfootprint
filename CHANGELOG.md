@@ -4,6 +4,16 @@
 
 - A layered chart now names a bound shared axis that has no folded domain instead of silently dropping its settings and drawing separate extents. Plain views and fully folded stacks retain their behavior.
 
+## 2.0.0 — 2026-11-27
+
+A major, because a definition that built on 1.0.0 can now be refused: a
+logarithm, bounds or `zero` declared on an axis that cannot honour them, and
+count bounds or a count off its axis, are refused at the definition door with
+a sentence that says what to do instead. Hosts that called `ticksThatFit` or
+`<Axis>` directly also have a changed contract (see their entries). Renderer
+protocol is 1.12. All four workspaces stay private; nothing is published to
+npm in this release.
+
 - Date-order notes name layer-read occurrences, distinguish the fact from a selectable date interval, and use compact words before refusing a small chart. Full words remain accessible; line brush renders reuse the same assessment. The date-order reading type is exported by the UI package.
 
 ### Added: date-text ordering warning
