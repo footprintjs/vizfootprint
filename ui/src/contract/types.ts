@@ -153,6 +153,10 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * or a date may carry `zero`, the definition's own word echoed where the fold
  * could not apply it, so a renderer can refuse it in words. Optional, and
  * absent on every number axis, so a renderer that never reads it is unchanged.
+ * ALSO IN 1.12: a folded temporal domain may carry optional positive dateOrder
+ * { compared, conflicted }, counting original string occurrences in its basis.
+ * It is not an unreadable/excluded-row count or a safety claim. Old hosts may
+ * omit it; old renderers may ignore it. No recorded clause or event changes.
  */
 export const RENDERER_PROTOCOL_VERSION = '1.12';
 
@@ -610,6 +614,8 @@ export interface RenderState {
   /**
    * Protocol 1.5: THE FRAME — the stack's shared scales, per channel, already
    * folded. `{ mode, guide, basis, scale, domain }` for a shared channel;
+   * a temporal domain may also carry the positive `dateOrder` occurrence witness
+   * (1.12), assessed over this same inspected basis, never all unseen rows;
    * `{ mode: 'independent', guide: 'per-layer' }` for one the def left to the
    * layers; NO entry for a channel nothing could be folded from (no domain is
    * more honest than an invented `[0, 1]`).

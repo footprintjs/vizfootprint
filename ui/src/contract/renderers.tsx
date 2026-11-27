@@ -72,6 +72,9 @@ import {
 } from './types.js';
 import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, logOnExtentRefusal, boundsFitACount, countBoundsRefusal as countBoundsSentence, histogramCountLogRefusal, countOffAxisRefusal as countOffAxisSentence, scaleKindOf, needsANumberRefusal, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
+import type { MarkDraw } from './markDraw.js';
+import { lineCellIsNumber } from '../primitives/lineCell.js';
+import { foldedDateOrder, frameDateOrderNotes } from '../dateOrder/index.js';
 import { bandOrder, countSpan, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
 import { VizFrame, COUNT_KINDS, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
 import { VizScatter } from '../charts/VizScatter.js';
@@ -126,44 +129,6 @@ export function reactRenderer(spec: ReactRendererSpec): Renderer {
 /** A row value as a number, or 0 — mirrors the apps' own coercion for unencodable cells. */
 function num(v: unknown): number {
   return typeof v === 'number' ? v : 0;
-}
-
-/**
- * WHAT ONE MARK IS DRAWN FROM. A plain view's mark reads the view's own rows
- * and speaks with the view's callbacks; a LAYER of a frame reads its own rows,
- * on the frame's scales, in the box the frame sized for it, and speaks with its
- * own bundle. Everything else about drawing a bar is the same either way — so
- * each kind below is ONE function over this, used by the single-mark renderer
- * and by `layeredRenderer` alike. Two spellings of "how a bar is drawn from
- * rows" is the one that goes stale.
- */
-interface MarkDraw {
-  readonly viewId: string;
-  readonly rows: readonly RenderRow[];
-  readonly encodings: RenderEncodings;
-  readonly selection: RenderSelection;
-  readonly width: number;
-  readonly height: number;
-  /** Whose voice a gesture on this mark is — the view's, or the layer's own bundle (the 1.2 law). */
-  readonly callbacks: RendererCallbacks;
-  /** The frame's scales, or `{}` for a mark on its own extents (which is byte-identical to the chart before frames existed). */
-  readonly domain: ChartDomain;
-  /** `false` while the FRAME draws one merged guide for the stack; `'y'` when this mark draws only its own y, on `axisSide`, and the frame draws x once (the two-axis figure). */
-  readonly axes: boolean | 'y';
-  /** The edge this mark's own y axis stands on — set exactly when `axes` is `'y'`. Only a line or a point ever READS it: a bar draws its own y on the left edge and no other (law 2). */
-  readonly axisSide?: AxisSide;
-  /** The hue this mark draws its own y axis (and its unsplit marks) in — set exactly when the frame draws TWO y scales and this mark is one of them (law 4, `VizFrame` its one owner). */
-  readonly scaleHue?: string;
-  /**
-   * PROTOCOL 1.5's fold, PASSED THROUGH RAW — `RenderState.frame`, unread by
-   * every mark but `lineMark`, which asks it whether its x is a band (the
-   * stack asks `xBinding`/`bandX`; a plain view's scales now come the stack's
-   * way too, `plainView`, and this stays the line's own question). A host can fold ONE
-   * channel's scale for a plain view through the adapter's door for a view
-   * with no layers (`viewFrameFor`, `ui/src/adapter/frame.ts`), and when it does, this is where that answer rides to the mark
-   * that needs it, unread by the ones that don't.
-   */
-  readonly frame?: Readonly<Record<string, ResolvedChannel>>;
 }
 
 /** A whole view as one mark's material: its rows, its voice, its own guide, and the scales it was declared (`{}` = its own extents). */
@@ -370,12 +335,12 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
   // a NUMBER on x is a numeric run: the fold's own answer where the host folded one, the row's own
   // value type where it did not — read per ROW, so the chart's `xKindOf` stays the only thing that
   // decides which axis a mixed bag lands on
-  const onNumber = (v: unknown): boolean => scale === 'quantitative' || typeof v === 'number';
+  const onNumber = (v: unknown): boolean => lineCellIsNumber(v, scale);
   // …and the number itself, or NaN for a cell holding nothing a number can be read from. NOT `num`,
   // which answers 0: a position is not a magnitude, and an unplaceable x drawn AT ZERO is a value the
   // row does not have. NaN is what the chart SKIPS (`runPositionOf`, its own never-guess law).
   const xNumber = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : Number.NaN);
-  const xOf = (r: RenderRow): { category: string; cell: unknown } | { at: number } | { date: string } => {
+  const xOf = (r: RenderRow): { category: string; cell: unknown } | { at: number } | { date: string; cell: unknown } => {
     const v = r[dateField];
     // A BAND'S LABEL IS `String(cell)` AND THE CLAUSE CARRIES THE CELL, so the row's own value rides
     // BESIDE the label it is drawn under (`VizLine`'s `BandLinePoint.cell` → `slotValues`, the one
@@ -383,7 +348,7 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
     // `63`. A band over a STRING column hands a cell identical to its label, which is what makes that
     // band byte-identical to the chart before the value ever travelled.
     if (onBand) return { category: String(v), cell: v };
-    return onNumber(v) ? { at: xNumber(v) } : { date: String(v) };
+    return onNumber(v) ? { at: xNumber(v) } : { date: String(v), cell: v };
   };
   const data = d.rows.map((r) => ({
     ...xOf(r),
@@ -394,6 +359,7 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
     <VizLine
       viewId={d.viewId}
       data={data}
+      dateOrder={d.dateOrderOnFrame ? false : foldedDateOrder(d.frame, 'x')}
       dateField={dateField}
       valueField={valueField}
       selection={d.selection}
@@ -2297,12 +2263,14 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
                 // an axis a layer never declared is not its axis: a bar that binds no y keeps its own
                 // count ceiling rather than taking somebody else's value span as its height
                 domain: layerDomain(f, framed, frame, categories, frameDraws),
+                dateOrderOnFrame: true,
                 axes: draw.axes,
                 ...(draw.axisSide === undefined ? {} : { axisSide: draw.axisSide }),
                 // the ink of this layer's scale, when the frame decided there are two of them (law 4)
                 ...(draw.scaleHue === undefined ? {} : { scaleHue: draw.scaleHue }),
               }),
           }))}
+          dateOrderNotes={frameDateOrderNotes(framed, frame)}
           domain={frameChartDomain(framed, frame, categories)}
           guide={guide}
           {...(x === undefined ? {} : { x })}

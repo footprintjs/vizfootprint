@@ -1,12 +1,14 @@
 import type { ResolvedDomain } from './domains.js';
+import { dateOrderOf, type DateOrderConflict, type ReadDateString } from './dateOrder.js';
 
 /**
  * `[earliest, latest]` over the dates in the cells, compared as INSTANTS and
  * answered in the cells' own spelling.
  *
  * WHY INSTANTS AND NOT TEXT. The fold used to compare the strings, which is
- * chronological order only while every cell is spelled the same way. A column
- * that mixes spellings is not: `'2026-04-01T23:00-05:00'` sorts before
+ * chronological order only when the cells' spellings and parsed instants have
+ * the same order (calendar edges can disagree even in one spelling). A column
+ * that mixes spellings need not: `'2026-04-01T23:00-05:00'` sorts before
  * `'2026-04-02T01:00Z'` as text and is three hours AFTER it, and a date with a
  * time and no zone is read in the reader's own zone, which no text order
  * knows. A chart places a date by `Date.parse`, so a span folded by text could
@@ -27,23 +29,31 @@ import type { ResolvedDomain } from './domains.js';
  * agree when they run in one process, which is how a host folds), and text
  * that is not ISO-8601 is read as a date wherever the engine reads it.
  *
- * A `Date` OBJECT counts, as its own ISO spelling. The engines hand ISO strings
+ * A `Date` OBJECT enters the DOMAIN as its own ISO spelling (not the text witness). The engines hand ISO strings
  * for a date column, but a def can be written in TypeScript and an adapter can
  * answer with real Dates — and a dropped Date is worse than no domain: mixed
  * with strings it leaves a domain that EXCLUDES rows the frame is drawing. An
  * invalid Date is an absence like any other, and so is a string no date can be
  * read from: it has no instant to compare, and a chart cannot place it either.
+ *
+ * A positive dateOrder fact concerns only original parseable string occurrences
+ * in this read. The same parsed cells feed the witness without another read or
+ * parser pass; absence of the fact is not a claim about unseen cells or bounds.
  */
 export function temporal(cells: readonly unknown[]): ResolvedDomain | undefined {
   let lo: { readonly at: number; readonly as: string } | undefined;
   let hi: { readonly at: number; readonly as: string } | undefined;
+  const strings: ReadDateString[] = [];
   for (const cell of cells) {
     const when = instantOf(cell);
     if (when === undefined) continue;
+    if (typeof cell === 'string') strings.push(when);
     if (lo === undefined || when.at < lo.at) lo = when;
     if (hi === undefined || when.at > hi.at) hi = when;
   }
-  return lo === undefined || hi === undefined ? undefined : { scale: 'temporal', domain: [lo.as, hi.as] };
+  if (lo === undefined || hi === undefined) return undefined;
+  const dateOrder = dateOrderOf(strings);
+  return { scale: 'temporal', domain: [lo.as, hi.as], ...(dateOrder === undefined ? {} : { dateOrder }) };
 }
 
 /** One cell as a date the fold can compare: the instant it is, and the spelling it is answered in. `undefined` for one no date can be read from. */
@@ -52,4 +62,20 @@ function instantOf(cell: unknown): { readonly at: number; readonly as: string } 
   if (as === undefined) return undefined;
   const at = Date.parse(as);
   return Number.isFinite(at) ? { at, as } : undefined;
+}
+
+/**
+ * The same witness for a chart drawing its own original row date strings.
+ * Date objects are outside this text count; a string interval does not match
+ * them at all under the existing no-cross-type-coercion law. Unreadable cells
+ * supply no instant and no count. No witness never certifies unseen cells.
+ */
+export function dateOrderConflictOf(cells: readonly unknown[]): DateOrderConflict | undefined {
+  const strings: ReadDateString[] = [];
+  for (const cell of cells) {
+    if (typeof cell !== 'string') continue;
+    const when = instantOf(cell);
+    if (when !== undefined) strings.push(when);
+  }
+  return dateOrderOf(strings);
 }

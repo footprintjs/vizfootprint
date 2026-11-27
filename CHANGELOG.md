@@ -2,12 +2,21 @@
 
 ## Unreleased
 
+- Date-order notes name layer-read occurrences, distinguish the fact from a selectable date interval, and use compact words before refusing a small chart. Full words remain accessible; line brush renders reuse the same assessment. The date-order reading type is exported by the UI package.
+
+### Added: date-text ordering warning
+
+- Folded temporal domains report a positive inspected-string ordering witness.
+  The built-in frame and line show the same scoped warning visibly and in the
+  accessible name, in a separate annotation band. Original strings, intervals,
+  SQL, brushing and replay are unchanged; an absent witness promises no safety.
+  This amends the unreleased renderer protocol 1.12.
+
 ### Internal: temporal domain ownership
 
 - Move the existing temporal fold and instant reader into their own module,
   with the domain type in a shared owner. Domain values, parsing, tie handling
   and the public frame exports are unchanged. No date-order warning is added.
-
 
 ### Correction: a date axis is folded by instant, not by text
 

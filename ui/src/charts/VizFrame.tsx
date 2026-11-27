@@ -57,6 +57,7 @@
  * and the alternative is six charts that can only be drawn inside a frame.
  * The pointer law that follows is in styles.css at `.vzf-frame-layer`.
  */
+import { dateOrderLayout, DateOrderNotes, DateOrderRefusal, type DateOrderNote } from '../dateOrder/index.js';
 import { fitTick } from './tickFit.js';
 import { PAD as LINE_PAD } from './VizLine.js';
 import { PAD as BAR_PAD } from './VizBar.js';
@@ -193,6 +194,8 @@ export interface FrameAxis {
 }
 
 export interface VizFrameProps {
+  /** Date-order words in their own band, independent of the two-scale caption. */
+  readonly dateOrderNotes?: readonly DateOrderNote[];
   /** The layers in DECLARATION order: first = bottom, and the order they are painted in. */
   readonly layers: readonly VizFrameLayer[];
   /** The frame's scales, as every layer receives them. */
@@ -491,7 +494,10 @@ export function VizFrame(props: VizFrameProps): JSX.Element {
   const union = unionPads(layers.map((layer, i) => layerPad(layer, guides[i]!)));
   // the caption strip is BELOW the margin: the guide's floor is its top, so the x label and slant room stay above it
   const floor = words === undefined ? height : height - CAPTION_ROOM;
-  const pad = words === undefined ? union : { ...union, b: union.b + CAPTION_ROOM };
+  const captionPad = words === undefined ? union : { ...union, b: union.b + CAPTION_ROOM };
+  const dateWords = props.dateOrderNotes ?? [];
+  const dateLayout = dateOrderLayout(dateWords, width - union.l - union.r, height - captionPad.t - captionPad.b - 40);
+  const pad = dateLayout.height === 0 ? captionPad : { ...captionPad, t: captionPad.t + dateLayout.height };
   const plot = framePlotBox(pad, width, height);
   // the frame's own guide is drawn whenever it has one to draw: merged, or a two-or-more-layer stack whose x it draws once
   const frameGuide = guide === 'merged' || layers.length > 1;
@@ -499,12 +505,13 @@ export function VizFrame(props: VizFrameProps): JSX.Element {
   // the label; a frame drawing no guide has no axis of its own, so it has no zero of its own either
   const zeroes = frameGuide ? frameZeroes(props, plot) : {};
   const name = props.ariaLabel ?? `${String(layers.length)} layers on one frame`;
+  if (dateLayout.height > 0 && plot.bottom - plot.top < 40) return <DateOrderRefusal words={dateWords.map(note => note.full)} />;
   return (
     <div
       className={`vzf-frame${props.className === undefined ? '' : ' ' + props.className}`}
       style={{ position: 'relative', width, height }}
       role="group"
-      aria-label={(words === undefined ? name : `${name} — ${words}`) + zeroGuideNotes(zeroes.x, zeroes.y).map((note) => ` — ${note}`).join('')}
+      aria-label={(words === undefined ? name : `${name} — ${words}`) + zeroGuideNotes(zeroes.x, zeroes.y).map((note) => ` — ${note}`).join('') + dateWords.map(note => ` — ${note.full}`).join('')}
       data-vzf="frame"
     >
       {frameGuide ? <FrameGuide frame={props} plot={plot} width={width} height={height} floor={floor} zeroes={zeroes} /> : null}
@@ -525,6 +532,7 @@ export function VizFrame(props: VizFrameProps): JSX.Element {
           </div>
         );
       })}
+      {dateLayout.height > 0 && <svg aria-hidden="true" viewBox={`0 0 ${width} ${height}`} style={{ position: 'absolute', inset: 0, width, height, pointerEvents: 'none' }}><DateOrderNotes layout={dateLayout} left={plot.left} top={union.t} /></svg>}
       {words === undefined ? null : (
         // the caption strip: inside the frame's height, beneath the x axis label, spanning the plot — the
         // words a sighted reader meets; the accessible label above carries the same sentence

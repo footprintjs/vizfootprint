@@ -863,7 +863,7 @@ await view.reencodeSet('scatter', { x: 'rating', y: 'price' }, 'swap axes');
 Any charting stack — the five first-party charts, a canvas renderer, a
 wrapped external library — can join the coordinated, cause-tagged dashboard
 by implementing ONE small surface. The protocol is framework-agnostic and
-versioned (`RENDERER_PROTOCOL_VERSION`, currently `1.12`). The laws it is
+versioned (`RENDERER_PROTOCOL_VERSION`, currently `1.12`; its unreleased train also adds an optional positive `dateOrder: { compared, conflicted }` witness on folded temporal domains). The laws it is
 reviewed against — what a capability flag may claim, and why — are written up
 in `src/contract/README.md`.
 
@@ -1352,3 +1352,28 @@ surfaces (the cockpit dims its charts band; navigation and the read-only report
 chips stay live). The current bookmark is the bookmark at the cursor, or — when
 the cursor sits between bookmarks — the most recent bookmark on the cursor's own
 lineage.
+
+### When date text and time order differ
+
+The chart places dates as instants; a selected date interval is matched against
+the original text. A mixed-offset column can therefore keep two of three points
+inside its plotted time span. A folded temporal domain now carries an optional
+positive `dateOrder` witness counted over its inspected table/rows basis. Line
+charts without such a fold use the same rule over original drawn-row strings;
+summary marks do not assess their bins as column cells. Any folded temporal
+answer wins, including one without a witness. A warning is visible and in the
+accessible label, in its own band above the plot/legend and existing notes.
+
+For example, `2026-04-01T23:00:00-05:00` sorts before
+`2026-04-02T01:00:00Z` as text but follows it in time. Both occurrences
+participate in the disagreement. Repeated participants count separately, while
+exact duplicates alone do not. Date objects and unreadable cells are not
+original parseable strings; this count is neither excluded marks nor total
+table rows. No witness certifies unseen data or arbitrary external bounds.
+Rows, brush tuples, predicates, SQL, events and replay keep their original laws.
+A chart too small for its notes and plot asks to be enlarged instead of hiding
+the note. See `dateOrder/` for the one model, feature door and word-only component;
+`charts/lineCompat.ts` and `contract/markDraw.ts` own the moved whole units.
+The adapter and warning share `primitives/lineCell.ts`'s numeric-cell discriminator, so mixed numeric axes do not acquire a date warning.
+
+Date-order notes in a stack count occurrences read across its binding layers, not unique table cells. The full basis remains accessible when a small chart uses a compact note; selection consequences are limited to line date intervals. Plain bar, histogram, heat map, box plot and scatter views still omit folded date-order facts.
