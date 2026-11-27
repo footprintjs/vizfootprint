@@ -811,6 +811,9 @@ describe('LAW 14 — what the quantity can be: a numeric extent CAN be declared'
     ]);
     // a channel a layer declares but does not bind has no column to judge
     expect(framed({ y: { mode: 'shared', zero: true } }, sharesX, dates)).toEqual([]);
+    // …and neither has a plain view's: the door judges the column bound at the start, and the renderer judges a later binding
+    // (a view re-encoded onto a string column is refused when drawn). Moving this law to "may bind" must change this line on purpose.
+    expect(plain({ x: { zero: true } }, { chartKind: 'line' }, facts({ group: { type: 'string', role: 'dimension' } }, {}))).toEqual([]);
   });
 
   it('BOUNDS ARE NUMBERS, so the axis has to be one — judged where the def declares the column, never on ignorance', () => {

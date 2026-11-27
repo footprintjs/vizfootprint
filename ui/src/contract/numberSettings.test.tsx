@@ -12,7 +12,8 @@
  *
  * | the frame holds, on a channel the mark binds              | before             | now                                         |
  * |-----------------------------------------------------------|--------------------|---------------------------------------------|
- * | a bar's category or a box plot's x, with any of the three | drawn, key ignored | refused: that axis is a band. "Drop it."    |
+ * | a bar's category or a box plot's x, with a logarithm or bounds (any column), or `zero` on a category or date column | drawn, key ignored | refused: that axis is a band. "Drop it." |
+ * | the same axis bound to a NUMBER column, with `zero`       | drawn, key ignored | NOT SEEN: the fold applies it to a span the band never reads and echoes nothing |
  * | a line's x folded as categories or dates, with any        | drawn, key ignored | refused: needs a number; drop it or bind a number |
  * | a scatter's y folded as categories, with bounds           | drawn, key ignored | refused: needs a number                     |
  * | a number axis with a logarithm or bounds                  | drawn as declared  | unchanged                                   |
@@ -54,7 +55,7 @@ const BANDS = folded('categorical', ['A', 'B']);
 const RUN = folded('temporal', ['2026-01-01', '2026-01-02']);
 
 describe('a view drawn alone', () => {
-  it('a bar’s category is a band whatever its column: any of the three is refused, and the only way out is to drop it', () => {
+  it('a bar’s category is a band whatever its column: a logarithm, bounds, and an echoed zero are refused, and the only way out is to drop it', () => {
     expect(refusal(drawn(barRenderer(), BARS, { category: 'shelf' }, { category: { ...BANDS, transform: 'log' } as ResolvedChannel }))).toBe(band('transform "log"', 'view "v"', 'bar', 'category', 'shelf'));
     expect(refusal(drawn(barRenderer(), BARS, { category: 'shelf' }, { category: { ...BANDS, bounds: [0, 10] } as ResolvedChannel }))).toBe(band('bounds', 'view "v"', 'bar', 'category', 'shelf'));
     expect(refusal(drawn(barRenderer(), BARS, { category: 'shelf' }, { category: { ...BANDS, zero: true } as ResolvedChannel }))).toBe(band('zero', 'view "v"', 'bar', 'category', 'shelf'));
@@ -62,6 +63,8 @@ describe('a view drawn alone', () => {
     // …also where its column is a number: binding a number does not make a bar's category an axis of numbers
     const numbered = [{ n: 1, count: 3 }, { n: 2, count: 8 }];
     expect(refusal(drawn(barRenderer(), numbered, { category: 'n' }, { category: folded('quantitative', [1, 2], { transform: 'log' }) }))).toBe(band('transform "log"', 'view "v"', 'bar', 'category', 'n'));
+    // KNOWN GAP, pinned so it is closed on purpose: on a number column the fold applies `zero` and echoes nothing, so there is no key to refuse
+    expect(refusal(drawn(barRenderer(), numbered, { category: 'n' }, { category: folded('quantitative', [0, 2]) }))).toBe('');
   });
 
   it('a box plot’s x is a band too', () => {

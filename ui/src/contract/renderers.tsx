@@ -1549,8 +1549,14 @@ function layerRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
  *     decided the fold. Binding the channel to a number is a way out too.
  *
  * `zero` is seen here because the fold echoes it exactly where it could not
- * apply it (`ResolvedChannel.zero`). NOT SEEN: any of the three on an
- * INDEPENDENT channel, which the fold gives no scale kind.
+ * apply it (`ResolvedChannel.zero`). NOT SEEN, two cases:
+ *   - `zero` on a band mark's x whose column the fold made a NUMBER (a bar's
+ *     category bound to a number column of undeclared type). The fold applies
+ *     it to a span the band never reads and does not echo it, so it reaches
+ *     no picture. A definition that declares the column's type is stopped at
+ *     the door, which wants a discrete column there.
+ *   - a logarithm on an INDEPENDENT channel over columns that are not numbers,
+ *     which the fold gives no scale kind.
  */
 function numberSettingRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject): string | null {
   for (const f of framed) {

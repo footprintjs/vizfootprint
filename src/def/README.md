@@ -820,14 +820,16 @@ DECLARED. Two cases are outside its sight: a column with no declared type
 (inline rows with no `columns`), which is known only from its cells; and a
 column a plain view is re-encoded onto after the build. The renderer is the
 fence for both. It refuses any of the three on a channel the fold made a
-category or a date, and on an axis the mark makes a band (a bar's category, a
-box plot's x). It can see `zero` because the fold echoes a declared `zero`
+category or a date; and, on an axis the mark makes a band (a bar's category, a
+box plot's x), a logarithm or bounds whatever the column. It can see `zero` because the fold echoes a declared `zero`
 exactly where it could not apply it (`ResolvedChannel.zero`, present only on
 a channel folded as a category or a date).
 
-**Not seen by either:** a logarithm on an INDEPENDENT channel over columns
-that are not numbers, in a stack. The fold gives an independent channel no
-scale kind, so nothing can say what its columns are.
+**Not seen by either, two cases.** `zero` on a bar's category or a box plot's
+x bound to a number column of undeclared type: the fold applies it to a span
+the band never reads and does not echo it. And a logarithm on an INDEPENDENT
+channel over columns that are not numbers, in a stack: the fold gives an
+independent channel no scale kind, so nothing can say what its columns are.
 
 ### A count is drawn from zero — three declarations the door refuses with the renderer
 

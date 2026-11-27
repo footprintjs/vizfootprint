@@ -672,17 +672,17 @@ dropped and nothing said so, while a stack of layers honoured them.
 x or y, the view is described as the one layer it is and asked the stack's own
 questions: the same function builds its scales (`layerDomain`), and the same
 list of refusals judges it (`layerRefusal`: everything a layer cannot be by
-itself), naming `view "id"`. That list is: a logarithm, bounds or `zero` on
-an axis that is not a number axis (all three need one; the definition door
-refuses them where the column's type is declared, and this is the fence for a
-column whose type is known only from its cells or that a view is bound to
-later. Where the MARK makes the axis a band, a bar's category or a box plot's
-x, the sentence says so and the way out is to drop the setting; where the
-FOLD made it a category or a date, binding a number is a way out too); a
+itself), naming `view "id"`. That list, in the order it is asked: a
 point on a band; a logarithmic y
 under a bar, a histogram or a box, whose y is a length; bounds on a count's y
-that do not start at zero; a zero line the mark does not draw; a histogram
-whose x was folded as categories. A stack runs the same list over each of its
+that do not start at zero; a logarithm, bounds or `zero` on an axis that is
+not a number axis (all three need one; the definition door refuses them where
+the column's type is declared, and this is the fence for a column whose type
+is known only from its cells or that a view is bound to later. Where the MARK
+makes the axis a band, a bar's category or a box plot's x, the sentence says
+so and the way out is to drop the setting; where the FOLD made it a category
+or a date, binding a number is a way out too); a zero line the mark does not
+draw; a histogram whose x was folded as categories. A stack runs the same list over each of its
 layers, so a declaration means the same thing alone and in a stack, and a new
 per-layer refusal reaches both.
 
