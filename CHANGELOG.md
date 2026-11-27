@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Correction: a date axis is folded by instant, not by text
+
+- The fold made a date span by comparing the cells as text. That is
+  chronological order only while every cell is spelled the same way. A
+  column that mixes spellings is not in text order: `2026-04-01T23:00-05:00`
+  sorts before `2026-04-02T01:00Z` and is three hours after it. A chart
+  places a date as an instant, so the span could leave a row the chart
+  draws outside its own axis, and the chart then said so about data that
+  was only spelled differently.
+- The fold now compares what `Date.parse` makes of each cell, the same
+  reading the charts place it by. The answer is still the earliest and the
+  latest cell as written, so a column folds to the pair it always did
+  wherever text order was already chronological. It was not at a few edges
+  even in one spelling (a day that does not exist, such as `2026-02-30`; a
+  month 13; a clock time in a daylight-saving gap; a year before zero);
+  there the fold now agrees with the chart.
+- The reading is `Date.parse`'s: a date-time with no zone is read in the
+  zone of the process that folds, and text that is not ISO-8601 is read as
+  a date wherever the JavaScript engine reads it.
+- A string no date can be read from is now an absence, as an invalid `Date`
+  already was. It used to be compared as text and could become an end of
+  the axis that no chart could read.
+
 ### Correction: a chart says "declared bounds" only where bounds were declared
 
 - A chart that draws a mark outside the span of its axis says so in words.
