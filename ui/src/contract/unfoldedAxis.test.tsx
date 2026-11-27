@@ -17,7 +17,7 @@
  * | `zeroGuide: true`                     | −3 … 5                    | no line                      | the zero line, on the chart's own extent         |
  * | bounds a count cannot stand on        | a bar that binds y        | drawn from zero              | refused in words, as with a span                 |
  * | a category or a date x, a no-op key   | a line                    | the chart                    | the chart: nothing was asked that changes it     |
- * | bounds on a DATE x (numbers on dates) | a line                    | the chart                    | the chart: bounds are read on a number axis only |
+ * | bounds on a DATE x (numbers on dates) | a line                    | the chart                    | refused in words: bounds need a number           |
  * | any of them, in a STACK               |                           | the stack                    | the same stack, byte for byte: a stack reads folded spans only |
  *
  * WHY A STACK DOES NOT TAKE THE ENTRY. With no span, each layer would draw on
@@ -98,11 +98,9 @@ describe('a plain view', () => {
     const plain = drawn(lineRenderer(), days, { x: 'd', y: 'v' }).innerHTML;
     document.body.innerHTML = '';
     expect(drawn(lineRenderer(), days, { x: 'd', y: 'v' }, { x: unfolded('temporal', { transform: 'linear' }) }).innerHTML).toBe(plain);
-    // bounds are numbers: on a date axis they are read as nothing, folded or not, and no sentence is made of them
+    // bounds are numbers: on a date axis they are refused, folded or not, and never made into a span of dates
     document.body.innerHTML = '';
-    const bounded = drawn(lineRenderer(), days, { x: 'd', y: 'v' }, { x: unfolded('temporal', { bounds: [0, 100] }) });
-    expect(bounded.innerHTML).toBe(plain);
-    expect(bounded.querySelector('text.vzf-outside-note')).toBeNull();
+    expect(refusal(drawn(lineRenderer(), days, { x: 'd', y: 'v' }, { x: unfolded('temporal', { bounds: [0, 100] }) }))).toBe('bounds needs a number — view "v" binds x to "d", on an axis the frame folded as a date. Drop it, or bind x to a number.');
   });
 });
 

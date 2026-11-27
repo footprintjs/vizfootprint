@@ -793,6 +793,29 @@ describe('LAW 14 — what the quantity can be: a numeric extent CAN be declared'
     expect(framed({ x: { mode: 'shared', bounds: [9, 1], transform: 'log' } }, sharesX, facts({ size: { type: 'date' } }, {}))).toHaveLength(2); // the shape, and the logarithm's own column law
   });
 
+  it('`zero` IS ABOUT NUMBERS TOO — "reach zero" on a column declared a date or a category is refused, where it used to be accepted and reach no picture', () => {
+    const dates = facts({ size: { type: 'date' } }, { weight: { type: 'date' } });
+    expect(framed({ x: { mode: 'shared', zero: true } }, sharesX, dates)).toEqual([
+      'encodings[0].frame.x.zero needs a number — layer "a" binds x to "size", a date',
+      'encodings[0].frame.x.zero needs a number — layer "b" binds x to "weight", a date',
+    ]);
+    // `zero: false` is the same statement about the same thing
+    expect(framed({ x: { mode: 'shared', zero: false } }, sharesX, dates)).toHaveLength(2);
+    // a number passes; a column the def says nothing about is not held to the law; a channel that declares no `zero` is not judged
+    expect(framed({ x: { mode: 'shared', zero: true } }, sharesX, facts({ size: { type: 'number' } }, { weight: { type: 'number' } }))).toEqual([]);
+    expect(framed({ x: { mode: 'shared', zero: true } }, sharesX)).toEqual([]);
+    expect(framed({ x: { mode: 'shared' } }, sharesX, dates)).toEqual([]);
+    // the layerless view reads its column off the DEFAULT table, and names itself
+    expect(plain({ x: { zero: true } }, { chartKind: 'line', initial: { x: 'group' } }, facts({ group: { type: 'string', role: 'dimension' } }, {}))).toEqual([
+      'encodings[0].frame.x.zero needs a number — view "net" binds x to "group", a string',
+    ]);
+    // a channel a layer declares but does not bind has no column to judge
+    expect(framed({ y: { mode: 'shared', zero: true } }, sharesX, dates)).toEqual([]);
+    // …and neither has a plain view's: the door judges the column bound at the start, and the renderer judges a later binding
+    // (a view re-encoded onto a string column is refused when drawn). Moving this law to "may bind" must change this line on purpose.
+    expect(plain({ x: { zero: true } }, { chartKind: 'line' }, facts({ group: { type: 'string', role: 'dimension' } }, {}))).toEqual([]);
+  });
+
   it('BOUNDS ARE NUMBERS, so the axis has to be one — judged where the def declares the column, never on ignorance', () => {
     // both columns declared a DATE, so law 10's shared-column check has nothing to disagree about: one law per test
     expect(framed({ x: { mode: 'shared', bounds: [0, 100] } }, sharesX, facts({ size: { type: 'date' } }, { weight: { type: 'date' } }))).toEqual([

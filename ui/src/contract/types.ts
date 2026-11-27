@@ -149,6 +149,10 @@ import type { ResolvedChannel } from 'vizfootprint/def';
  * renderer that treats "not quantitative and not categorical" as temporal and
  * then reads `domain` (a fall-through) must add the check: such a frame was
  * never handed to it before. The minor stays compatible for the first kind.
+ * AMENDED IN THE SAME UNRELEASED TRAIN: a shared channel folded as a category
+ * or a date may carry `zero`, the definition's own word echoed where the fold
+ * could not apply it, so a renderer can refuse it in words. Optional, and
+ * absent on every number axis, so a renderer that never reads it is unchanged.
  */
 export const RENDERER_PROTOCOL_VERSION = '1.12';
 

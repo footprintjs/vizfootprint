@@ -800,6 +800,39 @@ The shape sentences, for completeness: `encodings[i].layers, if present, must be
     ```
     `reason` is a discriminant and not a boolean so a second cause of silence can arrive without a second key. The mount-time twin is `AdapterCapabilities.silentBecause`, for the same reason the `encodings` twin exists.
 
+### A logarithm, bounds and `zero` need a number
+
+**Why.** All three are statements about numbers. On a column that is a
+category or a date they are read as nothing, and a declared setting that
+reaches no picture is refused, not dropped. One sentence for all three
+(`needsANumberRefusal`, `../encoding/frame.ts`):
+
+```
+encodings[0].frame.x.zero needs a number — view "net" binds x to "group", a string
+```
+
+`transform: 'log'` and `bounds` were refused this way already; `zero` was
+accepted and then ignored, and is now refused too.
+
+**What the door can judge, and who judges the rest.** The door judges the
+column a mark binds at the start (`initial`), where that column's type is
+DECLARED. Two cases are outside its sight: a column with no declared type
+(inline rows with no `columns`), which is known only from its cells; and a
+column a plain view is re-encoded onto after the build. The renderer is the
+fence for both. It refuses any of the three on a channel the fold made a
+category or a date; and, on an axis the mark makes a band (a bar's category, a
+box plot's x), a logarithm or bounds whatever the column. It can see `zero` because the fold echoes a declared `zero`
+exactly where it could not apply it (`ResolvedChannel.zero`, present only on
+a channel folded as a category or a date).
+
+**Not seen by either, two cases.** `zero` on a bar's category or a box plot's
+x bound to a number column of undeclared type: the fold applies it to a span
+the band never reads and does not echo it (the door does stop `zero: false`
+on a box plot's x, for another reason: it reads that x as a length, a
+reading the renderer does not share, recorded as a task). And a logarithm on an INDEPENDENT
+channel over columns that are not numbers, in a stack: the fold gives an
+independent channel no scale kind, so nothing can say what its columns are.
+
 ### A count is drawn from zero — three declarations the door refuses with the renderer
 
 **Why.** A bar and a histogram bin are counts, drawn as a length from zero. The

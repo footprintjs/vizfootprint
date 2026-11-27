@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Correction: a logarithm, bounds or `zero` on an axis that is not a number axis is refused
+
+- All three are statements about numbers. On a category or a date they
+  were read as nothing: the axis was drawn as if the setting had not been
+  declared, with no word.
+- The definition door already refused `transform: 'log'` and `bounds` on a
+  column declared as a date or a string. It now refuses `zero` there too
+  (`frame.x.zero needs a number — view "net" binds x to "group", a
+  string`). **A break:** a definition that declared `zero` on such a column
+  built before.
+- The door judges the column a mark binds at the start, where its type is
+  declared. A column whose type is not declared, and a column a view is
+  bound to later, are judged by the renderer. A view drawn alone, and a
+  layer of a stack, now refuse any of the three on a channel the fold made
+  a band of categories or a run of dates (`… on an axis the frame folded as
+  a category. Drop it, or bind x to a number.`). On an axis the mark makes
+  a band, a bar's category or a box plot's x, a logarithm or bounds are
+  refused whatever the column, and `zero` where the fold made the column a
+  category or a date (`… and a bar's category is a band. Drop it.`). **A break:** that chart drew before, with the
+  setting ignored.
+- So that the renderer can see `zero`, the fold echoes a declared `zero`
+  on a channel it folded as a category or a date, where it could not apply
+  it (`ResolvedChannel.zero`; recorded under protocol 1.12). On a number
+  axis the fold applies it and the answer is unchanged.
+- Not caught, two cases. `zero` on a bar's category or a box plot's x
+  bound to a number column of undeclared type: the fold applies it to a
+  span the band never reads, and does not echo it. And a logarithm on an
+  independent channel over columns that are not numbers, in a stack: the
+  fold gives an independent channel no scale kind.
+- New export from `vizfootprint/def`: `needsANumberRefusal`, the one owner
+  of the sentence.
+
 ### Correction: a declared axis with no span to fold reaches the picture of a view drawn alone
 
 - The fold answered nothing for a channel with no readable cell (the read
