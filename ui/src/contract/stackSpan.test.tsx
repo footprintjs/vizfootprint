@@ -18,7 +18,8 @@ import { RENDERER_PROTOCOL_VERSION, type RenderLayer, type RenderState, type Res
 const cb=()=>({emit:vi.fn(),hover:vi.fn(),navigate:vi.fn(),reencodeRequest:vi.fn()});
 const cleanups:(()=>void)[]=[];
 afterEach(()=>{cleanups.splice(0).forEach(f=>f());document.body.innerHTML='';});
-const unresolved=(declared:object={}):ResolvedChannel=>({mode:'shared',basis:'table',guide:'merged',unfolded:true,scaleKind:'quantitative',...declared}) as ResolvedChannel;
+type UnfoldedChannel = Extract<ResolvedChannel, { readonly unfolded: true }>;
+const unresolved=(declared:object={}):UnfoldedChannel=>({mode:'shared',basis:'table',guide:'merged',unfolded:true,scaleKind:'quantitative',...declared});
 const rows=[{x:1,y:2,c:'a',count:2},{x:2,y:5,c:'b',count:5}];
 const layer=(kind='line',id='a'):RenderLayer=>({layerId:id,table:'t',rows,encodings:kind==='bar'?{category:'c',y:'count'}:{x:'x',y:'y'}});
 function draw(kinds:readonly string[],layers:readonly RenderLayer[],frame?:Readonly<Record<string,ResolvedChannel>>){
