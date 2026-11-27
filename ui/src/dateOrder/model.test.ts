@@ -38,8 +38,17 @@ describe('date-order presentation reads one observed owner',()=>{
  });
  it('wraps without dropping a character and takes zero room for no note',()=>{
    expect(dateOrderLayout([],400)).toEqual({notes:[],height:0});
+   expect(dateOrderLayout([''],400)).toEqual({notes:[],height:0});
    const words=dateOrderWords(lineDateOrder(undefined,mixed));const layout=dateOrderLayout([words],200);
    expect(layout.notes[0]!.join('')).toBe(words);expect(layout.height).toBe(layout.notes[0]!.length*12+24);
    expect(dateOrderLayout(['xy'],0).notes).toEqual([['x','y']]);
  });
+ it('wraps a Unicode layer name without splitting surrogate pairs or losing its words',()=>{
+   const words='日'.repeat(27)+'🧪';
+   const layout=dateOrderLayout([words],200);
+   expect(layout.notes[0]!.join('')).toBe(words);
+   for (const line of layout.notes[0]!) expect(Array.from(line).every(cell=>cell.length===2||cell.charCodeAt(0)<0xd800||cell.charCodeAt(0)>0xdfff)).toBe(true);
+   expect(layout.notes[0]!.length).toBeGreaterThan(dateOrderLayout(['a'.repeat(28)],200).notes[0]!.length);
+ });
+
 });

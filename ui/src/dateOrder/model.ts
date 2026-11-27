@@ -58,11 +58,26 @@ export interface DateOrderLayout {
  * hiding a warning. No words = zero room and byte-identical old furniture.
  */
 export function dateOrderLayout(words: readonly string[], width: number): DateOrderLayout {
-  if (words.length === 0) return { notes: [], height: 0 };
+  const nonempty = words.filter(word => word.length > 0);
+  if (nonempty.length === 0) return { notes: [], height: 0 };
   const columns = Math.max(1, Math.floor(width / 7));
-  const notes = words.map(word => {
+  const notes = nonempty.map(word => {
     const lines: string[] = [];
-    for (let start = 0; start < word.length; start += columns) lines.push(word.slice(start, start + columns));
+    let line = '';
+    let used = 0;
+    // for-of keeps surrogate pairs whole. Non-ASCII scalars get a wider
+    // allowance; no glyph is dropped and original text is never rewritten.
+    for (const cell of word) {
+      const slots = cell.charCodeAt(0) > 0x7f ? 2 : 1;
+      if (line.length > 0 && used + slots > columns) {
+        lines.push(line);
+        line = '';
+        used = 0;
+      }
+      line += cell;
+      used += slots;
+    }
+    lines.push(line);
     return lines;
   });
   return { notes, height: notes.reduce((sum, lines) => sum + lines.length * 12, 0) + 24 };
