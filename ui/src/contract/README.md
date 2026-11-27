@@ -672,7 +672,11 @@ dropped and nothing said so, while a stack of layers honoured them.
 x or y, the view is described as the one layer it is and asked the stack's own
 questions: the same function builds its scales (`layerDomain`), and the same
 list of refusals judges it (`layerRefusal`: everything a layer cannot be by
-itself), naming `view "id"`. That list is: a point on a band; a logarithmic y
+itself), naming `view "id"`. That list is: a logarithm or bounds on an axis
+the fold made a band of categories or a run of dates (both need a number;
+the definition door refuses them where the column's type is declared, and
+this is the fence for a column whose type is known only from its cells); a
+point on a band; a logarithmic y
 under a bar, a histogram or a box, whose y is a length; bounds on a count's y
 that do not start at zero; a zero line the mark does not draw; a histogram
 whose x was folded as categories. A stack runs the same list over each of its

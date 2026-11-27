@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Correction: a logarithm, bounds or `zero` on an axis that is not a number axis is refused
+
+- All three are statements about numbers. On a category or a date they
+  were read as nothing: the axis was drawn as if the setting had not been
+  declared, with no word.
+- The definition door already refused `transform: 'log'` and `bounds` on a
+  column declared as a date or a string. It now refuses `zero` there too
+  (`frame.x.zero needs a number — view "net" binds x to "group", a
+  string`). **A break:** a definition that declared `zero` on such a column
+  built before.
+- A column whose type is not declared is known only from its cells, so the
+  renderer is the fence there. A view drawn alone, and a layer of a stack,
+  now refuse a logarithm or bounds on a channel the fold made a band of
+  categories or a run of dates, in the door's sentence, with the way out
+  (drop it, or bind the channel to a number). **A break:** that chart drew
+  before, with the setting ignored.
+- Not caught: `zero` on a category column of undeclared type. The fold
+  applies `zero` and does not echo it, so the renderer cannot see it.
+  Declaring the column's type lets the door refuse it.
+- New export from `vizfootprint/def`: `needsANumberRefusal`, the one owner
+  of the sentence.
+
 ### Correction: a declared axis with no span to fold reaches the picture of a view drawn alone
 
 - The fold answered nothing for a channel with no readable cell (the read

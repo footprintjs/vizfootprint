@@ -306,6 +306,23 @@ export function drawsZeroGuide(chartKind: string, channel: string): boolean {
   return (ZERO_GUIDE_CHANNELS.get(chartKind) ?? []).includes(channel);
 }
 
+// ── a setting that needs a number: said once, by the definition door and the renderer ──
+
+/**
+ * THE WORDS FOR A NUMBER SETTING ON A COLUMN THAT IS NOT A NUMBER. A
+ * logarithm, bounds and "reach zero" are statements about numbers. On a
+ * category or a date they are read as nothing at all, and a declared setting
+ * that reaches no picture is refused, not dropped.
+ *
+ * `setting` is the key as its author wrote it (`transform "log"`, `bounds`,
+ * `zero`), and `columnIs` says what the column is, in the words of whoever
+ * knows it: the definition door reads a declared type (`a string`), the
+ * renderer reads what the fold made of the cells (`a category`).
+ */
+export function needsANumberRefusal(setting: string, subject: string, channel: string, field: string, columnIs: string): string {
+  return `${setting} needs a number — ${subject} binds ${channel} to "${field}", ${columnIs}`;
+}
+
 // ── a count: what the definition door and the renderer both refuse, said once ──
 
 /**

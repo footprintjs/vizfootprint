@@ -800,6 +800,26 @@ The shape sentences, for completeness: `encodings[i].layers, if present, must be
     ```
     `reason` is a discriminant and not a boolean so a second cause of silence can arrive without a second key. The mount-time twin is `AdapterCapabilities.silentBecause`, for the same reason the `encodings` twin exists.
 
+### A logarithm, bounds and `zero` need a number
+
+**Why.** All three are statements about numbers. On a column that is a
+category or a date they are read as nothing, and a declared setting that
+reaches no picture is refused, not dropped. One sentence for all three
+(`needsANumberRefusal`, `../encoding/frame.ts`):
+
+```
+encodings[0].frame.x.zero needs a number — view "net" binds x to "group", a string
+```
+
+`transform: 'log'` and `bounds` were refused this way already; `zero` was
+accepted and then ignored, and is now refused too. The door judges a column
+whose type is DECLARED. A column with no declared type (inline rows with no
+`columns`) is known only from its cells, so the renderer is the fence there:
+it refuses a logarithm or bounds on a channel the fold made a category or a
+date, in the same sentence. It cannot see `zero`, which the fold applies and
+does not echo, so `zero` on a category column of undeclared type still
+reaches no picture. Declare the column's type and the door catches it.
+
 ### A count is drawn from zero — three declarations the door refuses with the renderer
 
 **Why.** A bar and a histogram bin are counts, drawn as a length from zero. The

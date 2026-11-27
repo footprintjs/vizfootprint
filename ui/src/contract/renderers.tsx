@@ -70,7 +70,7 @@ import {
   type RenderSelection,
   type RenderState,
 } from './types.js';
-import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, logOnExtentRefusal, boundsFitACount, countBoundsRefusal as countBoundsSentence, histogramCountLogRefusal, countOffAxisRefusal as countOffAxisSentence, scaleKindOf, type ResolvedChannel } from 'vizfootprint/def';
+import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, logOnExtentRefusal, boundsFitACount, countBoundsRefusal as countBoundsSentence, histogramCountLogRefusal, countOffAxisRefusal as countOffAxisSentence, scaleKindOf, needsANumberRefusal, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
 import { bandOrder, countSpan, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
 import { VizFrame, COUNT_KINDS, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
@@ -1523,7 +1523,37 @@ function layerRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
     // a point is on a band only because `xBinding` found its column folded as categories, so the binding is there
     return `${named(point)} is a point on a band — column "${xBinding(point, frame)!.column}" is a category — and a point chart draws no band in this version. Draw it as a line${apart}.`;
   }
-  return logExtentRefusal(framed, frame, named) ?? countBoundsRefusal(framed, frame, named) ?? zeroGuideRefusal(framed, frame, named) ?? intervalBrushRefusal(framed, frame, named);
+  return numberSettingRefusal(framed, frame, named) ?? logExtentRefusal(framed, frame, named) ?? countBoundsRefusal(framed, frame, named) ?? zeroGuideRefusal(framed, frame, named) ?? intervalBrushRefusal(framed, frame, named);
+}
+
+/**
+ * A LOGARITHM OR BOUNDS ON AN AXIS THAT IS NOT A NUMBER AXIS. Both are
+ * statements about numbers. Where the fold made the channel a band of
+ * categories or a run of dates, the charts read them as nothing: the axis was
+ * drawn as if neither had been declared, with no word.
+ *
+ * The definition door refuses both where the column's type is DECLARED. It
+ * cannot where the type is not (inline rows with no `columns`), because what
+ * such a column holds is known only from its cells, and the fold is who reads
+ * them. This is the second fence, on what the fold made of them, in the
+ * door's own sentence (`needsANumberRefusal`).
+ *
+ * NOT SEEN HERE: `zero`. The fold applies it to the span and does not echo it,
+ * so on a column of undeclared type a `zero` on a category still reaches no
+ * picture. The door refuses it where the type is declared.
+ */
+function numberSettingRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject): string | null {
+  for (const f of framed) {
+    for (const axis of AXES) {
+      const channel = AXIS_CHANNELS[f.kind][axis];
+      const column = f.layer.encodings[channel];
+      const shared = sharedOn(frame, channel);
+      if (column === undefined || shared === undefined || kindOf(shared) === 'quantitative') continue;
+      const setting = shared.transform === 'log' ? 'transform "log"' : shared.bounds !== undefined ? 'bounds' : undefined;
+      if (setting !== undefined) return `${needsANumberRefusal(setting, named(f), channel, column, SCALE_TYPE_WORDS[kindOf(shared)])}. Drop it, or bind ${channel} to a number.`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -1947,8 +1977,9 @@ function spanOf(channel: SharedChannel | undefined): readonly [number, number] |
   // nothing is lost by preferring one here — and only on a QUANTITATIVE axis, because bounds are numbers
   // and the def door refuses them on a channel bound to anything else.
   // A DECLARED AXIS WITH NO SPAN TO FOLD (`UnfoldedDomain`) has only what was declared: its bounds, where
-  // its column is a number (bounds are numbers; a folded date or category axis reads none either), or
-  // nothing, and then the mark draws on its own extent. No span is invented for it.
+  // its column is a number (bounds on a date or a category axis are refused before any span is asked
+  // for, `numberSettingRefusal`), or nothing, and then the mark draws on its own extent. No span is
+  // invented for it.
   if (channel.scale === undefined) return channel.scaleKind === 'quantitative' ? channel.bounds : undefined;
   if (channel.scale === 'quantitative') return channel.bounds ?? channel.domain;
   if (channel.scale === 'categorical') return undefined;

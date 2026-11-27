@@ -23,7 +23,7 @@
  */
 import type { ColumnFacet } from '../data/types.js';
 import type { ColumnDecl, EncodingSurface } from '../encoding/index.js';
-import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsIntervalBrush, drawsZeroGuide, firstScaleTakenRefusal, frameScaleOf, intervalGestureRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal, logOnExtentRefusal, COUNT_MARKS, boundsFitACount, countBoundsRefusal, histogramCountLogRefusal, countOffAxisRefusal } from '../encoding/index.js';
+import { MAGNITUDE_CHANNELS, POSITIONAL_CHANNELS, ZERO_ANCHORED_KINDS, drawsIntervalBrush, drawsZeroGuide, firstScaleTakenRefusal, frameScaleOf, intervalGestureRefusal, mayTakeFirstScale, noZeroOnALogAxis, resolveFacet, zeroAnchorsChannel, zeroGuideKindRefusal, logOnExtentRefusal, COUNT_MARKS, boundsFitACount, countBoundsRefusal, histogramCountLogRefusal, countOffAxisRefusal, needsANumberRefusal } from '../encoding/index.js';
 import { ENCODING_KIND, type LinkView } from '../links/index.js';
 import type { MintedTable } from './builtinAnalyses.js';
 import { LAYER_MARKER, holdsLayerMarker, layerAddress } from './layerAddress.js';
@@ -481,6 +481,7 @@ function judgeChannelLaws(at: string, channel: string, resolution: Record<string
   if (resolution.transform === LOG) judgeLogarithm(at, channel, resolution, binders, data, minted, problems);
   if (resolution.zeroGuide === true) judgeZeroGuide(at, channel, binders, problems);
   if (isBoundsPair(resolution.bounds)) judgeBounds(at, channel, resolution.bounds, resolution.transform, binders, data, minted, problems);
+  if (typeof resolution.zero === 'boolean') judgeZeroNeedsANumber(at, channel, binders, data, minted, problems);
   if (resolution.mode === 'shared') judgeSharedColumns(at, channel, binders, data, minted, problems);
 }
 
@@ -508,7 +509,7 @@ function judgeBounds(at: string, channel: string, bounds: readonly [number, numb
     const field = binder.initial?.[channel];
     if (field === undefined) continue;
     const type = declaredFacet(data, binder.table, field, minted).type;
-    if (type !== 'unknown' && type !== 'number') problems.push(`${at}.bounds needs a number — ${binder.subject} binds ${channel} to "${field}", a ${type}`);
+    if (type !== 'unknown' && type !== 'number') problems.push(`${at}.${needsANumberRefusal('bounds', binder.subject, channel, field, `a ${type}`)}`);
   }
   // c. A COUNT IS DRAWN FROM ZERO. Bounds that do not start at zero (or end below one) on the y a bar or a
   //    histogram binds would be drawn from zero anyway, the declared low end dropped: refused in the
@@ -519,6 +520,24 @@ function judgeBounds(at: string, channel: string, bounds: readonly [number, numb
   const position = binders.find((b) => !COUNT_MARKS.includes(b.chartKind) && mayBind(b, 'y'));
   for (const binder of binders.filter((b) => COUNT_MARKS.includes(b.chartKind) && mayBind(b, 'y'))) {
     problems.push(`${at}.bounds: ${countBoundsRefusal(binder.subject, binder.chartKind, bounds, position?.subject)}`);
+  }
+}
+
+/**
+ * `zero` IS A STATEMENT ABOUT NUMBERS: whether the axis reaches zero. On a
+ * column DECLARED as a category or a date there is no zero to reach, the fold
+ * reads the key as nothing, and the declaration reached no picture with no
+ * word. Refused in the sentence the logarithm and the bounds already use
+ * (`needsANumberRefusal`, one owner). A column whose type is not declared is
+ * not judged here: what it holds is the provider's to say, and the renderer's
+ * second fence judges what the fold made of its cells for the keys it can see.
+ */
+function judgeZeroNeedsANumber(at: string, channel: string, binders: readonly FrameBinder[], data: unknown, minted: ReadonlyMap<string, MintedTable>, problems: string[]): void {
+  for (const binder of binders.filter((b) => b.channels.includes(channel))) {
+    const field = binder.initial?.[channel];
+    if (field === undefined) continue;
+    const type = declaredFacet(data, binder.table, field, minted).type;
+    if (type !== 'unknown' && type !== 'number') problems.push(`${at}.${needsANumberRefusal('zero', binder.subject, channel, field, `a ${type}`)}`);
   }
 }
 
@@ -659,7 +678,7 @@ function judgeLogarithm(at: string, channel: string, resolution: Record<string, 
     const field = binder.initial?.[channel];
     if (field === undefined) continue;
     const type = declaredFacet(data, binder.table, field, minted).type;
-    if (type !== 'unknown' && type !== 'number') problems.push(`${at}: transform "log" needs a number — ${binder.subject} binds ${channel} to "${field}", a ${type}`);
+    if (type !== 'unknown' && type !== 'number') problems.push(`${at}: ${needsANumberRefusal('transform "log"', binder.subject, channel, field, `a ${type}`)}`);
   }
 }
 
