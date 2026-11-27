@@ -802,9 +802,9 @@ export function frameLint(layers: readonly { readonly layerId: string }[]): read
  * values folded as one domain.
  *
  * - QUANTITATIVE: `[min, max]` over the finite numbers, then the zero policy.
- * - TEMPORAL: `[earliest, latest]` over the ISO-8601 strings (lexicographic ==
- *   chronological, the repo-wide date law); a `Date` object counts, as its own
- *   ISO spelling.
+ * - TEMPORAL: `[earliest, latest]` over the dates in the cells, compared as
+ *   INSTANTS (what `Date.parse` makes of each, the reading the charts place a
+ *   date by) and answered in the cells' own spelling (`temporal`).
  * - CATEGORICAL: the union of the categories in FIRST-SEEN order, walking the
  *   layers in DECLARATION order — the same order they are painted in, so a
  *   legend reads in the order the eye met the marks.
@@ -942,8 +942,17 @@ function quantitative(cells: readonly unknown[], zero: boolean, transform?: 'lin
  * place it by (`epochOf`, `vizfootprint-ui/primitives/scales.ts`).
  *
  * THE ANSWER IS STILL THE CELL AS WRITTEN: the earliest and the latest cell,
- * untouched. So a column in one spelling folds to exactly the pair it always
- * did. On equal instants the first one read is kept.
+ * untouched. So a column folds to the pair it always did wherever text order
+ * was already chronological. It was not at the edges even in one spelling: a
+ * clock time inside a daylight-saving gap, a day that does not exist
+ * (`2026-02-30`, which `Date.parse` rolls forward), a month 13 (no date at all),
+ * a year before zero. There the fold now agrees with the chart. On equal
+ * instants the first one read is kept.
+ *
+ * THE READING IS `Date.parse`'s, with what that brings: a date-time with no
+ * zone is read in the zone of the process that folds (so a fold and a chart
+ * agree when they run in one process, which is how a host folds), and text
+ * that is not ISO-8601 is read as a date wherever the engine reads it.
  *
  * A `Date` OBJECT counts, as its own ISO spelling. The engines hand ISO strings
  * for a date column, but a def can be written in TypeScript and an adapter can

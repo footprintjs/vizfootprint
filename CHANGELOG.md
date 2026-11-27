@@ -13,8 +13,14 @@
   was only spelled differently.
 - The fold now compares what `Date.parse` makes of each cell, the same
   reading the charts place it by. The answer is still the earliest and the
-  latest cell as written, so a column in one spelling folds to exactly the
-  pair it always did.
+  latest cell as written, so a column folds to the pair it always did
+  wherever text order was already chronological. It was not at a few edges
+  even in one spelling (a day that does not exist, such as `2026-02-30`; a
+  month 13; a clock time in a daylight-saving gap; a year before zero);
+  there the fold now agrees with the chart.
+- The reading is `Date.parse`'s: a date-time with no zone is read in the
+  zone of the process that folds, and text that is not ISO-8601 is read as
+  a date wherever the JavaScript engine reads it.
 - A string no date can be read from is now an absence, as an invalid `Date`
   already was. It used to be compared as text and could become an end of
   the axis that no chart could read.

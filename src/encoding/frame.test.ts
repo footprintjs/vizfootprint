@@ -23,7 +23,7 @@ describe('frameDomains — the union, per scale kind', () => {
     expect(frame['y']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [-4, 9] });
   });
 
-  it('TEMPORAL: [earliest, latest] over the ISO strings — compared as strings, which for ISO-8601 IS chronological', () => {
+  it('TEMPORAL: [earliest, latest] over the dates in the cells, answered in the cells’ own spelling', () => {
     const frame = frameDomains([layer('a', 'line', { x: ['date', ['2026-03-01', '2026-01-04']] }), layer('b', 'bar', { x: ['date', ['2025-12-31', '2026-02-02']] })]);
     expect(frame['x']).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'temporal', domain: ['2025-12-31', '2026-03-01'] });
   });
@@ -44,10 +44,20 @@ describe('frameDomains — the union, per scale kind', () => {
     expect(fold(['2026-04-01T23:00:00-05:00', '2026-04-02T01:00:00Z', '2026-04-01T20:00:00Z'])).toMatchObject({ scale: 'temporal', domain: ['2026-04-01T20:00:00Z', '2026-04-01T23:00:00-05:00'] });
     // …and the earliest: 01:00 at UTC+5 is 20:00Z the day before, though its text sorts last
     expect(fold(['2026-04-01T00:00:00Z', '2026-04-01T01:00:00+05:00'])).toMatchObject({ domain: ['2026-04-01T01:00:00+05:00', '2026-04-01T00:00:00Z'] });
-    // the answer is the cell AS WRITTEN, so a column in one spelling folds to the pair it always did
+    // the answer is the cell AS WRITTEN, so where text order was already chronological the pair is what it always was
     expect(fold(['2026-03-01', '2026-01-04', '2025-12-31'])).toMatchObject({ domain: ['2025-12-31', '2026-03-01'] });
     // equal instants in two spellings: the first one read is kept, at both ends
     expect(fold(['2026-04-01T00:00:00Z', '2026-04-01'])).toMatchObject({ domain: ['2026-04-01T00:00:00Z', '2026-04-01T00:00:00Z'] });
+  });
+
+  it('agrees with the chart at the edges where text order was not chronological even in one spelling', () => {
+    const fold = (cells: unknown[]): unknown => frameDomains([layer('a', 'line', { x: ['date', cells] })])['x'];
+    // a day that does not exist is rolled forward by the reader the charts use: 30 February is 2 March, the latest of these
+    expect(fold(['2026-02-28', '2026-02-30', '2026-03-01'])).toMatchObject({ domain: ['2026-02-28', '2026-02-30'] });
+    // a month 13 is no date at all
+    expect(fold(['2026-01-01', '2026-13-01'])).toMatchObject({ domain: ['2026-01-01', '2026-01-01'] });
+    // years before zero sort backwards as text
+    expect(fold(['-000001-01-01', '-000003-01-01', '-000002-01-01'])).toMatchObject({ domain: ['-000003-01-01', '-000001-01-01'] });
   });
 
   it('a string no date can be read from is an absence: it has no instant, and a chart cannot place it either', () => {
