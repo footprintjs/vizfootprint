@@ -160,6 +160,18 @@ export type ResolvedChannel =
        * `vizfootprint-ui/contract/renderers.tsx`).
        */
       readonly bounds?: readonly [number, number];
+      /**
+       * A DECLARED `zero` THE FOLD COULD NOT APPLY. `zero` asks a number span to
+       * reach zero (or not to). The fold applies it to the span and says nothing
+       * more, so on a number axis this key is ABSENT. Where the column folded as
+       * a category or a date there is no zero to reach: the declaration is
+       * echoed here, untouched, so a renderer can refuse it in words where it
+       * used to reach no picture with no word. (The definition door refuses it
+       * for a column whose type is declared; this is how the same refusal
+       * reaches a column whose type is known only from its cells, or one bound
+       * after the build.)
+       */
+      readonly zero?: boolean;
     } & (ResolvedDomain | UnfoldedDomain))
   | { readonly mode: 'independent'; readonly guide: 'per-layer'; readonly transform?: 'linear' | 'log'; readonly zeroGuide?: boolean };
 
@@ -844,7 +856,10 @@ export function frameDomains(layers: readonly FrameLayer[], frame?: Readonly<Rec
       if (Object.keys(nature).length > 0 || resolution.bounds !== undefined) out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...bounds, unfolded: true, scaleKind: scale };
       continue;
     }
-    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...bounds, ...domain };
+    // `zero` is applied to a number span above; on a category or a date it could not be, so it is echoed
+    // (`ResolvedChannel.zero`) for a renderer to refuse in words
+    const unapplied = resolution.zero !== undefined && scale !== 'quantitative' ? { zero: resolution.zero } : {};
+    out[channel] = { mode: 'shared', basis: resolution.basis, guide: resolution.guide, ...nature, ...bounds, ...unapplied, ...domain };
   }
   return out;
 }

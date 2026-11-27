@@ -812,13 +812,22 @@ encodings[0].frame.x.zero needs a number — view "net" binds x to "group", a st
 ```
 
 `transform: 'log'` and `bounds` were refused this way already; `zero` was
-accepted and then ignored, and is now refused too. The door judges a column
-whose type is DECLARED. A column with no declared type (inline rows with no
-`columns`) is known only from its cells, so the renderer is the fence there:
-it refuses a logarithm or bounds on a channel the fold made a category or a
-date, in the same sentence. It cannot see `zero`, which the fold applies and
-does not echo, so `zero` on a category column of undeclared type still
-reaches no picture. Declare the column's type and the door catches it.
+accepted and then ignored, and is now refused too.
+
+**What the door can judge, and who judges the rest.** The door judges the
+column a mark binds at the start (`initial`), where that column's type is
+DECLARED. Two cases are outside its sight: a column with no declared type
+(inline rows with no `columns`), which is known only from its cells; and a
+column a plain view is re-encoded onto after the build. The renderer is the
+fence for both. It refuses any of the three on a channel the fold made a
+category or a date, and on an axis the mark makes a band (a bar's category, a
+box plot's x). It can see `zero` because the fold echoes a declared `zero`
+exactly where it could not apply it (`ResolvedChannel.zero`, present only on
+a channel folded as a category or a date).
+
+**Not seen by either:** a logarithm on an INDEPENDENT channel over columns
+that are not numbers, in a stack. The fold gives an independent channel no
+scale kind, so nothing can say what its columns are.
 
 ### A count is drawn from zero — three declarations the door refuses with the renderer
 

@@ -1511,6 +1511,9 @@ function countOffAxisRefusal(framed: readonly FramedLayer[], frame: Readonly<Rec
  *     band in this version, so the picture would be drawn wrong;
  *   - a LOGARITHM ON A MAGNITUDE ({@link logExtentRefusal});
  *   - BOUNDS A COUNT CANNOT STAND ON ({@link countBoundsRefusal});
+ *   - a LOGARITHM, BOUNDS OR `zero` ON AN AXIS THAT IS NOT A NUMBER AXIS
+ *     ({@link numberSettingRefusal}), after the two above: a length or a
+ *     count refuses its setting whatever the column, and says so first;
  *   - a ZERO LINE the mark does not draw ({@link zeroGuideRefusal});
  *   - a DRAG the x cannot carry ({@link intervalBrushRefusal}).
  *
@@ -1523,24 +1526,31 @@ function layerRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<str
     // a point is on a band only because `xBinding` found its column folded as categories, so the binding is there
     return `${named(point)} is a point on a band — column "${xBinding(point, frame)!.column}" is a category — and a point chart draws no band in this version. Draw it as a line${apart}.`;
   }
-  return numberSettingRefusal(framed, frame, named) ?? logExtentRefusal(framed, frame, named) ?? countBoundsRefusal(framed, frame, named) ?? zeroGuideRefusal(framed, frame, named) ?? intervalBrushRefusal(framed, frame, named);
+  return logExtentRefusal(framed, frame, named) ?? countBoundsRefusal(framed, frame, named) ?? numberSettingRefusal(framed, frame, named) ?? zeroGuideRefusal(framed, frame, named) ?? intervalBrushRefusal(framed, frame, named);
 }
 
 /**
- * A LOGARITHM OR BOUNDS ON AN AXIS THAT IS NOT A NUMBER AXIS. Both are
- * statements about numbers. Where the fold made the channel a band of
- * categories or a run of dates, the charts read them as nothing: the axis was
- * drawn as if neither had been declared, with no word.
+ * A LOGARITHM, BOUNDS OR `zero` ON AN AXIS THAT IS NOT A NUMBER AXIS. All
+ * three are statements about numbers. Where the axis is a band or a run of
+ * dates, the charts read them as nothing: it was drawn as if none had been
+ * declared, with no word.
  *
- * The definition door refuses both where the column's type is DECLARED. It
- * cannot where the type is not (inline rows with no `columns`), because what
- * such a column holds is known only from its cells, and the fold is who reads
- * them. This is the second fence, on what the fold made of them, in the
- * door's own sentence (`needsANumberRefusal`).
+ * The definition door refuses them where the column's type is DECLARED, for
+ * the column a mark binds at the start. It cannot where the type is not
+ * declared (inline rows with no `columns`: what such a column holds is known
+ * only from its cells), nor for a column a view is re-encoded onto later.
+ * This is the second fence, on what the fold made of the cells.
  *
- * NOT SEEN HERE: `zero`. The fold applies it to the span and does not echo it,
- * so on a column of undeclared type a `zero` on a category still reaches no
- * picture. The door refuses it where the type is declared.
+ * TWO REASONS AN AXIS IS NOT A NUMBER AXIS, and each has its own true words:
+ *   - the MARK makes it a band: a bar's category and a box plot's x are bands
+ *     whatever their column holds, so the only way out is to drop the setting;
+ *   - the FOLD made it a category or a date. That is said of the axis, not of
+ *     this layer's column: in a stack another layer's column may be what
+ *     decided the fold. Binding the channel to a number is a way out too.
+ *
+ * `zero` is seen here because the fold echoes it exactly where it could not
+ * apply it (`ResolvedChannel.zero`). NOT SEEN: any of the three on an
+ * INDEPENDENT channel, which the fold gives no scale kind.
  */
 function numberSettingRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<string, ResolvedChannel>> | undefined, named: Subject): string | null {
   for (const f of framed) {
@@ -1548,9 +1558,13 @@ function numberSettingRefusal(framed: readonly FramedLayer[], frame: Readonly<Re
       const channel = AXIS_CHANNELS[f.kind][axis];
       const column = f.layer.encodings[channel];
       const shared = sharedOn(frame, channel);
-      if (column === undefined || shared === undefined || kindOf(shared) === 'quantitative') continue;
-      const setting = shared.transform === 'log' ? 'transform "log"' : shared.bounds !== undefined ? 'bounds' : undefined;
-      if (setting !== undefined) return `${needsANumberRefusal(setting, named(f), channel, column, SCALE_TYPE_WORDS[kindOf(shared)])}. Drop it, or bind ${channel} to a number.`;
+      if (column === undefined || shared === undefined) continue;
+      const setting = shared.transform === 'log' ? 'transform "log"' : shared.bounds !== undefined ? 'bounds' : shared.zero !== undefined ? 'zero' : undefined;
+      if (setting === undefined) continue;
+      // a band by the mark's nature, whatever the column: nothing to bind instead
+      if (axis === 'x' && BAND_MARKS.includes(f.kind)) return `${setting} needs a number axis — ${named(f)} binds ${channel} to "${column}", and a ${f.kind}'s ${channel} is a band. Drop it.`;
+      if (kindOf(shared) === 'quantitative') continue;
+      return `${needsANumberRefusal(setting, named(f), channel, column, `on an axis the frame folded as ${SCALE_TYPE_WORDS[kindOf(shared)]}`)}. Drop it, or bind ${channel} to a number.`;
     }
   }
   return null;

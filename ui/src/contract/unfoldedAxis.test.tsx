@@ -100,7 +100,7 @@ describe('a plain view', () => {
     expect(drawn(lineRenderer(), days, { x: 'd', y: 'v' }, { x: unfolded('temporal', { transform: 'linear' }) }).innerHTML).toBe(plain);
     // bounds are numbers: on a date axis they are refused, folded or not, and never made into a span of dates
     document.body.innerHTML = '';
-    expect(refusal(drawn(lineRenderer(), days, { x: 'd', y: 'v' }, { x: unfolded('temporal', { bounds: [0, 100] }) }))).toBe('bounds needs a number — view "v" binds x to "d", a date. Drop it, or bind x to a number.');
+    expect(refusal(drawn(lineRenderer(), days, { x: 'd', y: 'v' }, { x: unfolded('temporal', { bounds: [0, 100] }) }))).toBe('bounds needs a number — view "v" binds x to "d", on an axis the frame folded as a date. Drop it, or bind x to a number.');
   });
 });
 

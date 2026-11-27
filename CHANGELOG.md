@@ -12,15 +12,22 @@
   (`frame.x.zero needs a number — view "net" binds x to "group", a
   string`). **A break:** a definition that declared `zero` on such a column
   built before.
-- A column whose type is not declared is known only from its cells, so the
-  renderer is the fence there. A view drawn alone, and a layer of a stack,
-  now refuse a logarithm or bounds on a channel the fold made a band of
-  categories or a run of dates, in the door's sentence, with the way out
-  (drop it, or bind the channel to a number). **A break:** that chart drew
-  before, with the setting ignored.
-- Not caught: `zero` on a category column of undeclared type. The fold
-  applies `zero` and does not echo it, so the renderer cannot see it.
-  Declaring the column's type lets the door refuse it.
+- The door judges the column a mark binds at the start, where its type is
+  declared. A column whose type is not declared, and a column a view is
+  bound to later, are judged by the renderer. A view drawn alone, and a
+  layer of a stack, now refuse any of the three on a channel the fold made
+  a band of categories or a run of dates (`… on an axis the frame folded as
+  a category. Drop it, or bind x to a number.`), and on an axis the mark
+  makes a band, a bar's category or a box plot's x (`… and a bar's category
+  is a band. Drop it.`). **A break:** that chart drew before, with the
+  setting ignored.
+- So that the renderer can see `zero`, the fold echoes a declared `zero`
+  on a channel it folded as a category or a date, where it could not apply
+  it (`ResolvedChannel.zero`; recorded under protocol 1.12). On a number
+  axis the fold applies it and the answer is unchanged.
+- Not caught: any of the three on an independent channel over columns that
+  are not numbers, in a stack. The fold gives an independent channel no
+  scale kind.
 - New export from `vizfootprint/def`: `needsANumberRefusal`, the one owner
   of the sentence.
 

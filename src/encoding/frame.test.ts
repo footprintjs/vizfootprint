@@ -481,6 +481,17 @@ describe('what the quantity can be (law 14) — the fold echoes the declared ext
     expect(fold({ transform: 'linear' })).toBeUndefined();
   });
 
+  it('a declared `zero` is echoed exactly where the fold could not apply it: on a channel folded as a category or a date', () => {
+    const fold = (type: 'number' | 'date' | 'string', cells: unknown[], zero: boolean): unknown => frameDomains([layer('a', 'line', { y: [type, cells] })], { y: { mode: 'shared', zero } } as unknown as Readonly<Record<string, ChannelResolution>>)['y'];
+    expect(fold('string', ['a', 'b'], true)).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', zero: true, scale: 'categorical', domain: ['a', 'b'] });
+    expect(fold('date', ['2026-01-01', '2026-01-02'], false)).toMatchObject({ zero: false, scale: 'temporal' });
+    // on a number axis it is APPLIED to the span and not echoed: the answer is what it always was
+    expect(fold('number', [5, 9], true)).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [0, 9] });
+    expect(fold('number', [5, 9], false)).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', scale: 'quantitative', domain: [5, 9] });
+    // …and where none was declared there is no key at all
+    expect(frameDomains([layer('a', 'line', { y: ['string', ['a']] })])['y']).not.toHaveProperty('zero');
+  });
+
   it('each declared key alone keeps the entry, on any kind of column, with the kind the column would have folded as', () => {
     const one = (resolution: object, type: 'number' | 'date' | 'string'): unknown => frameDomains([layer('a', 'point', { y: [type, []] })], { y: { mode: 'shared', ...resolution } } as unknown as Readonly<Record<string, ChannelResolution>>)['y'];
     expect(one({ zeroGuide: true }, 'number')).toEqual({ mode: 'shared', basis: 'table', guide: 'merged', zeroGuide: true, unfolded: true, scaleKind: 'quantitative' });
