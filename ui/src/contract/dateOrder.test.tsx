@@ -50,7 +50,7 @@ describe('date-order words at the real and legacy doors',()=>{
   const liveState=await live(true,true);expect(liveState.frame.x).toMatchObject({dateOrder:{compared:6,conflicted:4}});
   const count=liveState.asked.length;const {el}=mount(layeredRenderer({layers:{a:{kind:'line'},b:{kind:'line'}}}),state({frame:liveState.frame,layers:liveState.layers.map(l=>({...l,encodings:l.initial,rows})) as never}));
   expect(el.querySelectorAll('.vzf-date-order-note')).toHaveLength(1);
-  expect(visible(el)).toContain('4 of 6');expect(visible(el)).toContain("frame's inspected table");
+  expect(visible(el)).toContain('4 of 6');expect(visible(el)).toContain('table-basis reads across 2 binding layers');
   expect(el.querySelector('[role="group"]')?.getAttribute('aria-label')).toContain(visible(el));
   expect(liveState.asked).toHaveLength(count);
  });

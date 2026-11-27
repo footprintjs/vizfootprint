@@ -146,7 +146,7 @@ import { boundField } from './binding.js';
 import { EncodingPicker } from './EncodingPicker.js';
 import { lineCompat } from './lineCompat.js';
 export { lineCompat } from './lineCompat.js';
-import { lineDateOrder, dateOrderWords, dateOrderLayout, DateOrderNotes, DateOrderRefusal, type DateOrderReading } from '../dateOrder/index.js';
+import { lineDateOrder, dateOrderNote, dateOrderLayout, DateOrderNotes, DateOrderRefusal, type DateOrderReading } from '../dateOrder/index.js';
 
 /** A point on a RUN of dates. */
 export interface DatedLinePoint {
@@ -622,8 +622,10 @@ export function VizLine(props: VizLineProps): JSX.Element {
   // on (`padOnSide`, the one owner of that swap). With no side asked it IS `PAD`, so nothing moves.
   const margin = padOnSide(PAD, props.axisSide);
   // kind has already ruled out band/numeric points: read the original cell, never a converted Date string.
-  const dateWords = kind === 'dates' ? dateOrderWords(props.dateOrder ?? lineDateOrder(undefined, scoped.map(p => 'cell' in p ? p.cell : (p as DatedLinePoint).date))) : '';
-  const dateLayout = dateOrderLayout(dateWords ? [dateWords] : [], width - margin.l - margin.r);
+  const dateNote = useMemo(() => kind === 'dates' ? dateOrderNote(props.dateOrder ?? lineDateOrder(undefined, scoped.map(p => 'cell' in p ? p.cell : (p as DatedLinePoint).date))) : undefined, [kind, props.dateOrder, scoped, dateField]);
+  const dateWords = dateNote?.full ?? '';
+  const legend = layoutLegend(series.map((s) => s.name ?? 'all'), width - margin.l - margin.r);
+  const dateLayout = dateOrderLayout(dateNote ? [dateNote] : [], width - margin.l - margin.r, height - margin.t - margin.b - legend.height - MIN_PLOT);
   const pad = dateLayout.height === 0 ? margin : { ...margin, t: margin.t + dateLayout.height };
   // the frame's domain when a frame gave one, this chart's own extent otherwise (../primitives/scales.ts)
   const [elo, ehi] = domainOr(props.domain?.x, extentFor(positions, (d) => d.at, 0, xKind), xKind);
@@ -670,7 +672,6 @@ export function VizLine(props: VizLineProps): JSX.Element {
   const markInk = props.scaleHue ?? 'var(--vzf-brand)';
   // ≥2 series carry a legend ABOVE the plot, never over it: the band's rows are laid out first and the plot starts
   // below them, so a legend of nine regions cannot sit on top of nine spiky lines (identity is never colour-alone).
-  const legend = layoutLegend(series.map((s) => s.name ?? 'all'), width - pad.l - pad.r);
   const top = pad.t + legend.height;
   // A BAND'S LABELS: one tick per slot at its centre, flat when it fits its slot and slanted (with the plot
   // giving up SLANT_PAD, never below MIN_PLOT) when any does not — `VizBar`'s own law, through the same

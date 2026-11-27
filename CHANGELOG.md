@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Date-order notes name layer-read occurrences, distinguish the fact from a selectable date interval, and use compact words before refusing a small chart. Full words remain accessible; line brush renders reuse the same assessment. The date-order reading type is exported by the UI package.
+
 ### Added: date-text ordering warning
 
 - Folded temporal domains report a positive inspected-string ordering witness.

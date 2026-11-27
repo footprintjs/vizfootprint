@@ -74,7 +74,7 @@ import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalB
 import { boundField } from '../charts/binding.js';
 import type { MarkDraw } from './markDraw.js';
 import { lineCellIsNumber } from '../primitives/lineCell.js';
-import { foldedDateOrder, frameDateOrderWords } from '../dateOrder/index.js';
+import { foldedDateOrder, frameDateOrderNotes } from '../dateOrder/index.js';
 import { bandOrder, countSpan, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
 import { VizFrame, COUNT_KINDS, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
 import { VizScatter } from '../charts/VizScatter.js';
@@ -2270,7 +2270,7 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
                 ...(draw.scaleHue === undefined ? {} : { scaleHue: draw.scaleHue }),
               }),
           }))}
-          dateOrderNotes={frameDateOrderWords(framed, frame)}
+          dateOrderNotes={frameDateOrderNotes(framed, frame)}
           domain={frameChartDomain(framed, frame, categories)}
           guide={guide}
           {...(x === undefined ? {} : { x })}

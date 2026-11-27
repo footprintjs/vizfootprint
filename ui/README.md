@@ -1375,3 +1375,5 @@ A chart too small for its notes and plot asks to be enlarged instead of hiding
 the note. See `dateOrder/` for the one model, feature door and word-only component;
 `charts/lineCompat.ts` and `contract/markDraw.ts` own the moved whole units.
 The adapter and warning share `primitives/lineCell.ts`'s numeric-cell discriminator, so mixed numeric axes do not acquire a date warning.
+
+Date-order notes in a stack count occurrences read across its binding layers, not unique table cells. The full basis remains accessible when a small chart uses a compact note; selection consequences are limited to line date intervals. Plain bar, histogram, heat map, box plot and scatter views still omit folded date-order facts.

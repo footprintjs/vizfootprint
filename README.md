@@ -196,3 +196,5 @@ ledger reads exactly the same before and after.
 Agents get the same power through two fixed tools, `paths` and `compare`, on
 the `vizAsTools` port and the MCP server — plus `whats_here` now says which
 path you are on and how many paths are archived.
+
+Date-order notes in a stack count occurrences read across its binding layers, not unique table cells. The full basis remains accessible when a small chart uses a compact note; selection consequences are limited to line date intervals. Plain bar, histogram, heat map, box plot and scatter views still omit folded date-order facts.

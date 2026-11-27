@@ -31,3 +31,4 @@ export type { EncodingPickerProps } from './EncodingPicker.js';
 export { boundField } from './binding.js';
 // ChartFrame / AxisLabel / scales / defaultCompat moved to the public
 // primitives tier (../primitives) — re-exported from the package root there.
+export type { DateOrderReading, DateOrderNote } from '../dateOrder/index.js';
