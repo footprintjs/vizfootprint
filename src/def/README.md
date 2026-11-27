@@ -827,7 +827,9 @@ a channel folded as a category or a date).
 
 **Not seen by either, two cases.** `zero` on a bar's category or a box plot's
 x bound to a number column of undeclared type: the fold applies it to a span
-the band never reads and does not echo it. And a logarithm on an INDEPENDENT
+the band never reads and does not echo it (the door does stop `zero: false`
+on a box plot's x, for another reason: it reads that x as a length, a
+reading the renderer does not share, recorded as a task). And a logarithm on an INDEPENDENT
 channel over columns that are not numbers, in a stack: the fold gives an
 independent channel no scale kind, so nothing can say what its columns are.
 

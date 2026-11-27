@@ -681,7 +681,9 @@ the column's type is declared, and this is the fence for a column whose type
 is known only from its cells or that a view is bound to later. Where the MARK
 makes the axis a band, a bar's category or a box plot's x, the sentence says
 so and the way out is to drop the setting; where the FOLD made it a category
-or a date, binding a number is a way out too); a zero line the mark does not
+or a date, binding a number is a way out too. Not seen: `zero` on a band
+mark's x whose column the fold made a number, because the fold applies it
+and echoes nothing); a zero line the mark does not
 draw; a histogram whose x was folded as categories. A stack runs the same list over each of its
 layers, so a declaration means the same thing alone and in a stack, and a new
 per-layer refusal reaches both.
