@@ -146,7 +146,7 @@ import { boundField } from './binding.js';
 import { EncodingPicker } from './EncodingPicker.js';
 import { lineCompat } from './lineCompat.js';
 export { lineCompat } from './lineCompat.js';
-import { lineDateOrder, dateOrderWords, dateOrderLayout, DateOrderNotes, DateOrderRefusal, type DateOrderReading } from '../primitives/dateOrder.js';
+import { lineDateOrder, dateOrderWords, dateOrderLayout, DateOrderNotes, DateOrderRefusal, type DateOrderReading } from '../dateOrder/index.js';
 
 /** A point on a RUN of dates. */
 export interface DatedLinePoint {

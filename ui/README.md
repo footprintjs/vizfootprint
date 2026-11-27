@@ -1372,5 +1372,6 @@ original parseable strings; this count is neither excluded marks nor total
 table rows. No witness certifies unseen data or arbitrary external bounds.
 Rows, brush tuples, predicates, SQL, events and replay keep their original laws.
 A chart too small for its notes and plot asks to be enlarged instead of hiding
-the note. See `primitives/dateOrder.tsx` for the one sentence/layout owner;
+the note. See `dateOrder/` for the one model, feature door and word-only component;
 `charts/lineCompat.ts` and `contract/markDraw.ts` own the moved whole units.
+The adapter and warning share `primitives/lineCell.ts`'s numeric-cell discriminator, so mixed numeric axes do not acquire a date warning.

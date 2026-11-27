@@ -1,10 +1,11 @@
 /**
  * Date-order presentation. The fold is authoritative even without a positive
  * witness; only a line's original row cells can supply the own-extent fallback.
- * No reads, parser, counter, cache or selection policy lives in this module.
+ * No engine reads, parser, counter, cache or selection policy lives in this module.
  */
 import { dateOrderConflictOf, type DateOrderConflict, type ResolvedChannel } from 'vizfootprint/def';
 import type { RenderLayer } from '../contract/types.js';
+import { lineCellIsNumber } from '../primitives/lineCell.js';
 
 export interface DateOrderReading {
   readonly scope: string;
@@ -37,6 +38,9 @@ export function frameDateOrderWords(layers: readonly { readonly kind: string; re
   if (foldedDateOrder(frame, 'x') === undefined && !(x?.mode === 'shared' && x.scale !== undefined)) {
     for (const { kind, layer } of layers) {
       if (kind !== 'line' || layer.encodings['x'] === undefined) continue;
+      // The same raw-cell discriminator that produces numeric line points: a mixed
+      // bag with one number is drawn numerically, so its date-shaped subset is not a date axis.
+      if (layer.rows.some(row => lineCellIsNumber(row[layer.encodings['x']!]))) continue;
       const note = dateOrderWords(lineDateOrder(frame, layer.rows.map(row => row[layer.encodings['x']!]), layer.layerId));
       if (note) words.push(note);
     }
@@ -62,13 +66,4 @@ export function dateOrderLayout(words: readonly string[], width: number): DateOr
     return lines;
   });
   return { notes, height: notes.reduce((sum, lines) => sum + lines.length * 12, 0) + 24 };
-}
-export function DateOrderNotes({ layout, left, top }: { readonly layout: DateOrderLayout; readonly left: number; readonly top: number }): JSX.Element {
-  let line = 0;
-  return <g style={{ fontFamily: 'monospace', fontSize: 10, fill: 'currentColor' }} pointerEvents="none">
-    {layout.notes.map((lines, i) => <text className="vzf-date-order-note" key={i}>{lines.map((part, j) => <tspan key={j} x={left} y={top + (++line) * 12}>{part}</tspan>)}</text>)}
-  </g>;
-}
-export function DateOrderRefusal({ words }: { readonly words: readonly string[] }): JSX.Element {
-  return <div className="vzf-date-order-refusal" role="note">{words.map((word, i) => <p key={i}>{word}</p>)}<p>Enlarge this chart to leave room for its date-order notes and plot.</p></div>;
 }

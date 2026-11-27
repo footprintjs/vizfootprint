@@ -57,7 +57,7 @@
  * and the alternative is six charts that can only be drawn inside a frame.
  * The pointer law that follows is in styles.css at `.vzf-frame-layer`.
  */
-import { dateOrderLayout, DateOrderNotes, DateOrderRefusal } from '../primitives/dateOrder.js';
+import { dateOrderLayout, DateOrderNotes, DateOrderRefusal } from '../dateOrder/index.js';
 import { fitTick } from './tickFit.js';
 import { PAD as LINE_PAD } from './VizLine.js';
 import { PAD as BAR_PAD } from './VizBar.js';
@@ -532,7 +532,7 @@ export function VizFrame(props: VizFrameProps): JSX.Element {
           </div>
         );
       })}
-      {dateLayout.height > 0 && <svg viewBox={`0 0 ${width} ${height}`} style={{ position: 'absolute', inset: 0, width, height, pointerEvents: 'none' }}><DateOrderNotes layout={dateLayout} left={plot.left} top={union.t} /></svg>}
+      {dateLayout.height > 0 && <svg aria-hidden="true" viewBox={`0 0 ${width} ${height}`} style={{ position: 'absolute', inset: 0, width, height, pointerEvents: 'none' }}><DateOrderNotes layout={dateLayout} left={plot.left} top={union.t} /></svg>}
       {words === undefined ? null : (
         // the caption strip: inside the frame's height, beneath the x axis label, spanning the plot — the
         // words a sighted reader meets; the accessible label above carries the same sentence

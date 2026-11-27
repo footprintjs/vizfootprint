@@ -833,7 +833,7 @@
 /* …and the words for a zero guide the axis has no place for — the same faint mono the excluded
    note wears, because it is the same kind of fact: something the chart was told to draw and could
    not draw honestly, said in the picture rather than dropped in silence. */
-:where(.vzf) .vzf-zero-note {
+:where(.vzf) .vzf-zero-note, :where(.vzf) .vzf-date-order-notes {
   fill: var(--vzf-ink-faint);
   font-family: var(--vzf-font-mono);
   font-size: 9px;

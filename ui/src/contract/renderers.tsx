@@ -73,7 +73,8 @@ import {
 import { frameDomains, firstScaleTakenRefusal, mayTakeFirstScale, drawsIntervalBrush, drawsZeroGuide, intervalGestureRefusal, zeroGuideKindRefusal, logOnExtentRefusal, boundsFitACount, countBoundsRefusal as countBoundsSentence, histogramCountLogRefusal, countOffAxisRefusal as countOffAxisSentence, scaleKindOf, needsANumberRefusal, type ResolvedChannel } from 'vizfootprint/def';
 import { boundField } from '../charts/binding.js';
 import type { MarkDraw } from './markDraw.js';
-import { foldedDateOrder, frameDateOrderWords } from '../primitives/dateOrder.js';
+import { lineCellIsNumber } from '../primitives/lineCell.js';
+import { foldedDateOrder, frameDateOrderWords } from '../dateOrder/index.js';
 import { bandOrder, countSpan, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
 import { VizFrame, COUNT_KINDS, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
 import { VizScatter } from '../charts/VizScatter.js';
@@ -334,7 +335,7 @@ function lineMark(d: MarkDraw, options: LineRendererOptions): JSX.Element {
   // a NUMBER on x is a numeric run: the fold's own answer where the host folded one, the row's own
   // value type where it did not — read per ROW, so the chart's `xKindOf` stays the only thing that
   // decides which axis a mixed bag lands on
-  const onNumber = (v: unknown): boolean => scale === 'quantitative' || typeof v === 'number';
+  const onNumber = (v: unknown): boolean => lineCellIsNumber(v, scale);
   // …and the number itself, or NaN for a cell holding nothing a number can be read from. NOT `num`,
   // which answers 0: a position is not a magnitude, and an unplaceable x drawn AT ZERO is a value the
   // row does not have. NaN is what the chart SKIPS (`runPositionOf`, its own never-guess law).

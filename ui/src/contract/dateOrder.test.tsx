@@ -7,6 +7,8 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
+import { fireEvent } from '@testing-library/react';
+import { matchesClause, resolvePredicateSQL, mosaicDescriptorSQL } from 'vizfootprint/data';
 import { flushSync } from 'react-dom';
 import { buildDashboard } from 'vizfootprint/agent';
 import { frameDomains } from 'vizfootprint/def';
@@ -119,6 +121,30 @@ describe('date-order words at the real and legacy doors',()=>{
   const last=Math.max(...[...warning.querySelectorAll('tspan')].map(n=>Number(n.getAttribute('y'))));
   const legend=el.querySelector('.vzf-line-legend > g')!.getAttribute('transform')!;
   expect(Number(legend.split(',')[1]!.replace(')',''))).toBeGreaterThan(last+10);
+ });
+
+ it('an independent mixed bag follows the numeric axis actually drawn, never a date-shaped subset',()=>{
+  const numericRows=[{d:1,v:1},...rows];
+  const {el}=mount(layeredRenderer({layers:{a:{kind:'line'}}}),state({rows:numericRows,frame:{x:{mode:'independent',guide:'per-layer'}},layers:[{layerId:'a',table:'t',encodings:{x:'d',y:'v'},rows:numericRows}]}));
+  expect(el.querySelector('.vzf-line-dot')).not.toBeNull();
+  expect(visible(el)).toBe('');
+ });
+
+ it('a warning changes no emitted text bounds, memory predicate or SQL/Mosaic descriptor',()=>{
+  if (typeof window.PointerEvent==='undefined') {
+   class PE extends MouseEvent { pointerId:number; constructor(type:string,params:PointerEventInit={}) {super(type,params);this.pointerId=params.pointerId??1;} }
+   (window as unknown as {PointerEvent:typeof PE}).PointerEvent=PE;
+  }
+  const {el,cb}=mount(lineRenderer(),state({frame:folded()}));const svg=el.querySelector('svg.vzf-line')!;
+  fireEvent.pointerDown(svg,{clientX:0,pointerId:1});fireEvent.pointerMove(svg,{clientX:520,pointerId:1});fireEvent.pointerUp(svg,{clientX:520,pointerId:1});
+  expect(cb.emit).toHaveBeenCalledTimes(1);
+  expect(JSON.stringify(cb.emit.mock.calls[0]![0])).toBe(JSON.stringify({rawValue:[dates[1],dates[2]],encoding:{kind:'interval',field:'d'}}));
+  const clause={kind:'interval' as const,field:'d',value:[dates[1]!,dates[2]!] as [string,string]};
+  expect(rows.filter(row=>matchesClause(row,clause)).map(row=>row.d)).toEqual([dates[1],dates[2]]);
+  const sql='("d" BETWEEN \'2026-04-02T01:00:00Z\' AND \'2026-04-02T05:00:00Z\')';
+  expect(resolvePredicateSQL(clause)).toBe(sql);
+  // Mosaic's descriptor deliberately uses JSON-quoted text; it is not executable SQL.
+  expect(mosaicDescriptorSQL('interval','d',clause.value)).toBe('("d" BETWEEN "2026-04-02T01:00:00Z" AND "2026-04-02T05:00:00Z")');
  });
 
 });

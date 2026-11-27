@@ -1,11 +1,11 @@
-// @vitest-environment jsdom
+// @vitest-environment node
 /**
  * One word owner and no unobserved summary assessment. The layout is a band,
  * not a footer that can obscure an excluded/outside/zero note.
  */
 import { describe, expect, it } from 'vitest';
 import { frameDomains, type ResolvedChannel } from 'vizfootprint/def';
-import { dateOrderWords, dateOrderLayout, foldedDateOrder, frameDateOrderWords, lineDateOrder } from './dateOrder.js';
+import { dateOrderWords, dateOrderLayout, foldedDateOrder, frameDateOrderWords, lineDateOrder } from './model.js';
 const mixed=['2026-04-01T23:00:00-05:00','2026-04-02T01:00:00Z','2026-04-02T05:00:00Z'];
 const frame=frameDomains([{layerId:'a',channels:{x:{type:'date',values:mixed}}}]);
 const layer=(kind='line',cells:readonly unknown[]=mixed)=>({kind,layer:{layerId:'a',table:'t',encodings:{x:'d'},rows:cells.map(d=>({d}))}});
