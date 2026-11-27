@@ -46,7 +46,7 @@ import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
 import { selfSelectedInterval } from '../contract/selection.js';
-import { pointerValue, epochOf, dayOf, dateOfEpoch, domainOr, countSpan, scaleFor, placeable, excludedNote, outsideNotes, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
+import { pointerValue, epochOf, dayOf, dateOfEpoch, domainOr, countSpan, scaleFor, placeable, excludedNote, outsideNotes, declaredOn, type ChartDomain, type ScaleKind } from '../primitives/scales.js';
 import { NoteLines } from '../primitives/NoteLines.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { useHorizontalBrush, BrushOverlay } from '../primitives/brush.js';
@@ -208,7 +208,7 @@ export function VizHistogram(props: VizHistogramProps): JSX.Element {
   // its true place, which is past the plot's edge, so the count is what says it is there.
   const dated = geoms.length > 0 && typeof geoms[0]!.x0 === 'string';
   const outside = outsideNotes([
-    { channel: 'x', given: props.domain?.x, values: geoms.map((g) => [g.p0, g.p1] as const), noun: ['bin', 'bins'], undeclared: true, ...(xKind === undefined ? {} : { kind: xKind }), ...(dated ? { format: dateOfEpoch } : {}) },
+    { channel: 'x', given: props.domain?.x, values: geoms.map((g) => [g.p0, g.p1] as const), noun: ['bin', 'bins'], ...(declaredOn(props.domain, 'x') ? {} : { undeclared: true as const }), ...(xKind === undefined ? {} : { kind: xKind }), ...(dated ? { format: dateOfEpoch } : {}) },
     { channel: 'y', given: props.domain?.y, values: geoms.map((g) => g.count), count: true, noun: ['bin', 'bins'], undeclared: true },
   ]);
   const plot = height - PAD.t - PAD.b;

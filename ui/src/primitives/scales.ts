@@ -163,6 +163,20 @@ export function rampStep(value: number, max: number): number {
 export interface ChartDomain {
   readonly x?: readonly [number, number];
   readonly y?: readonly [number, number];
+  /**
+   * WHICH OF THE TWO PAIRS ABOVE IS A DECLARATION — what the quantity CAN be
+   * (`ChannelResolution.bounds`), and not a span folded from the rows.
+   *
+   * A chart needs to know to speak truly about a mark outside its span. Past
+   * DECLARED bounds, either the bounds are wrong or the data is, and the chart
+   * says so. Past a FOLDED span nothing was claimed: a fold is not always a
+   * union that holds every mark (it is taken over one bound column, and may
+   * read a cell differently from the chart), so the chart says only that the
+   * mark stands outside the span it was given. Absent = not declared, which is
+   * the honest reading of a pair handed over with no word about where it came
+   * from ({@link declaredOn}).
+   */
+  readonly declared?: { readonly x?: boolean; readonly y?: boolean };
   /** The frame's BAND ORDER for a shared categorical channel — see {@link bandOrder}. A chart with no band ignores it. */
   readonly categories?: readonly string[];
   /**
@@ -1119,8 +1133,9 @@ export interface OutsideAsk {
    * every mark: it is taken over one bound column, so a bin's far edge or a whisker is not in it, and
    * a fold that reads a cell differently from the chart leaves that mark outside too. So the sentence
    * says only what is true either way, the span the axis was GIVEN, and blames nobody.
-   * Absent = the older sentence ("declared bounds … either they are wrong or this data is"), kept for
-   * the two axes that have always said it.
+   * Absent = the sentence for DECLARED bounds ("declared bounds … either they are wrong or this data
+   * is"), which a chart asks for only where it was told the pair is a declaration
+   * (`ChartDomain.declared`, {@link declaredOn}).
    */
   readonly undeclared?: true;
   /** The curve the axis is drawn on. On a logarithmic one a flat declared pair is a decade either side, as it is drawn (`logDomain`), not one either side. */
@@ -1167,6 +1182,11 @@ export interface OutsideAsk {
  * guide's (`zeroGuideNotes`, `./zeroGuide.ts`), so a chart with no declared
  * extent is byte-identical to the one that existed before this key.
  */
+/** Was the pair a chart was handed for this axis DECLARED (`ChartDomain.declared`)? Absent reads as no. */
+export function declaredOn(domain: ChartDomain | undefined, axis: 'x' | 'y'): boolean {
+  return domain?.declared?.[axis] === true;
+}
+
 export function outsideNotes(asks: readonly OutsideAsk[]): readonly string[] {
   return asks.flatMap((ask) => {
     if (ask.given === undefined || !ask.given.every((bound) => Number.isFinite(bound))) return [];

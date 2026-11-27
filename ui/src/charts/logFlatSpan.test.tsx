@@ -236,17 +236,17 @@ describe('one value on a logarithmic axis, in the charts', () => {
 
   it('a value outside a declared flat logarithmic pair is said in the chart: scatter x, scatter y, line y', () => {
     const said = (root: HTMLElement, selector: string): string => root.querySelector(selector)!.getAttribute('aria-label') ?? '';
-    const x = render(<VizScatter data={[{ id: 'a', x: 0.05, y: 1 }, { id: 'b', x: 0.8, y: 2 }]} domain={{ x: [0.05, 0.05], ...LOG('x') }} />).container;
+    const x = render(<VizScatter data={[{ id: 'a', x: 0.05, y: 1 }, { id: 'b', x: 0.8, y: 2 }]} domain={{ declared: { x: true, y: true }, x: [0.05, 0.05], ...LOG('x') }} />).container;
     expect(said(x, 'svg.vzf-scatter')).toContain('x has 1 value outside its declared bounds [0.05, 0.05], drawn as [0.005, 0.5] on a logarithmic axis');
     cleanup();
-    const y = render(<VizScatter data={[{ id: 'a', x: 1, y: 0.05 }, { id: 'b', x: 2, y: 0.8 }]} domain={{ y: [0.05, 0.05], ...LOG('y') }} />).container;
+    const y = render(<VizScatter data={[{ id: 'a', x: 1, y: 0.05 }, { id: 'b', x: 2, y: 0.8 }]} domain={{ declared: { x: true, y: true }, y: [0.05, 0.05], ...LOG('y') }} />).container;
     expect(said(y, 'svg.vzf-scatter')).toContain('y has 1 value outside its declared bounds [0.05, 0.05], drawn as [0.005, 0.5] on a logarithmic axis');
     cleanup();
-    const line = render(<VizLine data={[{ date: '2026-04-01', value: 0.05 }, { date: '2026-04-02', value: 0.8 }]} domain={{ y: [0.05, 0.05], ...LOG('y') }} />).container;
+    const line = render(<VizLine data={[{ date: '2026-04-01', value: 0.05 }, { date: '2026-04-02', value: 0.8 }]} domain={{ declared: { x: true, y: true }, y: [0.05, 0.05], ...LOG('y') }} />).container;
     expect(said(line, 'svg.vzf-line')).toContain('y has 1 value outside its declared bounds [0.05, 0.05], drawn as [0.005, 0.5] on a logarithmic axis');
     cleanup();
     // on a linear axis the same pair is one either side, and 0.8 is inside it: nothing is said
-    const linear = render(<VizScatter data={[{ id: 'a', x: 0.05, y: 1 }, { id: 'b', x: 0.8, y: 2 }]} domain={{ x: [0.05, 0.05] }} />).container;
+    const linear = render(<VizScatter data={[{ id: 'a', x: 0.05, y: 1 }, { id: 'b', x: 0.8, y: 2 }]} domain={{ declared: { x: true, y: true }, x: [0.05, 0.05] }} />).container;
     expect(said(linear, 'svg.vzf-scatter')).not.toContain('outside');
   });
 

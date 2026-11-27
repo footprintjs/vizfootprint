@@ -36,6 +36,7 @@ import { VizHistogram } from './VizHistogram.js';
 import { VizBoxPlot } from './VizBoxPlot.js';
 import { VizHeatmap } from './VizHeatmap.js';
 import { VizLine } from './VizLine.js';
+import { VizScatter } from './VizScatter.js';
 import { outsideNotes, dateOfEpoch } from '../primitives/scales.js';
 
 afterEach(cleanup);
@@ -207,9 +208,9 @@ describe('a line’s x axis', () => {
     expectSaid(render(<VizLine data={days} domain={domain} />).container, 'x has 1 position outside the span this axis was given [2026-04-01, 2026-04-02]');
   });
   it('says x before y, and nothing on bands, inside the span, or with no span', () => {
-    const both = said(render(<VizLine data={run} domain={{ x: [1, 100], y: [1, 2] }} />).container);
+    // y was DECLARED (the chart is told so), x was only given: each axis says its own sentence
+    const both = said(render(<VizLine data={run} domain={{ x: [1, 100], y: [1, 2], declared: { y: true } }} />).container);
     expect(both.notes.map((note) => note.slice(0, 5))).toEqual(['x has', 'y has']);
-    // the value axis keeps the sentence it has always said
     expect(both.notes[1]!.endsWith(TAIL)).toBe(true);
     expect(both.notes[0]).not.toContain('declared');
     cleanup();
@@ -219,6 +220,31 @@ describe('a line’s x axis', () => {
     expectSilent(render(<VizLine data={run} domain={{ x: [1, 1000] }} />).container);
     cleanup();
     expectSilent(render(<VizLine data={run} />).container);
+  });
+});
+
+describe('declared or only given: the chart is told, and says the sentence that is true', () => {
+  const scatter = [{ id: 'a', x: 5, y: 5 }, { id: 'b', x: 50, y: 500 }];
+  it('a pair handed over with no word is not called declared, on any chart', () => {
+    const { notes } = said(render(<VizScatter data={scatter} domain={{ x: [0, 10], y: [0, 10] }} />).container);
+    expect(notes).toEqual(['x has 1 value outside the span this axis was given [0, 10]', 'y has 1 value outside the span this axis was given [0, 10]']);
+  });
+  it('a pair the chart is told was declared gets the sentence about bounds, per axis', () => {
+    const { notes } = said(render(<VizScatter data={scatter} domain={{ x: [0, 10], y: [0, 10], declared: { x: true } }} />).container);
+    expect(notes).toEqual([`x has 1 value outside its declared bounds [0, 10]${TAIL}`, 'y has 1 value outside the span this axis was given [0, 10]']);
+  });
+  it('every chart that scales by a span reads the same flag', () => {
+    const run = [1, 10, 100, 1000].map((at, i) => ({ at, value: i + 1 }));
+    expectSaid(render(<VizLine data={run} domain={{ x: [1, 100], declared: { x: true } }} />).container, `x has 1 position outside its declared bounds [1, 100]${TAIL}`);
+    cleanup();
+    expectSaid(render(<VizHistogram data={BINS} field="price" domain={{ x: [25, 75], declared: { x: true } }} />).container, `x has 2 bins outside its declared bounds [25, 75]${TAIL}`);
+    cleanup();
+    expectSaid(render(<VizBoxPlot viewId="b" data={BOXES} xField="category" yField="price" domain={{ y: [0, 90], declared: { y: true } }} />).container, `y has 2 boxes outside its declared bounds [0, 90]${TAIL}`);
+    cleanup();
+    expectSaid(render(<VizHeatmap viewId="h" data={CELLS} xField="price" yField="category" domain={{ x: [0, 50], declared: { x: true } }} />).container, `x has 1 column outside its declared bounds [0, 50]${TAIL}`);
+  });
+  it('a count axis says the neutral sentence either way: it names the pair it was given and the pair it drew', () => {
+    expectSaid(render(<VizBar data={BARS} field="category" domain={{ y: [3, 5], declared: { y: true } }} />).container, 'y has 1 bar outside the span this axis was given [3, 5], drawn as [0, 5] because a count is read from zero');
   });
 });
 

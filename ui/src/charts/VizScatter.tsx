@@ -27,7 +27,7 @@
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderRow, RenderSelection } from '../contract/types.js';
-import { roundTicksThatFit, ticksThatFit, pointerValue, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
+import { roundTicksThatFit, ticksThatFit, pointerValue, domainOr, scaleFor, placeable, roomyExtent, logTicks, logTickLabel, excludedNote, outsideNotes, declaredOn, padOnSide, type ChartDomain, type AxisSide, type RoundTick } from '../primitives/scales.js';
 import { Axis, placeTicks } from '../primitives/Axis.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
 import { zeroGuideFor, zeroGuideNotes } from '../primitives/zeroGuide.js';
@@ -254,8 +254,8 @@ export function VizScatter(props: VizScatterProps): JSX.Element {
   // …and the words for a value outside the extent the axis was DECLARED on (`outsideNotes`, the one owner)
   // — counted off the marks this chart DREW, so a cell a logarithm already excluded is not said twice
   const outside = outsideNotes([
-    { channel: 'x', given: props.domain?.x, values: drawable.map((d) => d.x), ...(xKind === undefined ? {} : { kind: xKind }) },
-    { channel: 'y', given: props.domain?.y, values: drawable.map((d) => d.y), ...(yKind === undefined ? {} : { kind: yKind }) },
+    { channel: 'x', given: props.domain?.x, values: drawable.map((d) => d.x), ...(xKind === undefined ? {} : { kind: xKind }), ...(declaredOn(props.domain, 'x') ? {} : { undeclared: true as const }) },
+    { channel: 'y', given: props.domain?.y, values: drawable.map((d) => d.y), ...(yKind === undefined ? {} : { kind: yKind }), ...(declaredOn(props.domain, 'y') ? {} : { undeclared: true as const }) },
   ]);
 
   return (

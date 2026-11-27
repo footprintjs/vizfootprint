@@ -450,23 +450,23 @@ off-centre. So the chart COUNTS what falls outside and says it, in the picture
 and in the accessible name, in the register the logarithm's exclusions already
 use: `x has 3 values outside its declared bounds [0, 100] — bounds say what the
 quantity CAN be, so either they are wrong or this data is` (`outsideNotes`,
-`primitives/scales.ts`, beside `excludedNote`; said by `VizScatter` on both
-axes and by `VizLine` on its value axis). Every other axis that scales by a
-span it is given says a second sentence, which blames nobody: `VizBar` and
-`VizHistogram` on their count axis, `VizHistogram` on its bin axis,
-`VizBoxPlot` on its value axis, `VizHeatmap` on its column axis and `VizLine`
-on its x axis say `x has 2 bins that reach outside the span this axis was
-given [25, 75]`. WHY NOT "DECLARED" THERE: a chart is handed a pair and is not
-told whether it is declared bounds or a span the frame folded, and a fold does
-not always hold every mark (it is taken over one bound column, so a bin's far
-edge or a whisker is not in it; a fold that reads a cell differently from the
-chart leaves that mark out too). So the sentence says what is true either
-way. It quotes the pair as given, and the pair as drawn where they differ: a
-count axis is read from zero (`given [3, 5], drawn as [0, 5] because a count
-is read from zero`), and a flat or logarithmic pair is opened. A date axis
-writes a day, or the whole instant where a bound is not a day's start. KNOWN
-LIMIT: the two older axes still say "declared" for a span that was folded;
-telling a chart which it holds is a task of its own. Still drawn, still at its true
+`primitives/scales.ts`, beside `excludedNote`). That is the sentence for a
+pair the chart is TOLD was declared: this door sets `ChartDomain.declared` for
+the axis whose pair it read off `bounds`. A pair handed over with no such word
+is a span the frame folded, or one a host passed in, and the chart says a
+second sentence that blames nobody: `x has 2 bins that reach outside the span
+this axis was given [25, 75]`. WHY THE DIFFERENCE: past declared bounds either
+the bounds are wrong or the data is. Past a folded span nothing was claimed,
+and a fold does not always hold every mark (it is taken over one bound column,
+so a bin's far edge or a whisker is not in it; a fold that reads a cell
+differently from the chart leaves that mark out too). Every chart that scales
+by a span reads the same flag (`declaredOn`): `VizScatter`, `VizLine`,
+`VizHistogram` on its bin axis, `VizBoxPlot`, `VizHeatmap`. A COUNT axis
+(`VizBar`, `VizHistogram`) always says the second sentence, because it names
+both the pair it was given and the pair it drew: `given [3, 5], drawn as [0, 5]
+because a count is read from zero`. A flat or logarithmic pair is opened the
+same way, and a date axis writes a day, or the whole instant where a bound is
+not a day's start. Still drawn, still at its true
 position — counted, never hidden, and never refused. The band spelling of that law is the same: a
 category the frame's list does not name is APPENDED, never hidden, and a slot
 the layer has no row for stays EMPTY rather than becoming a bar of zero ("no

@@ -299,7 +299,7 @@ describe('a value outside a declared extent is counted and SAID', () => {
 
   it('VizScatter says it per axis, in the picture and in the accessible name, and still draws the mark', () => {
     const rows = [{ id: 'a', x: 50, y: 50 }, { id: 'b', x: 140, y: -20 }];
-    const { container } = render(<VizScatter data={rows} domain={{ x: [0, 100], y: [0, 100] }} />);
+    const { container } = render(<VizScatter data={rows} domain={{ declared: { x: true, y: true }, x: [0, 100], y: [0, 100] }} />);
     expect(outsideOf(container)).toEqual([
       'x has 1 value outside its declared bounds [0, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is',
       'y has 1 value outside its declared bounds [0, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is',
@@ -309,14 +309,14 @@ describe('a value outside a declared extent is counted and SAID', () => {
     expect(container.querySelectorAll('circle.vzf-dot')).toHaveLength(2);
     cleanup();
     // …and a chart whose rows are all inside says nothing, so a correct declaration is byte-identical
-    const inside = render(<VizScatter data={[{ id: 'a', x: 50, y: 50 }]} domain={{ x: [0, 100], y: [0, 100] }} />);
+    const inside = render(<VizScatter data={[{ id: 'a', x: 50, y: 50 }]} domain={{ declared: { x: true, y: true }, x: [0, 100], y: [0, 100] }} />);
     expect(outsideOf(inside.container)).toEqual([]);
     expect(nameOf(inside.container)).toBe('scatter of y against x');
   });
 
   it('VizLine says it on its VALUE axis, beneath the zero guide’s own sentence when both are there', () => {
     const POINTS = [{ date: '2026-01-04', value: 5 }, { date: '2026-01-11', value: 140 }];
-    const { container } = render(<VizLine data={POINTS} domain={{ y: [0, 100] }} />);
+    const { container } = render(<VizLine data={POINTS} domain={{ declared: { x: true, y: true }, y: [0, 100] }} />);
     expect(outsideOf(container)).toEqual([
       'y has 1 value outside its declared bounds [0, 100] — bounds say what the quantity CAN be, so either they are wrong or this data is',
     ]);
@@ -324,7 +324,7 @@ describe('a value outside a declared extent is counted and SAID', () => {
     expect(container.querySelectorAll('path.vzf-line-path')).toHaveLength(1);
     cleanup();
     // both sentences, each on its own line: a guide that has no place AND a value that has no place on the axis
-    const both = render(<VizLine data={[{ date: '2026-01-04', value: 5 }, { date: '2026-01-11', value: 140 }]} domain={{ y: [1, 100], zeroGuide: { y: true } }} />);
+    const both = render(<VizLine data={[{ date: '2026-01-04', value: 5 }, { date: '2026-01-11', value: 140 }]} domain={{ declared: { x: true, y: true }, y: [1, 100], zeroGuide: { y: true } }} />);
     expect(both.container.querySelectorAll('text.vzf-zero-note')).toHaveLength(1);
     expect(outsideOf(both.container)).toHaveLength(1);
   });

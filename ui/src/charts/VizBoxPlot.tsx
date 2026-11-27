@@ -46,7 +46,7 @@ import { useMemo } from 'react';
 import type { ChartEmission } from 'vizfootprint/selection';
 import type { ColumnView, ViewEncoding, FitView } from '../adapter/types.js';
 import type { RenderSelection } from '../contract/types.js';
-import { linearScale, extent, ticks, roundTicksThatFit, ticksThatFit, epochOf, dayOf, dateOfEpoch, domainOr, outsideNotes, bandWidth, bandCentre, type ChartDomain, type RoundTick } from '../primitives/scales.js';
+import { linearScale, extent, ticks, roundTicksThatFit, ticksThatFit, epochOf, dayOf, dateOfEpoch, domainOr, outsideNotes, declaredOn, bandWidth, bandCentre, type ChartDomain, type RoundTick } from '../primitives/scales.js';
 import { Axis, placeTicks } from '../primitives/Axis.js';
 import { NoteLines } from '../primitives/NoteLines.js';
 import { AxisLabel } from '../primitives/AxisLabel.js';
@@ -319,7 +319,7 @@ export function VizBoxPlot(props: VizBoxPlotProps): JSX.Element {
       given: props.domain?.y,
       values: geoms.map((g) => { const ends = [g.loP, g.hiP, g.q1p, g.q3p, ...g.outlierGeoms.map((o) => o.p)]; return [Math.min(...ends), Math.max(...ends)] as const; }),
       noun: ['box', 'boxes'],
-      undeclared: true,
+      ...(declaredOn(props.domain, 'y') ? {} : { undeclared: true as const }),
       ...(isDate ? { format: dateOfEpoch } : {}),
     },
   ]);

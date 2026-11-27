@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Correction: a chart says "declared bounds" only where bounds were declared
+
+- A chart that draws a mark outside the span of its axis says so in words.
+  Two sentences exist: one for DECLARED bounds, which says either the
+  bounds are wrong or the data is, and one for a span the chart was merely
+  given, which blames nobody.
+- A chart could not tell which kind of pair it held. The scatter and the
+  line's value axis always said "declared bounds", also for a span a frame
+  had folded from the rows, where nothing was declared. The other charts
+  always said the neutral sentence, also for declared bounds.
+- The chart is now told: `ChartDomain.declared` (`{ x?: boolean, y?:
+  boolean }`), set by the stack door and the plain-view door for the axis
+  whose pair was read off `bounds`. Every chart that scales by a span
+  chooses its sentence by it (`declaredOn`).
+- **A change for a host that hands a chart a `domain` itself:** with no
+  `declared` the scatter and the line's value axis now say "outside the
+  span this axis was given […]" where they said "outside its declared
+  bounds […] — bounds say what the quantity CAN be…". Pass `declared: { y:
+  true }` for a pair that is a declaration.
+- A count axis (bar, histogram) says the neutral sentence either way,
+  because it names both the pair it was given and the pair it drew.
+
 ### Correction: a logarithm, bounds or `zero` on an axis that is not a number axis is refused
 
 - All three are statements about numbers. On a category or a date they

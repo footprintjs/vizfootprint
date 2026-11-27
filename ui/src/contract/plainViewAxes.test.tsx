@@ -112,6 +112,12 @@ describe('a plain scatter', () => {
     expect([...el.querySelectorAll('text.vzf-outside-note')].map((t) => t.textContent)).toEqual(['x has 1 value outside its declared bounds [0, 500] — bounds say what the quantity CAN be, so either they are wrong or this data is']);
   });
 
+  it('a mark outside a FOLDED span is said without the word "declared": nothing was declared, and nobody is blamed', () => {
+    // a fold that does not hold a row the chart draws (it happens: a fold reads one column, or reads a cell differently)
+    const el = draw(scatterRenderer(), POINTS, XY, { x: channel([1, 500]) });
+    expect([...el.querySelectorAll('text.vzf-outside-note')].map((t) => t.textContent)).toEqual(['x has 1 value outside the span this axis was given [1, 500]']);
+  });
+
   it('ignores a key on a channel it does not bind', () => {
     const plain = draw(scatterRenderer(), POINTS, { x: 'x' }).innerHTML;
     document.body.innerHTML = '';
@@ -198,7 +204,7 @@ describe('a plain histogram, box plot and bar', () => {
   it('a box plot says in words which boxes reach past declared bounds', () => {
     const box: readonly RenderRow[] = [{ category: 'A', q1: 2, median: 3, q3: 4, whiskerLo: 1, whiskerHi: 5, outliers: [12], count: 4 }];
     const el = draw(boxPlotRenderer(), box, { x: 'category', y: 'price' }, { y: channel([1, 12], { bounds: [0, 10] }) });
-    expect([...el.querySelectorAll('text.vzf-outside-note')].map((t) => t.textContent)).toEqual(['y has 1 box that reaches outside the span this axis was given [0, 10]']);
+    expect([...el.querySelectorAll('text.vzf-outside-note')].map((t) => t.textContent)).toEqual(['y has 1 box outside its declared bounds [0, 10] — bounds say what the quantity CAN be, so either they are wrong or this data is']);
   });
 
   it('a bar that binds y is drawn on the folded count, from zero, and says which bars are taller than declared bounds', () => {
