@@ -75,6 +75,7 @@ import { boundField } from '../charts/binding.js';
 import type { MarkDraw } from './markDraw.js';
 import { lineCellIsNumber } from '../primitives/lineCell.js';
 import { foldedDateOrder, frameDateOrderNotes } from '../dateOrder/index.js';
+import { stackSpan } from '../frameSpan/index.js';
 import { bandOrder, countSpan, epochOf, type ChartDomain, type AxisSide, type ScaleKind } from '../primitives/scales.js';
 import { VizFrame, COUNT_KINDS, isFrameChartKind, type FrameAxis, type FrameChartKind } from '../charts/VizFrame.js';
 import { VizScatter } from '../charts/VizScatter.js';
@@ -1231,25 +1232,6 @@ type ScaleOfColumn = ReturnType<typeof scaleKindOf>;
  */
 const kindOf = scaleKindOf;
 
-/**
- * A STACK DRAWS ON FOLDED SPANS ONLY. A shared channel with no span to fold
- * (`UnfoldedDomain`) cannot be one scale across layers: each layer would draw
- * on its own extent, and an axis, a zero line or a "one scale" claim drawn
- * over them would be untrue. So the stack reads the frame WITHOUT such
- * entries, which is the frame it was handed before the fold answered them:
- * its picture is unchanged. (A view drawn alone has one extent, its own, and
- * does honour the entry: {@link plainView}.)
- *
- * KNOWN LIMIT, older than the entry: in a stack, a curve, a zero line or bounds
- * declared on a channel the fold could read no cell for are not drawn, and
- * the layers stand on their own extents with no word. Refusing that stack, or
- * saying it, is a task of its own.
- */
-function foldedOnly(frame: Readonly<Record<string, ResolvedChannel>> | undefined): Readonly<Record<string, ResolvedChannel>> | undefined {
-  if (frame === undefined) return undefined;
-  return Object.fromEntries(Object.entries(frame).filter(([, channel]) => channel.mode !== 'shared' || channel.scale !== undefined));
-}
-
 /** One layer with the mark its spec names. */
 interface FramedLayer {
   readonly layer: RenderLayer;
@@ -1680,7 +1662,7 @@ function countMixRefusal(framed: readonly FramedLayer[], frame: Readonly<Record<
     // the definition door's sentence (one owner), then the way out only this door can judge: two scales
     return `${countBoundsSentence(`layer "${count.layer.layerId}"`, count.kind, shared.bounds, `layer "${position.layer.layerId}"`)} ${apart}.`;
   }
-  const span = spanOf(shared)!; // a folded quantitative channel has a span (a stack reads folded spans only, `foldedOnly`)
+  const span = spanOf(shared)!; // a folded quantitative channel has a span (the stackSpan boundary refuses a missing bound domain)
   const low = Math.min(span[0], span[1]);
   if (!(low < 0)) return null;
   return `${who} reaches below zero (${String(low)}): one scale cannot hold a length from zero and a ${position.kind} under it. ${apart}.`;
@@ -2224,8 +2206,10 @@ export function layeredRenderer(options: LayeredRendererOptions = {}): Renderer 
       if (layers.length === 0) return frameRefusal('this frame carried no layers — a frame is its layers, so there is nothing to draw. Push at least one layer, or bind a single-mark renderer for a plain view.');
       const framed = framedLayers(layers, options);
       if (typeof framed === 'string') return frameRefusal(framed);
-      // the frame as a stack may read it: folded spans only (`foldedOnly`)
-      const frame = foldedOnly(state.frame);
+      // Resolve only the axes each layer actually binds, using the existing mark/channel owner.
+      const assessed = stackSpan(state.frame, framed.map(f => ({ layerId: f.layer.layerId, encodings: f.layer.encodings, channels: [...axisChannels([f], 'x'), ...axisChannels([f], 'y')] })));
+      if ('refused' in assessed) return frameRefusal(assessed.refused);
+      const frame = assessed.frame;
       const refusal = stackRefusal(framed, frame);
       if (refusal !== null) return frameRefusal(refusal);
       const x = frameAxisOf(framed, frame, 'x', options.xLabel);
