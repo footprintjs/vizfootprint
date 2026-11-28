@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- A layered chart now names a bound shared axis that has no folded domain instead of silently dropping its settings and drawing separate extents. Plain views and fully folded stacks retain their behavior.
+- Breaking: a layered chart that previously drew after silently dropping a bound shared axis's settings now refuses to draw when that axis has no folded domain. Give the named channel values the shared axis can place so the host can fold its shared domain. Plain views and fully folded stacks retain their behavior.
 
 ## 2.0.0 — 2026-11-27
 

@@ -17,7 +17,7 @@ export function stackSpan(frame: Frame, layers: readonly StackLayerAxes[]): Stac
       if (layer.encodings[channel] === undefined) continue;
       const domain = frame?.[channel];
       if (domain?.mode !== 'shared' || domain.scale !== undefined) continue;
-      return { refused: 'channel ' + JSON.stringify(channel) + ' on layer ' + JSON.stringify(layer.layerId) + ' is declared shared, but no shared domain was folded. A stack cannot draw one shared scale from separate layer extents. Supply a folded shared domain for ' + JSON.stringify(channel) + ', or draw the layers as plain views.' };
+      return { refused: 'channel ' + JSON.stringify(channel) + ' on layer ' + JSON.stringify(layer.layerId) + ' is declared shared, but no shared domain was folded. Give channel ' + JSON.stringify(channel) + ' values the shared axis can place.' };
     }
   }
   return { frame: foldedOnly(frame) };

@@ -729,7 +729,7 @@ logarithmic axis over values it cannot place is drawn logarithmic with the
 count of what it left out, declared bounds over no rows draw the axis on the
 bounds, and a declared zero line is drawn on the chart's own extent.
 
-A STACK refuses a bound shared axis with no folded domain, naming its channel and layer. Each layer's own extent cannot substantiate one shared scale or its declared settings. Supply a folded shared domain or draw plain views; no cause is inferred for the missing span. Unbound entries are still ignored, and a plain view still honours the declaration on its own extent.
+A STACK refuses a bound shared axis with no folded domain, naming its channel and layer. Give the named channel values the shared axis can place; the host folds their shared domain. A definition cannot supply a folded domain directly. No cause is inferred for the missing span, and this rule also applies to a one-layer stack. Unbound entries are still ignored, and a plain view still honours the declaration on its own extent.
 
 **A category list is the fold's too.** Where the frame holds a categorical
 entry for the view's x (a bar's `category`, a line on a band), the slots are

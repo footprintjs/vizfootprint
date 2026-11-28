@@ -103,7 +103,7 @@ describe('a plain view', () => {
   });
 });
 
-describe('a stack reads folded spans only', () => {
+describe('a stack refuses a bound shared axis without a folded span', () => {
   const BANDS = { category: folded('categorical', ['A', 'B']), x: folded('categorical', ['A', 'B']) };
   function stack(kinds: readonly ['bar' | 'line', 'line'], layers: readonly RenderLayer[], frame: Readonly<Record<string, ResolvedChannel>>): string {
     const el = document.createElement('div');
